@@ -45,6 +45,62 @@ import {
 
 const noop = () => {};
 
+function setupMockKoreanSpeech() {
+	const spoken: Array<{ text: string; lang: string; rate: number; voice?: unknown }> = [];
+	const cancelMock = mock(() => {});
+	const koVoice = { lang: "ko-KR", localService: true, name: "Yuna" };
+	const origSpeechSynth = Object.getOwnPropertyDescriptor(window, "speechSynthesis");
+	const origUtterance = Object.getOwnPropertyDescriptor(window, "SpeechSynthesisUtterance");
+
+	class MockUtterance {
+		text: string;
+		lang = "";
+		rate = 1;
+		voice: unknown = null;
+		onstart: (() => void) | null = null;
+		onend: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		constructor(text: string) {
+			this.text = text;
+		}
+	}
+
+	Object.defineProperty(window, "SpeechSynthesisUtterance", {
+		configurable: true,
+		value: MockUtterance,
+	});
+	Object.defineProperty(window, "speechSynthesis", {
+		configurable: true,
+		value: {
+			cancel: cancelMock,
+			getVoices: () => [koVoice],
+			speak: (u: MockUtterance) => {
+				spoken.push({ text: u.text, lang: u.lang, rate: u.rate, voice: u.voice });
+				u.onstart?.();
+				u.onend?.();
+			},
+		},
+	});
+
+	return {
+		spoken,
+		cancelMock,
+		koVoice,
+		restore: () => {
+			if (origSpeechSynth) {
+				Object.defineProperty(window, "speechSynthesis", origSpeechSynth);
+			} else {
+				delete (window as { speechSynthesis?: unknown }).speechSynthesis;
+			}
+			if (origUtterance) {
+				Object.defineProperty(window, "SpeechSynthesisUtterance", origUtterance);
+			} else {
+				delete (window as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
+			}
+		},
+	};
+}
+
 function baseBarProps() {
 	return {
 		bookEn: "Genesis",
@@ -148,41 +204,7 @@ describe("Reader UI & audio hooks", () => {
 			width: 60,
 			height: 28,
 		});
-		const spokenUtterances: Array<{ text: string; lang: string; rate: number; voice?: unknown }> =
-			[];
-		const cancelMock = mock(() => {});
-		const koVoice = { lang: "ko-KR", localService: true, name: "Yuna" };
-		const origSpeechSynth = Object.getOwnPropertyDescriptor(window, "speechSynthesis");
-		const origUtterance = Object.getOwnPropertyDescriptor(window, "SpeechSynthesisUtterance");
-
-		class MockUtterance {
-			text: string;
-			lang = "";
-			rate = 1;
-			voice: unknown = null;
-			onstart: (() => void) | null = null;
-			onend: (() => void) | null = null;
-			onerror: (() => void) | null = null;
-			constructor(text: string) {
-				this.text = text;
-			}
-		}
-		Object.defineProperty(window, "SpeechSynthesisUtterance", {
-			configurable: true,
-			value: MockUtterance,
-		});
-		Object.defineProperty(window, "speechSynthesis", {
-			configurable: true,
-			value: {
-				cancel: cancelMock,
-				getVoices: () => [koVoice],
-				speak: (u: MockUtterance) => {
-					spokenUtterances.push({ text: u.text, lang: u.lang, rate: u.rate, voice: u.voice });
-					u.onstart?.();
-					u.onend?.();
-				},
-			},
-		});
+		const { spoken: spokenUtterances, cancelMock, koVoice, restore } = setupMockKoreanSpeech();
 
 		try {
 			fireHover(wordBtn, true);
@@ -212,7 +234,8 @@ describe("Reader UI & audio hooks", () => {
 				expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 			});
 
-			// Clicking a matched word opens/pins tooltip without navigating dictionary until "View in Dictionary" is clicked
+			// Clicking a matched word opens/pins tooltip without navigating dictionary until "View in Dictionary" is clicked,
+			// and clicking "View in Dictionary" keeps the tooltip open until explicitly dismissed
 			fireClick(wordBtn);
 			expect(onSelectFootnote).not.toHaveBeenCalled();
 			const clickedTooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
@@ -220,18 +243,15 @@ describe("Reader UI & audio hooks", () => {
 			fireClick(getButton(clickedTooltip as ParentNode, "View in Dictionary"));
 			expect(onSelectFootnote).toHaveBeenCalledTimes(1);
 			expect(onSelectFootnote).toHaveBeenCalledWith("vocab-창조하다");
+			expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+			act(() => {
+				document.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+				);
+			});
 			expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 		} finally {
-			if (origSpeechSynth) {
-				Object.defineProperty(window, "speechSynthesis", origSpeechSynth);
-			} else {
-				delete (window as { speechSynthesis?: unknown }).speechSynthesis;
-			}
-			if (origUtterance) {
-				Object.defineProperty(window, "SpeechSynthesisUtterance", origUtterance);
-			} else {
-				delete (window as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
-			}
+			restore();
 		}
 
 		// Clicking an unmatched word toggles its tooltip cleanly without focus-click double-flipping
@@ -291,7 +311,34 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(wordsToggle);
 		expect(wordsToggle.getAttribute("aria-expanded")).toBe("true");
 		expect(getByText(container, "창조하다")).toBeDefined();
+		expect(getByText(container, "[chang-jo-ha-da]")).toBeDefined();
 		expect(getByText(container, "he / that / the")).toBeDefined();
+		expect(getByText(container, "[geu]")).toBeDefined();
+
+		const {
+			spoken: spokenDictEntries,
+			cancelMock: dictCancelMock,
+			koVoice: dictKoVoice,
+			restore: restoreDictSpeech,
+		} = setupMockKoreanSpeech();
+		try {
+			fireClick(getButton(container, "Pronounce 창조하다"));
+			fireClick(getButton(container, "Pronounce 그"));
+			expect(dictCancelMock).toHaveBeenCalledTimes(2);
+			expect(spokenDictEntries).toEqual([
+				{ text: "창조하다", lang: "ko-KR", rate: 0.92, voice: dictKoVoice },
+				{ text: "그", lang: "ko-KR", rate: 0.92, voice: dictKoVoice },
+			]);
+
+			delete (window as { speechSynthesis?: unknown }).speechSynthesis;
+			fireClick(getButton(container, "Pronounce 그"));
+			expect(
+				container.querySelector('[data-footnote-id="vocab-그"] .vocab-speech-note')?.textContent,
+			).toBe("Korean voice unavailable in this browser.");
+		} finally {
+			restoreDictSpeech();
+		}
+
 		fireClick(getButton(container, "v.1"));
 		expect(onJump).toHaveBeenCalledWith(1);
 
@@ -762,17 +809,26 @@ describe("Reader UI & audio hooks", () => {
 				).not.toBeNull();
 			});
 
-			// Words starts collapsed; clicking the Korean word opens its tooltip, then clicking "View in Dictionary" expands & highlights it
+			// Words starts collapsed; clicking the Korean word opens its tooltip, then clicking "View in Dictionary" expands & highlights it while keeping the tooltip visible
 			expect(container.querySelector(".vocab-list")).toBeNull();
 			fireClick(getButton(container, "올라가서"));
 			expect(container.querySelector(".vocab-list")).toBeNull();
 			const wordTooltip = document.body.querySelector('[role="tooltip"]') as ParentNode | null;
 			expect(wordTooltip).not.toBeNull();
 			fireClick(getButton(wordTooltip as ParentNode, "View in Dictionary"));
+			expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
 			const dictEntry = container.querySelector('[data-footnote-id="vocab-올라가다"]');
 			expect(dictEntry).not.toBeNull();
 			expect(dictEntry?.className).toContain("highlighted");
+			expect(dictEntry?.textContent).toContain("[ol-ra-ga-da]");
 			expect(dictEntry?.textContent).toContain("to go up");
+			expect(getButton(dictEntry as ParentNode, "Pronounce 올라가다")).toBeDefined();
+			act(() => {
+				document.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+				);
+			});
+			expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 
 			// Minimize dictionary to move the right rail out of the way, then restore via the toggle pill
 			const workspace = container.querySelector(".reader-workspace");

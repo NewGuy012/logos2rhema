@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
-import { ChevronDown, ChevronRight, Search, X } from "./Icons";
+import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
+import { ChevronDown, ChevronRight, Search, Volume2, X } from "./Icons";
 
 interface FootnotesGuideProps {
 	bookEn: string;
@@ -32,6 +34,16 @@ export function FootnotesGuide({
 	const [grammarOpen, setGrammarOpen] = useState(false);
 	const [wordsOpen, setWordsOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+	const {
+		speakingKey: speakingId,
+		speechErrorKey: speechErrorId,
+		speak: handleSpeak,
+		clearSpeechError,
+	} = useKoreanSpeech<string>();
+
+	useEffect(() => {
+		clearSpeechError();
+	}, [bookEn, chapter, wordsOpen, clearSpeechError]);
 
 	// Automatically expand Words and clear search filter when tapping a verse word
 	useEffect(() => {
@@ -158,51 +170,69 @@ export function FootnotesGuide({
 									</span>
 								</div>
 							) : (
-								visibleEntries.map((entry) => (
-									<div
-										key={entry.id}
-										id={entry.id}
-										data-footnote-id={entry.id}
-										className={`vocab-row ${highlightedFootnoteId === entry.id ? "highlighted" : ""}`}
-									>
-										<div className="vocab-main">
-											<div className="vocab-head-row">
-												<div className="vocab-lemma">
-													{entry.lemma}
-													{entry.hanja && <span className="vocab-hanja">{entry.hanja}</span>}
-												</div>
-												<div className="vocab-verses">
-													{entry.verses.slice(0, 4).map((v) => (
+								visibleEntries.map((entry) => {
+									const romanized = containsHangul(entry.lemma) ? romanizeHangul(entry.lemma) : "";
+									const hasVariantForms = entry.surfaceForms.some((f) => f !== entry.lemma);
+									return (
+										<div
+											key={entry.id}
+											id={entry.id}
+											data-footnote-id={entry.id}
+											className={`vocab-row ${highlightedFootnoteId === entry.id ? "highlighted" : ""}`}
+										>
+											<div className="vocab-main">
+												<div className="vocab-head-row">
+													<div className="vocab-lemma-group">
+														<div className="vocab-lemma">
+															{entry.lemma}
+															{entry.hanja && <span className="vocab-hanja">{entry.hanja}</span>}
+														</div>
 														<button
-															key={v}
 															type="button"
-															className="verse-ref-chip"
-															onClick={() => onJumpToVerse(v)}
-															title={`Go to verse ${v}`}
+															className={`vocab-speak-btn ${speakingId === entry.id ? "speaking" : ""}`.trim()}
+															onClick={() => handleSpeak(entry.lemma, entry.id)}
+															aria-label={`Pronounce ${entry.lemma}`}
+															title={`Pronounce ${entry.lemma}`}
 														>
-															v.{v}
+															<Volume2 size={13} />
 														</button>
-													))}
-													{entry.verses.length > 4 && (
-														<span className="vocab-forms">+{entry.verses.length - 4}</span>
-													)}
+													</div>
+													<div className="vocab-verses">
+														{entry.verses.slice(0, 4).map((v) => (
+															<button
+																key={v}
+																type="button"
+																className="verse-ref-chip"
+																onClick={() => onJumpToVerse(v)}
+																title={`Go to verse ${v}`}
+															>
+																v.{v}
+															</button>
+														))}
+														{entry.verses.length > 4 && (
+															<span className="vocab-forms">+{entry.verses.length - 4}</span>
+														)}
+													</div>
 												</div>
-											</div>
 
-											<div className="vocab-gloss">{entry.gloss}</div>
-											{(entry.grammarNote || entry.surfaceForms.some((f) => f !== entry.lemma)) && (
-												<div className="vocab-forms">
-													{entry.surfaceForms.some((f) => f !== entry.lemma) && (
-														<span>{entry.surfaceForms.join(", ")}</span>
-													)}
-													{entry.surfaceForms.some((f) => f !== entry.lemma) &&
-														entry.grammarNote && <span> · </span>}
-													{entry.grammarNote && <span>{entry.grammarNote}</span>}
-												</div>
-											)}
+												{romanized && <div className="vocab-phonetics">[{romanized}]</div>}
+												<div className="vocab-gloss">{entry.gloss}</div>
+												{(entry.grammarNote || hasVariantForms) && (
+													<div className="vocab-forms">
+														{hasVariantForms && <span>{entry.surfaceForms.join(", ")}</span>}
+														{hasVariantForms && entry.grammarNote && <span> · </span>}
+														{entry.grammarNote && <span>{entry.grammarNote}</span>}
+													</div>
+												)}
+												{speechErrorId === entry.id && (
+													<div className="vocab-speech-note">
+														Korean voice unavailable in this browser.
+													</div>
+												)}
+											</div>
 										</div>
-									</div>
-								))
+									);
+								})
 							)}
 						</div>
 					)}

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { romanizeHangul } from "../../shared/hangul";
 import type { GlossToken, HighlightItem } from "../../shared/types";
-import { speakKoreanWord } from "../lib/speech";
+import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { renderHighlightedText } from "./HighlightText";
 import { ArrowRight, Volume2 } from "./Icons";
 
@@ -32,8 +32,13 @@ export function KoreanToken({
 	const closeTimerRef = useRef<number | null>(null);
 	const [open, setOpen] = useState(false);
 	const [pos, setPos] = useState<TooltipPos | null>(null);
-	const [speakingTarget, setSpeakingTarget] = useState<"word" | "lemma" | null>(null);
-	const [speechError, setSpeechError] = useState(false);
+	const {
+		speakingKey: speakingTarget,
+		speechErrorKey,
+		speak: handleSpeak,
+		clearSpeechError,
+	} = useKoreanSpeech<"word" | "lemma">();
+	const speechError = speechErrorKey !== null;
 
 	const wordRomanized = useMemo(() => romanizeHangul(token.word), [token.word]);
 	const lemmaRomanized = useMemo(
@@ -62,22 +67,6 @@ export function KoreanToken({
 		};
 	}, [cancelClose]);
 
-	const handleSpeak = useCallback((text: string, target: "word" | "lemma") => {
-		setSpeechError(false);
-		const started = speakKoreanWord(text, {
-			onStart: () => setSpeakingTarget(target),
-			onEnd: () => setSpeakingTarget((cur) => (cur === target ? null : cur)),
-			onError: () => {
-				setSpeakingTarget((cur) => (cur === target ? null : cur));
-				setSpeechError(true);
-			},
-		});
-		if (!started) {
-			setSpeakingTarget(null);
-			setSpeechError(true);
-		}
-	}, []);
-
 	const updatePosition = useCallback(() => {
 		const el = buttonRef.current;
 		if (!el) return;
@@ -95,7 +84,7 @@ export function KoreanToken({
 
 	useEffect(() => {
 		if (!open) {
-			setSpeechError(false);
+			clearSpeechError();
 			return;
 		}
 		updatePosition();
@@ -124,7 +113,7 @@ export function KoreanToken({
 			document.removeEventListener("mousedown", handleOutsidePointer);
 			document.removeEventListener("keydown", handleKey);
 		};
-	}, [open, updatePosition, cancelClose]);
+	}, [open, updatePosition, cancelClose, clearSpeechError]);
 
 	if (!token.word || !token.gloss) {
 		return <span>{renderHighlightedText(token.raw, tokenOffset, highlights)}</span>;
@@ -275,7 +264,6 @@ export function KoreanToken({
 								onClick={(e) => {
 									e.stopPropagation();
 									cancelClose();
-									setOpen(false);
 									onSelectFootnote(token.footnoteId!);
 								}}
 							>
