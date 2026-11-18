@@ -184,6 +184,8 @@ export function useHumanAudio({
 		};
 	}, []);
 
+	const activeTrackKey = activeTrack ? `${activeTrack.id}|${activeTrack.url}` : "";
+
 	// Sync audio src when activeTrack changes (without resetting position on speed changes)
 	useEffect(() => {
 		const audio = audioRef.current;
@@ -194,7 +196,8 @@ export function useHumanAudio({
 		setErrorMessage(null);
 		setIsFollowingAudio(true);
 
-		if (!activeTrack?.url) {
+		const track = activeTrackRef.current;
+		if (!track?.url) {
 			audio.pause();
 			audio.removeAttribute("src");
 			setIsPlaying(false);
@@ -205,8 +208,8 @@ export function useHumanAudio({
 		const resumePlayback = shouldAutoPlayOnTrackSwapRef.current;
 		shouldAutoPlayOnTrackSwapRef.current = false;
 
-		if (audio.src !== activeTrack.url) {
-			audio.src = activeTrack.url;
+		if (audio.src !== track.url) {
+			audio.src = track.url;
 			audio.load();
 		}
 		applyPlaybackRate(audio, playbackRateRef.current);
@@ -218,7 +221,7 @@ export function useHumanAudio({
 				setIsPlaying(false);
 			});
 		}
-	}, [activeTrack]);
+	}, [activeTrackKey]);
 
 	useEffect(() => {
 		const audio = audioRef.current;
