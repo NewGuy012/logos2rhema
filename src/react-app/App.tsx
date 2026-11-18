@@ -1,4 +1,3 @@
-import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
@@ -8,6 +7,7 @@ import { AudioControlRail } from "./components/AudioControlRail";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { FootnotesGuide } from "./components/FootnotesGuide";
 import { HomePage } from "./components/HomePage";
+import { BookOpen, ChevronLeft, ChevronRight } from "./components/Icons";
 import { PassagePicker } from "./components/PassagePicker";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";

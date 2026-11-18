@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+
+import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import {
 	BookOpen,
 	ChevronLeft,
@@ -7,10 +10,7 @@ import {
 	Pause,
 	RotateCcw,
 	RotateCw,
-} from "lucide-react";
-import type { ReactNode } from "react";
-
-import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+} from "./Icons";
 
 interface FloatingBottomBarProps {
 	bookEn: string;

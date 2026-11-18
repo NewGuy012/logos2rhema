@@ -3,7 +3,6 @@
 	"description": "Bilingual English (ESV) & Korean (개역한글) Bible reader for learning Korean",
 	"dependencies": {
 		"hono": "4.11.1",
-		"lucide-react": "^0.553.0",
 		"react": "19.2.1",
 		"react-dom": "19.2.1"
 	},

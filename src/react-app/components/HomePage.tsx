@@ -1,8 +1,8 @@
-import { ArrowLeft, ArrowRight, BookOpen, Headphones, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { BIBLE_BOOKS, getBookByNumber, parsePassageReference } from "../../shared/books";
 import type { BookMeta, Testament, TranslationMeta } from "../../shared/types";
+import { ArrowLeft, ArrowRight, BookOpen, Headphones, Search } from "./Icons";
 
 interface HomePageProps {
 	lastBookNumber: number;
@@ -124,7 +124,7 @@ export function HomePage({
 				</div>
 
 				<form className="home-search-form" onSubmit={handleSearchSubmit}>
-					<Search size={16} className="home-search-icon" aria-hidden="true" />
+					<Search size={16} className="home-search-icon" />
 					<input
 						type="search"
 						className="home-search-input"

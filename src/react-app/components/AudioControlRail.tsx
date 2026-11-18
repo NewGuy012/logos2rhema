@@ -1,3 +1,4 @@
+import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import {
 	ChevronLeft,
 	ChevronRight,
@@ -8,9 +9,7 @@ import {
 	RefreshCw,
 	RotateCcw,
 	RotateCw,
-} from "lucide-react";
-
-import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+} from "./Icons";
 
 interface AudioControlRailProps {
 	bookEn: string;

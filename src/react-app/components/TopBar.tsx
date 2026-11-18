@@ -1,7 +1,7 @@
-import { ArrowUpDown, Search, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { TranslationMeta } from "../../shared/types";
+import { ArrowUpDown, Search, Type } from "./Icons";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
 export type ReaderTheme = "paper" | "sepia" | "dark";
