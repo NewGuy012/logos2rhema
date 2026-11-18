@@ -1,0 +1,7 @@
+# Optional: Free Faith Comes By Hearing Bible Brain API v4 key (https://4.dbt.io/api_key/request)
+# Enables additional Korean/English audio bibles & verse-level timestamps when available.
+# BIBLE_BRAIN_API_KEY=
+
+# Optional: Base URL for self-hosted/R2 human-narrated KRV MP3 files (e.g. https://cdn.example.com/audio/krv)
+# Expects files at {AUDIO_BASE_URL}/{USFM_BOOK}/{CHAPTER}.mp3
+# AUDIO_BASE_URL=
