@@ -157,19 +157,33 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 
+		// Both KRV Grammar and KRV Words are collapsed by default to keep the dictionary minimal
+		expect(container.querySelector(".grammar-cards")).toBeNull();
+		expect(container.querySelector(".vocab-list")).toBeNull();
+		const wordsToggle = getButton(container, /KRV Words/);
+		expect(wordsToggle.getAttribute("aria-expanded")).toBe("false");
+
+		fireClick(wordsToggle);
+		expect(wordsToggle.getAttribute("aria-expanded")).toBe("true");
 		expect(getByText(container, "창조하다")).toBeDefined();
 		fireClick(getButton(container, "v.1"));
 		expect(onJump).toHaveBeenCalledWith(1);
 
-		// Grammar notes are collapsed by default to keep the dictionary minimal and expand on click
-		expect(container.querySelector(".grammar-cards")).toBeNull();
 		fireClick(getButton(container, /KRV Grammar/));
 		expect(container.querySelector(".grammar-cards")).not.toBeNull();
 
-		// Filtering via search and clicking a word clears the filter and scrolls to its translation
+		// Collapsing KRV Words again, searching auto-expands it, and clicking a word clears the filter and scrolls to its translation
+		fireClick(wordsToggle);
+		expect(container.querySelector(".vocab-list")).toBeNull();
+
 		const dictSearch = container.querySelector("input[type='search']") as HTMLInputElement;
 		setInputValue(dictSearch, "태초");
+		expect(container.querySelector(".vocab-list")).not.toBeNull();
 		expect(container.querySelector('[data-footnote-id="vocab-창조하다"]')).toBeNull();
+
+		// Collapse before testing highlighted word auto-expand
+		fireClick(wordsToggle);
+		expect(container.querySelector(".vocab-list")).toBeNull();
 
 		const scrolledIds: string[] = [];
 		const origScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
@@ -373,7 +387,8 @@ describe("Reader UI & audio hooks", () => {
 				).not.toBeNull();
 			});
 
-			// Clicking a word ("View in Dictionary") highlights & reveals its translation
+			// KRV Words starts collapsed, then clicking a word ("View in Dictionary") expands, highlights & reveals its translation
+			expect(container.querySelector(".vocab-list")).toBeNull();
 			fireClick(getButton(container, "올라가서"));
 			const dictEntry = container.querySelector('[data-footnote-id="vocab-올라가다"]');
 			expect(dictEntry).not.toBeNull();

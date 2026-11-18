@@ -712,18 +712,22 @@ button {
 	color: var(--text-secondary);
 }
 
-.grammar-disclosure {
+.dict-disclosure {
 	border-bottom: 1px solid var(--border-hairline);
 }
 
-.grammar-toggle-btn {
+.dict-disclosure:last-child {
+	border-bottom: none;
+}
+
+.dict-disclosure-btn {
 	width: 100%;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.5rem;
-	padding: 0.48rem 0.9rem;
-	font-size: 0.73rem;
+	padding: 0.52rem 0.9rem;
+	font-size: 0.74rem;
 	font-weight: 500;
 	color: var(--text-secondary);
 	transition:
@@ -731,9 +735,18 @@ button {
 		color 140ms ease;
 }
 
-.grammar-toggle-btn:hover {
+.dict-disclosure-btn:hover {
 	background: var(--bg-subtle);
 	color: var(--text-primary);
+}
+
+.dict-disclosure-btn:focus {
+	outline: none;
+}
+
+.dict-disclosure-btn:focus-visible {
+	outline: 1.5px solid var(--accent);
+	outline-offset: -1.5px;
 }
 
 .grammar-cards {
@@ -807,11 +820,15 @@ button {
 
 .footnote-search {
 	width: 100%;
-	padding: 0.34rem 1.7rem 0.34rem 1.8rem;
+	padding: 0.34rem 0.65rem 0.34rem 1.8rem;
 	border-radius: 8px;
 	border: 1px solid var(--border-hairline);
 	background: var(--bg-page);
 	font-size: 0.77rem;
+}
+
+.footnote-search.has-value {
+	padding-right: 1.65rem;
 }
 
 .footnote-search::-webkit-search-cancel-button {
@@ -844,6 +861,7 @@ button {
 
 .vocab-list {
 	display: block;
+	border-top: 1px solid var(--border-hairline);
 }
 
 .vocab-row {
