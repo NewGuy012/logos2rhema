@@ -31,6 +31,8 @@ interface HomePageProps {
 	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
 	onRemoveFavorite?: (id: string) => void;
 	onRemoveHighlight?: (id: string) => void;
+	onClearFavorites?: () => void;
+	onClearHighlights?: () => void;
 }
 
 export function HomePage({
@@ -45,6 +47,8 @@ export function HomePage({
 	onOpenPassage,
 	onRemoveFavorite,
 	onRemoveHighlight,
+	onClearFavorites,
+	onClearHighlights,
 }: HomePageProps) {
 	const [query, setQuery] = useState("");
 	const [selectedBook, setSelectedBook] = useState<BookMeta | null>(null);
@@ -159,6 +163,8 @@ export function HomePage({
 							onSelectFavorite={onOpenPassage}
 							onRemoveFavorite={onRemoveFavorite}
 							onRemoveHighlight={onRemoveHighlight}
+							onClearFavorites={onClearFavorites}
+							onClearHighlights={onClearHighlights}
 						/>
 					</div>
 				)}

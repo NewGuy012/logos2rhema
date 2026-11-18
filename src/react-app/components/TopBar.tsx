@@ -38,6 +38,8 @@ interface TopBarProps {
 	onOpenPassage?: (bookNumber: number, chapter: number, verse?: number) => void;
 	onRemoveFavorite?: (id: string) => void;
 	onRemoveHighlight?: (id: string) => void;
+	onClearFavorites?: () => void;
+	onClearHighlights?: () => void;
 	onFlipStackOrder: () => void;
 	onOpenSearch: () => void;
 	onChangeTheme: (theme: ReaderTheme) => void;
@@ -67,6 +69,8 @@ export function TopBar({
 	onOpenPassage,
 	onRemoveFavorite,
 	onRemoveHighlight,
+	onClearFavorites,
+	onClearHighlights,
 	onFlipStackOrder,
 	onOpenSearch,
 	onChangeTheme,
@@ -121,7 +125,7 @@ export function TopBar({
 				<div className="brand-group">
 					<a
 						href="#/"
-						className={`brand-mark ${isHome ? "is-home" : ""}`}
+						className="brand-mark"
 						aria-label="Logos2Rhema Home"
 						title="Return to Logos2Rhema Home"
 						onClick={(e) => {
@@ -151,24 +155,12 @@ export function TopBar({
 
 						<button
 							type="button"
-							className="icon-btn"
-							onClick={() => {
-								closePopovers();
-								onOpenSearch();
-							}}
-							title="Go to book or chapter (Cmd/Ctrl+K)"
-						>
-							<Search size={15} />
-							<span>Go to</span>
-						</button>
-
-						<button
-							type="button"
-							className="icon-btn"
+							className={`icon-btn ${!isHome ? "active" : ""}`.trim()}
 							onClick={() => {
 								closePopovers();
 								onContinueReading?.();
 							}}
+							aria-current={!isHome ? "page" : undefined}
 							title={`Continue ${lastBook.en} ${lastChapter}:${lastVerse}`}
 						>
 							<BookOpen size={15} />
@@ -206,6 +198,8 @@ export function TopBar({
 											}}
 											onRemoveFavorite={onRemoveFavorite}
 											onRemoveHighlight={onRemoveHighlight}
+											onClearFavorites={onClearFavorites}
+											onClearHighlights={onClearHighlights}
 										/>
 									</div>
 								</div>
@@ -249,6 +243,23 @@ export function TopBar({
 				</div>
 
 				<div className="top-controls">
+					<button
+						type="button"
+						className="top-search-btn"
+						onClick={() => {
+							closePopovers();
+							onOpenSearch();
+						}}
+						aria-label="Go to book or chapter"
+						title="Go to book or chapter (Cmd/Ctrl+K)"
+					>
+						<span className="top-search-leading">
+							<Search size={14} className="top-search-icon" />
+							<span className="top-search-placeholder">Go to...</span>
+						</span>
+						<kbd className="top-search-kbd">⌘K</kbd>
+					</button>
+
 					<span
 						className="translation-badge"
 						aria-label="Canonical language editions"

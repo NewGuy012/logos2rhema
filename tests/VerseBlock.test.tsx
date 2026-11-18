@@ -4,6 +4,7 @@ import { act } from "react";
 
 import App from "../src/react-app/App";
 import { AudioControlRail } from "../src/react-app/components/AudioControlRail";
+import { FavoritesList } from "../src/react-app/components/FavoritesList";
 import { FloatingBottomBar } from "../src/react-app/components/FloatingBottomBar";
 import { FootnotesGuide } from "../src/react-app/components/FootnotesGuide";
 import { HomePage } from "../src/react-app/components/HomePage";
@@ -87,6 +88,7 @@ describe("Reader UI & audio hooks", () => {
 
 	it("flips English/Korean verse order in VerseBlock and opens tooltip on hover or unmatched tap", async () => {
 		const onToggleFavorite = mock(() => {});
+		const onSelectFootnote = mock(() => {});
 		const verseProps = {
 			verse: {
 				...sampleVerse,
@@ -112,7 +114,7 @@ describe("Reader UI & audio hooks", () => {
 			hasVerseTimestamps: false,
 			onSelectVerse: noop,
 			onToggleFavorite,
-			onSelectFootnote: noop,
+			onSelectFootnote,
 		};
 
 		const { container, rerender } = render(<VerseBlock {...verseProps} stackOrder="en-first" />);
@@ -209,6 +211,16 @@ describe("Reader UI & audio hooks", () => {
 			await waitUntil(() => {
 				expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 			});
+
+			// Clicking a matched word opens/pins tooltip without navigating dictionary until "View in Dictionary" is clicked
+			fireClick(wordBtn);
+			expect(onSelectFootnote).not.toHaveBeenCalled();
+			const clickedTooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
+			expect(clickedTooltip).not.toBeNull();
+			fireClick(getButton(clickedTooltip as ParentNode, "View in Dictionary"));
+			expect(onSelectFootnote).toHaveBeenCalledTimes(1);
+			expect(onSelectFootnote).toHaveBeenCalledWith("vocab-창조하다");
+			expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 		} finally {
 			if (origSpeechSynth) {
 				Object.defineProperty(window, "speechSynthesis", origSpeechSynth);
@@ -414,9 +426,21 @@ describe("Reader UI & audio hooks", () => {
 		expect(onFlip).not.toHaveBeenCalled();
 		fireClick(getButton(topBar.container, "한 / EN"));
 		expect(onFlip).toHaveBeenCalledTimes(1);
-		fireClick(getButton(topBar.container, "Go to"));
+		const searchBtn = getButton(topBar.container, "Go to");
+		expect(searchBtn.className).toContain("top-search-btn");
+		const controlsChildren = Array.from(
+			topBar.container.querySelector(".top-controls")?.children ?? [],
+		);
+		const badge = topBar.container.querySelector(".translation-badge");
+		expect(controlsChildren.indexOf(searchBtn)).toBe(0);
+		expect(controlsChildren.indexOf(badge as Element)).toBe(1);
+		fireClick(searchBtn);
 		expect(onOpenSearch).toHaveBeenCalledTimes(1);
-		fireClick(getButton(topBar.container, "Continue"));
+		const topContinueBtn = getButton(topBar.container, "Continue");
+		expect(topContinueBtn.className).toContain("active");
+		expect(topContinueBtn.getAttribute("aria-current")).toBe("page");
+		expect(getButton(topBar.container, "Home").className).not.toContain("active");
+		fireClick(topContinueBtn);
 		expect(onContinueReading).toHaveBeenCalledTimes(1);
 
 		const topFavoritesBtn = getButton(topBar.container, /Favorites/);
@@ -738,9 +762,13 @@ describe("Reader UI & audio hooks", () => {
 				).not.toBeNull();
 			});
 
-			// Words starts collapsed, then clicking a word ("View in Dictionary") expands, highlights & reveals its translation
+			// Words starts collapsed; clicking the Korean word opens its tooltip, then clicking "View in Dictionary" expands & highlights it
 			expect(container.querySelector(".vocab-list")).toBeNull();
 			fireClick(getButton(container, "올라가서"));
+			expect(container.querySelector(".vocab-list")).toBeNull();
+			const wordTooltip = document.body.querySelector('[role="tooltip"]') as ParentNode | null;
+			expect(wordTooltip).not.toBeNull();
+			fireClick(getButton(wordTooltip as ParentNode, "View in Dictionary"));
 			const dictEntry = container.querySelector('[data-footnote-id="vocab-올라가다"]');
 			expect(dictEntry).not.toBeNull();
 			expect(dictEntry?.className).toContain("highlighted");
@@ -953,6 +981,9 @@ describe("Reader UI & audio hooks", () => {
 					"aria-current",
 				),
 			).toBe("page");
+			expect(
+				getButton(container.querySelector(".top-nav") as ParentNode, "Continue").className,
+			).not.toContain("active");
 		} finally {
 			globalThis.fetch = originalFetch;
 			window.matchMedia = originalMatchMedia;
@@ -1110,21 +1141,29 @@ describe("Reader UI & audio hooks", () => {
 		const timeRow = rail.container.querySelector(".rail-time-row");
 		expect(timeRow?.textContent).toContain("0:35");
 		expect(timeRow?.textContent).toContain("2:00");
-		const speedSelect = timeRow?.querySelector(
-			'select[aria-label="Playback speed"]',
-		) as HTMLSelectElement;
-		expect(speedSelect).not.toBeNull();
-		expect(Array.from(speedSelect.options).map((o) => o.textContent)).toEqual([
-			"0.5x",
-			"1x",
-			"1.5x",
-			"2x",
-		]);
-		act(() => {
-			speedSelect.value = "1.5";
-			speedSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
-		});
-		expect(onRailChangeSpeed).toHaveBeenCalledWith(1.5);
+		const speedTrigger = timeRow?.querySelector(
+			'button[aria-label="Playback speed"]',
+		) as HTMLButtonElement;
+		expect(speedTrigger).not.toBeNull();
+		expect(speedTrigger.textContent).toBe("1x");
+		expect(speedTrigger.getAttribute("aria-expanded")).toBe("false");
+
+		fireClick(speedTrigger);
+		expect(speedTrigger.getAttribute("aria-expanded")).toBe("true");
+		const speedMenu = document.body.querySelector('.speed-menu[role="menu"]') as HTMLElement | null;
+		expect(speedMenu).not.toBeNull();
+		expect(
+			Array.from(speedMenu?.querySelectorAll("button") ?? []).map((b) => b.textContent),
+		).toEqual(["0.5x", "1x", "1.25x", "1.5x", "1.75x", "2x"]);
+		fireClick(getButton(speedMenu as ParentNode, "1.25x"));
+		expect(onRailChangeSpeed).toHaveBeenCalledWith(1.25);
+		expect(document.body.querySelector(".speed-menu") === null).toBe(true);
+
+		fireClick(speedTrigger);
+		const speedMenu2 = document.body.querySelector('.speed-menu[role="menu"]') as ParentNode;
+		fireClick(getButton(speedMenu2, "1.75x"));
+		expect(onRailChangeSpeed).toHaveBeenCalledWith(1.75);
+		expect(document.body.querySelector(".speed-menu") === null).toBe(true);
 
 		// Settings section (Verse Sync, toggle button, and info) is collapsed by default
 		const settingsToggle = getButton(rail.container, "Settings");
@@ -1386,5 +1425,117 @@ describe("Reader UI & audio hooks", () => {
 			{ text: "beginning" },
 			{ text: ", God", highlightId: split.next[1]?.id },
 		]);
+	});
+
+	it("supports clearing all bookmarks, all highlights, or both", async () => {
+		const sampleFav = {
+			id: "1:2:2",
+			bookNumber: 1,
+			chapter: 2,
+			verse: 2,
+			enText: "And on the seventh day...",
+			createdAt: 100,
+		};
+		const sampleHighlight = {
+			id: "hl:1:2:1:en:18:36",
+			bookNumber: 1,
+			chapter: 2,
+			verse: 1,
+			lang: "en" as const,
+			start: 18,
+			end: 36,
+			text: "heavens and the earth",
+			createdAt: 200,
+		};
+
+		const onClearFavorites = mock(() => {});
+		const onClearHighlights = mock(() => {});
+		const list = render(
+			<FavoritesList
+				favorites={[sampleFav]}
+				highlights={[sampleHighlight]}
+				onSelectFavorite={noop}
+				onClearFavorites={onClearFavorites}
+				onClearHighlights={onClearHighlights}
+			/>,
+		);
+
+		fireClick(getButton(list.container, "Clear all bookmarks and highlights"));
+		expect(onClearFavorites).toHaveBeenCalledTimes(1);
+		expect(onClearHighlights).toHaveBeenCalledTimes(1);
+
+		fireClick(getButton(list.container, "Clear bookmarks"));
+		expect(onClearFavorites).toHaveBeenCalledTimes(2);
+		expect(onClearHighlights).toHaveBeenCalledTimes(1);
+
+		fireClick(getButton(list.container, "Clear highlights"));
+		expect(onClearFavorites).toHaveBeenCalledTimes(2);
+		expect(onClearHighlights).toHaveBeenCalledTimes(2);
+
+		// When only one group exists, Clear all is omitted and only that group's clear action renders
+		list.rerender(
+			<FavoritesList
+				favorites={[sampleFav]}
+				highlights={[]}
+				onSelectFavorite={noop}
+				onClearFavorites={onClearFavorites}
+				onClearHighlights={onClearHighlights}
+			/>,
+		);
+		expect(list.container.querySelector(".home-clear-all-btn")).toBeNull();
+		expect(list.container.querySelector('[aria-label="Clear all highlights"]')).toBeNull();
+		expect(getButton(list.container, "Clear bookmarks")).toBeDefined();
+
+		list.rerender(
+			<FavoritesList
+				favorites={[]}
+				highlights={[sampleHighlight]}
+				onSelectFavorite={noop}
+				onClearFavorites={onClearFavorites}
+				onClearHighlights={onClearHighlights}
+			/>,
+		);
+		expect(list.container.querySelector(".home-clear-all-btn")).toBeNull();
+		expect(list.container.querySelector('[aria-label="Clear all bookmarks"]')).toBeNull();
+		expect(getButton(list.container, "Clear highlights")).toBeDefined();
+
+		// End-to-end HomePage + TopBar wiring clears state and localStorage
+		localStorage.clear();
+		window.location.hash = "";
+		localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([sampleFav]));
+		localStorage.setItem(HIGHLIGHTS_STORAGE_KEY, JSON.stringify([sampleHighlight]));
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () =>
+			Response.json({
+				english: CANONICAL_BIBLES.en,
+				korean: CANONICAL_BIBLES.ko,
+				bibleBrainEnabled: false,
+				esvAudioEnabled: false,
+			})) as unknown as typeof fetch;
+		try {
+			const app = render(<App />);
+			await act(async () => {
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+			// Clear highlights via TopBar dropdown first, keeping bookmark intact
+			fireClick(getButton(app.container.querySelector(".top-nav") as ParentNode, /Favorites/));
+			const popover = app.container.querySelector(".top-favorites-popover") as ParentNode;
+			fireClick(getButton(popover, "Clear highlights"));
+			expect(readStoredHighlights()).toEqual([]);
+			expect(readStoredFavorites()).toHaveLength(1);
+
+			// Then clear remaining bookmark via HomePage Favorites section
+			const appFavSection = app.container.querySelector(
+				'section[aria-label="Favorites"]',
+			) as ParentNode;
+			fireClick(getButton(appFavSection, "Favorites"));
+			expect(getByText(appFavSection, /Bookmarks \(1\)/)).toBeDefined();
+			fireClick(getButton(appFavSection, "Clear bookmarks"));
+			expect(appFavSection.textContent).toContain("No favorites yet.");
+			expect(readStoredFavorites()).toEqual([]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });

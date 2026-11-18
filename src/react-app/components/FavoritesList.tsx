@@ -10,6 +10,8 @@ interface FavoritesListProps {
 	onSelectFavorite: (bookNumber: number, chapter: number, verse?: number) => void;
 	onRemoveFavorite?: (id: string) => void;
 	onRemoveHighlight?: (id: string) => void;
+	onClearFavorites?: () => void;
+	onClearHighlights?: () => void;
 }
 
 export function FavoritesList({
@@ -19,6 +21,8 @@ export function FavoritesList({
 	onSelectFavorite,
 	onRemoveFavorite,
 	onRemoveHighlight,
+	onClearFavorites,
+	onClearHighlights,
 }: FavoritesListProps) {
 	if (favorites.length === 0 && highlights.length === 0) {
 		return (
@@ -29,11 +33,42 @@ export function FavoritesList({
 		);
 	}
 
+	const canClearBoth =
+		favorites.length > 0 && highlights.length > 0 && Boolean(onClearFavorites && onClearHighlights);
+
 	return (
 		<div className={`home-favorites-groups ${compact ? "top-favorites-list" : ""}`.trim()}>
+			{canClearBoth && (
+				<div className="home-favorites-toolbar">
+					<button
+						type="button"
+						className="home-clear-btn home-clear-all-btn"
+						onClick={() => {
+							onClearFavorites?.();
+							onClearHighlights?.();
+						}}
+						aria-label="Clear all bookmarks and highlights"
+					>
+						Clear all
+					</button>
+				</div>
+			)}
+
 			{favorites.length > 0 && (
 				<div className="home-favorites-group">
-					<h3 className="home-favorites-group-title">Bookmarks ({favorites.length})</h3>
+					<div className="home-favorites-group-head">
+						<h3 className="home-favorites-group-title">Bookmarks ({favorites.length})</h3>
+						{onClearFavorites && (
+							<button
+								type="button"
+								className="home-clear-btn"
+								onClick={onClearFavorites}
+								aria-label="Clear all bookmarks"
+							>
+								Clear bookmarks
+							</button>
+						)}
+					</div>
 					<div className="home-favorites-list">
 						{favorites.map((item) => {
 							const { refEn, refKo, kind } = formatFavoriteLabel(item);
@@ -87,7 +122,19 @@ export function FavoritesList({
 
 			{highlights.length > 0 && (
 				<div className="home-favorites-group">
-					<h3 className="home-favorites-group-title">Highlights ({highlights.length})</h3>
+					<div className="home-favorites-group-head">
+						<h3 className="home-favorites-group-title">Highlights ({highlights.length})</h3>
+						{onClearHighlights && (
+							<button
+								type="button"
+								className="home-clear-btn"
+								onClick={onClearHighlights}
+								aria-label="Clear all highlights"
+							>
+								Clear highlights
+							</button>
+						)}
+					</div>
 					<div className="home-favorites-list">
 						{highlights.map((item) => {
 							const { refEn, refKo, langLabel } = formatHighlightLabel(item);

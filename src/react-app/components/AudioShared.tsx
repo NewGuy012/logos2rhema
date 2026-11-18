@@ -1,4 +1,5 @@
-import type { CSSProperties } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { AudioTrackOption } from "../../shared/types";
 import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
@@ -72,6 +73,12 @@ export function AudioScrubber({
 	);
 }
 
+interface SpeedMenuPos {
+	left: number;
+	top: number;
+	placeBelow: boolean;
+}
+
 export function AudioSpeedSelect({
 	playbackRate,
 	onChangeSpeed,
@@ -79,22 +86,111 @@ export function AudioSpeedSelect({
 	playbackRate: number;
 	onChangeSpeed: (rate: number) => void;
 }) {
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const menuRef = useRef<HTMLDivElement | null>(null);
+	const [open, setOpen] = useState(false);
+	const [pos, setPos] = useState<SpeedMenuPos | null>(null);
+
+	const updatePosition = useCallback(() => {
+		const el = triggerRef.current;
+		if (!el) return;
+		const rect = el.getBoundingClientRect();
+		const spaceBelow = window.innerHeight - rect.bottom;
+		const placeBelow = spaceBelow >= 56 || spaceBelow >= rect.top;
+		const centerX = rect.left + rect.width / 2;
+		const minHalfWidth = Math.min(148, window.innerWidth / 2 - 8);
+		const clampedLeft = Math.max(minHalfWidth, Math.min(window.innerWidth - minHalfWidth, centerX));
+		setPos({
+			left: clampedLeft,
+			top: placeBelow ? rect.bottom + 6 : rect.top - 6,
+			placeBelow,
+		});
+	}, []);
+
+	useEffect(() => {
+		if (!open) return;
+		updatePosition();
+		const handleOutside = (event: MouseEvent) => {
+			const target = event.target as Node | null;
+			if (!target) return;
+			if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+			setOpen(false);
+		};
+		const handleKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				setOpen(false);
+			}
+		};
+		const handleViewportChange = () => {
+			setOpen(false);
+		};
+		document.addEventListener("mousedown", handleOutside);
+		document.addEventListener("keydown", handleKey);
+		window.addEventListener("scroll", handleViewportChange, { passive: true });
+		window.addEventListener("resize", handleViewportChange);
+		return () => {
+			document.removeEventListener("mousedown", handleOutside);
+			document.removeEventListener("keydown", handleKey);
+			window.removeEventListener("scroll", handleViewportChange);
+			window.removeEventListener("resize", handleViewportChange);
+		};
+	}, [open, updatePosition]);
+
 	return (
 		<div className="speed-select-wrap">
-			<select
-				className="speed-pill speed-select"
-				value={playbackRate}
-				onChange={(e) => onChangeSpeed(Number.parseFloat(e.target.value))}
+			<button
+				ref={triggerRef}
+				type="button"
+				className={`speed-pill speed-select ${open ? "active" : ""}`.trim()}
+				onClick={() => {
+					if (!open) updatePosition();
+					setOpen((prev) => !prev);
+				}}
 				aria-label="Playback speed"
+				aria-haspopup="menu"
+				aria-expanded={open}
 				title="Change playback speed"
 			>
-				{PLAYBACK_SPEEDS.map((speed) => (
-					<option key={speed} value={speed}>
-						{speed}x
-					</option>
-				))}
-			</select>
-			<ChevronDown size={10} className="speed-select-caret" />
+				<span>{playbackRate}x</span>
+				<ChevronDown size={10} className="speed-select-caret" />
+			</button>
+
+			{open &&
+				pos &&
+				typeof document !== "undefined" &&
+				createPortal(
+					<div
+						ref={menuRef}
+						role="menu"
+						aria-label="Playback speed options"
+						className={`speed-menu ${pos.placeBelow ? "place-below" : "place-above"}`}
+						style={{
+							left: `${pos.left}px`,
+							top: `${pos.top}px`,
+							transform: pos.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+						}}
+					>
+						{PLAYBACK_SPEEDS.map((speed) => {
+							const active = speed === playbackRate;
+							return (
+								<button
+									key={speed}
+									type="button"
+									role="menuitemradio"
+									aria-checked={active}
+									className={`speed-menu-option ${active ? "active" : ""}`.trim()}
+									onClick={() => {
+										onChangeSpeed(speed);
+										setOpen(false);
+									}}
+								>
+									{speed}x
+								</button>
+							);
+						})}
+					</div>,
+					document.body,
+				)}
 		</div>
 	);
 }

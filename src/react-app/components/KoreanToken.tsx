@@ -5,7 +5,7 @@ import { romanizeHangul } from "../../shared/hangul";
 import type { GlossToken, HighlightItem } from "../../shared/types";
 import { speakKoreanWord } from "../lib/speech";
 import { renderHighlightedText } from "./HighlightText";
-import { Volume2 } from "./Icons";
+import { ArrowRight, Volume2 } from "./Icons";
 
 interface KoreanTokenProps {
 	token: GlossToken;
@@ -104,7 +104,26 @@ export function KoreanToken({
 			setOpen(false);
 		};
 		window.addEventListener("scroll", handleScroll, { passive: true });
-		return () => window.removeEventListener("scroll", handleScroll);
+		const handleOutsidePointer = (event: MouseEvent) => {
+			const target = event.target as Node | null;
+			if (!target) return;
+			if (buttonRef.current?.contains(target) || tooltipRef.current?.contains(target)) return;
+			cancelClose();
+			setOpen(false);
+		};
+		const handleKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				cancelClose();
+				setOpen(false);
+			}
+		};
+		document.addEventListener("mousedown", handleOutsidePointer);
+		document.addEventListener("keydown", handleKey);
+		return () => {
+			window.removeEventListener("scroll", handleScroll);
+			document.removeEventListener("mousedown", handleOutsidePointer);
+			document.removeEventListener("keydown", handleKey);
+		};
 	}, [open, updatePosition, cancelClose]);
 
 	if (!token.word || !token.gloss) {
@@ -154,13 +173,9 @@ export function KoreanToken({
 					) {
 						return;
 					}
-					if (token.footnoteId && onSelectFootnote) {
-						onSelectFootnote(token.footnoteId);
-					} else {
-						cancelClose();
-						updatePosition();
-						setOpen((prev) => !prev);
-					}
+					cancelClose();
+					updatePosition();
+					setOpen((prev) => !prev);
 				}}
 				aria-label={`${token.word}: ${token.gloss}`}
 			>
@@ -251,7 +266,23 @@ export function KoreanToken({
 								Korean voice unavailable in this browser.
 							</div>
 						)}
-						{token.footnoteId && <div className="ko-tooltip-hint">Click to view in dictionary</div>}
+						{token.footnoteId && onSelectFootnote && (
+							<button
+								type="button"
+								className="ko-tooltip-hint-btn"
+								onMouseDown={(e) => e.preventDefault()}
+								onPointerDown={(e) => e.stopPropagation()}
+								onClick={(e) => {
+									e.stopPropagation();
+									cancelClose();
+									setOpen(false);
+									onSelectFootnote(token.footnoteId!);
+								}}
+							>
+								<span>View in Dictionary</span>
+								<ArrowRight size={12} />
+							</button>
+						)}
 					</div>,
 					document.body,
 				)}

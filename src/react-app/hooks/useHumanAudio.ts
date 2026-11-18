@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AudioTrackOption } from "../../shared/types";
 
-export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2] as const;
+export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
 
 export function resolveVerseAtTime(
 	timings: Record<number, number> | undefined,

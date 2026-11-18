@@ -325,12 +325,20 @@ export default function App() {
 		setFavorites((prev) => prev.filter((item) => item.id !== id));
 	}, []);
 
+	const handleClearFavorites = useCallback(() => {
+		setFavorites([]);
+	}, []);
+
 	useEffect(() => {
 		writeStoredHighlights(highlights);
 	}, [highlights]);
 
 	const handleRemoveHighlight = useCallback((id: string) => {
 		setHighlights((prev) => prev.filter((item) => item.id !== id));
+	}, []);
+
+	const handleClearHighlights = useCallback(() => {
+		setHighlights([]);
 	}, []);
 
 	const alignedVerseMap = useMemo(
@@ -821,6 +829,8 @@ export default function App() {
 				onOpenPassage={navigateTo}
 				onRemoveFavorite={handleRemoveFavorite}
 				onRemoveHighlight={handleRemoveHighlight}
+				onClearFavorites={handleClearFavorites}
+				onClearHighlights={handleClearHighlights}
 				onFlipStackOrder={() =>
 					setStackOrder((prev) => (prev === "en-first" ? "ko-first" : "en-first"))
 				}
@@ -844,6 +854,8 @@ export default function App() {
 					onOpenPassage={navigateTo}
 					onRemoveFavorite={handleRemoveFavorite}
 					onRemoveHighlight={handleRemoveHighlight}
+					onClearFavorites={handleClearFavorites}
+					onClearHighlights={handleClearHighlights}
 				/>
 			) : (
 				<>
