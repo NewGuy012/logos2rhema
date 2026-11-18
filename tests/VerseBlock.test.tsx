@@ -128,7 +128,7 @@ describe("Reader UI & audio hooks", () => {
 		);
 	});
 
-	it("renders FootnotesGuide, jumps to verse, and expands All on highlighted pronoun", () => {
+	it("renders FootnotesGuide with KRV Words above Grammar and all entries by default", () => {
 		const onJump = mock(() => {});
 		const onClose = mock(() => {});
 		const footnotes = [
@@ -157,15 +157,23 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 
-		// Both KRV Grammar and KRV Words are collapsed by default to keep the dictionary minimal
-		expect(container.querySelector(".grammar-cards")).toBeNull();
+		// Key Vocab / All toggle is removed; all entries are shown under KRV Words above KRV Grammar
+		expect(container.querySelector('[role="tablist"]')).toBeNull();
+		const sections = Array.from(container.querySelectorAll(".dict-disclosure")).map((el) =>
+			el.getAttribute("aria-label"),
+		);
+		expect(sections).toEqual(["KRV Words", "KRV Grammar Notes"]);
+
+		// Both KRV Words and KRV Grammar start collapsed to keep the dictionary minimal
 		expect(container.querySelector(".vocab-list")).toBeNull();
-		const wordsToggle = getButton(container, /KRV Words/);
+		expect(container.querySelector(".grammar-cards")).toBeNull();
+		const wordsToggle = getButton(container, `KRV Words (${footnotes.length})`);
 		expect(wordsToggle.getAttribute("aria-expanded")).toBe("false");
 
 		fireClick(wordsToggle);
 		expect(wordsToggle.getAttribute("aria-expanded")).toBe("true");
 		expect(getByText(container, "창조하다")).toBeDefined();
+		expect(getByText(container, "he / that / the")).toBeDefined();
 		fireClick(getButton(container, "v.1"));
 		expect(onJump).toHaveBeenCalledWith(1);
 
@@ -260,9 +268,16 @@ describe("Reader UI & audio hooks", () => {
 				onChangeStudyMask={noop}
 			/>,
 		);
-		fireClick(topBar.container.querySelector('a[aria-label="Logos Home"]') as Element);
+		expect(getByText(topBar.container, "Logos2Rhema")).toBeDefined();
+		expect(topBar.container.querySelector(".brand-icon")).not.toBeNull();
+		expect(getByText(topBar.container, "ESV / 개역한글")).toBeDefined();
+		expect(topBar.container.querySelector(".flip-btn")).toBeNull();
+		fireClick(topBar.container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 		expect(onGoHome).toHaveBeenCalledTimes(1);
-		fireClick(getButton(topBar.container, "Flip language stack order"));
+		fireClick(getButton(topBar.container, "Reader appearance settings"));
+		fireClick(getButton(topBar.container, "EN / 한"));
+		expect(onFlip).not.toHaveBeenCalled();
+		fireClick(getButton(topBar.container, "한 / EN"));
 		expect(onFlip).toHaveBeenCalledTimes(1);
 		fireClick(getButton(topBar.container, "Go to"));
 		expect(onOpenSearch).toHaveBeenCalledTimes(1);
@@ -278,6 +293,7 @@ describe("Reader UI & audio hooks", () => {
 				onOpenPassage={onOpenPassage}
 			/>,
 		);
+		expect(getByText(home.container, /Logos2Rhema/)).toBeDefined();
 		expect(getByText(home.container, "Bible Brain Verse-Synced Audio")).toBeDefined();
 		home.rerender(
 			<HomePage
@@ -294,7 +310,11 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(home.container, "Open Chapter"));
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4);
 
-		const homeInput = home.container.querySelector("input[type='search']") as HTMLInputElement;
+		const browseSection = home.container.querySelector('section[aria-label="Browse All Books"]');
+		expect(browseSection?.querySelector(".home-search-form")).not.toBeNull();
+		expect(home.container.querySelector(".home-hero .home-search-form")).toBeNull();
+
+		const homeInput = browseSection?.querySelector("input[type='search']") as HTMLInputElement;
 		setInputValue(homeInput, "시 23");
 		submitForm(homeInput.closest("form") as HTMLFormElement);
 		expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
@@ -395,7 +415,7 @@ describe("Reader UI & audio hooks", () => {
 			expect(dictEntry?.className).toContain("highlighted");
 			expect(dictEntry?.textContent).toContain("to go up");
 
-			fireClick(container.querySelector('a[aria-label="Logos Home"]') as Element);
+			fireClick(container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 			expect(getByText(container, "Continue Reading")).toBeDefined();
 			expect(window.location.hash).toBe("#/");
 		} finally {
@@ -507,6 +527,29 @@ describe("Reader UI & audio hooks", () => {
 		);
 		fireClick(getButton(rail.container, "Drama"));
 		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
+
+		const transportLabels = Array.from(
+			rail.container.querySelectorAll(".rail-transport-row button"),
+		).map((btn) => btn.getAttribute("aria-label"));
+		expect(transportLabels).toEqual(["Rewind 10 seconds", "Pause audio", "Forward 10 seconds"]);
+		const playerSections = Array.from(rail.container.querySelectorAll(".rail-player > div")).map(
+			(el) => el.className,
+		);
+		expect(playerSections.indexOf("rail-time-row")).toBeGreaterThan(
+			playerSections.indexOf("rail-transport-row"),
+		);
+		const timeRow = rail.container.querySelector(".rail-time-row");
+		expect(timeRow?.textContent).toContain("0:35");
+		expect(timeRow?.textContent).toContain("2:00");
+
+		// Settings section (Verse Sync, toggle button, and info) is collapsed by default
+		const settingsToggle = getButton(rail.container, "Settings");
+		expect(settingsToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(rail.container.querySelector(".rail-sync-box")).toBeNull();
+
+		fireClick(settingsToggle);
+		expect(settingsToggle.getAttribute("aria-expanded")).toBe("true");
+		expect(rail.container.querySelector(".rail-sync-box")).not.toBeNull();
 		fireClick(getButton(rail.container, "Play from v.16"));
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
 		fireClick(getButton(rail.container, "Rewind 10 seconds"));
@@ -535,8 +578,12 @@ describe("Reader UI & audio hooks", () => {
 				onFollowActiveVerse={noop}
 			/>,
 		);
-		expect(getButton(rail.container, "Play audio").textContent).toBe("Listen");
+		expect(getButton(rail.container, "Play audio").textContent).toBe("Play");
 		expect(getByText(rail.container, "Chapter audio")).toBeDefined();
+
+		fireClick(settingsToggle);
+		expect(settingsToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(rail.container.querySelector(".rail-sync-box")).toBeNull();
 	});
 
 	it("auto-syncs playback start to the currently visible verse", async () => {

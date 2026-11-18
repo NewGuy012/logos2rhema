@@ -16,8 +16,6 @@ interface FootnotesGuideProps {
 	onJumpToVerse: (verseNumber: number) => void;
 }
 
-type VocabFilter = "key" | "all";
-
 export function FootnotesGuide({
 	bookEn,
 	bookKo,
@@ -30,22 +28,17 @@ export function FootnotesGuide({
 	onClose,
 	onJumpToVerse,
 }: FootnotesGuideProps) {
-	const [filterMode, setFilterMode] = useState<VocabFilter>("key");
 	const [query, setQuery] = useState("");
 	const [grammarOpen, setGrammarOpen] = useState(false);
 	const [wordsOpen, setWordsOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-	// Automatically expand KRV Words, switch to "All" for pronouns/particles, and clear search filter
+	// Automatically expand KRV Words and clear search filter when tapping a verse word
 	useEffect(() => {
 		if (!highlightedFootnoteId) return;
 		setWordsOpen(true);
-		const target = footnotes.find((f) => f.id === highlightedFootnoteId);
-		if (target && (target.pos === "pronoun" || target.pos === "particle")) {
-			setFilterMode("all");
-		}
 		setQuery((prev) => (prev ? "" : prev));
-	}, [highlightedFootnoteId, highlightSeq, footnotes]);
+	}, [highlightedFootnoteId, highlightSeq]);
 
 	// Scroll only inside the dictionary container so the Scripture column stays on the active verse
 	useEffect(() => {
@@ -70,26 +63,18 @@ export function FootnotesGuide({
 		} else if (typeof targetEl.scrollIntoView === "function") {
 			targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
 		}
-	}, [highlightedFootnoteId, highlightSeq, filterMode, query, wordsOpen, footnotes]);
+	}, [highlightedFootnoteId, highlightSeq, query, wordsOpen, footnotes]);
 
 	const visibleEntries = useMemo(() => {
 		const trimmed = query.trim().toLowerCase();
-		return footnotes.filter((entry) => {
-			if (
-				filterMode === "key" &&
-				!trimmed &&
-				(entry.pos === "pronoun" || entry.pos === "particle")
-			) {
-				return false;
-			}
-			if (!trimmed) return true;
-			return (
+		if (!trimmed) return footnotes;
+		return footnotes.filter(
+			(entry) =>
 				entry.lemma.toLowerCase().includes(trimmed) ||
 				entry.gloss.toLowerCase().includes(trimmed) ||
-				entry.surfaceForms.some((form) => form.toLowerCase().includes(trimmed))
-			);
-		});
-	}, [footnotes, filterMode, query]);
+				entry.surfaceForms.some((form) => form.toLowerCase().includes(trimmed)),
+		);
+	}, [footnotes, query]);
 
 	return (
 		<aside
@@ -121,27 +106,6 @@ export function FootnotesGuide({
 			</div>
 
 			<div className="dict-panel-controls">
-				<div className="filter-tabs" role="tablist" aria-label="Vocabulary filter">
-					<button
-						type="button"
-						role="tab"
-						aria-selected={filterMode === "key"}
-						className={`filter-tab ${filterMode === "key" ? "active" : ""}`}
-						onClick={() => setFilterMode("key")}
-					>
-						Key Vocab
-					</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={filterMode === "all"}
-						className={`filter-tab ${filterMode === "all" ? "active" : ""}`}
-						onClick={() => setFilterMode("all")}
-					>
-						All ({footnotes.length})
-					</button>
-				</div>
-
 				<div className="dict-search-wrap">
 					<Search size={13} className="dict-search-icon" />
 					<input
@@ -173,33 +137,6 @@ export function FootnotesGuide({
 			</div>
 
 			<div className="dict-panel-scroll" ref={scrollContainerRef}>
-				{grammarNotes.length > 0 && !query.trim() && (
-					<section className="dict-disclosure" aria-label="KRV Grammar Notes">
-						<button
-							type="button"
-							className="dict-disclosure-btn"
-							aria-expanded={grammarOpen}
-							onClick={() => setGrammarOpen((prev) => !prev)}
-						>
-							<span>KRV Grammar ({grammarNotes.length})</span>
-							{grammarOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-						</button>
-						{grammarOpen && (
-							<div className="grammar-cards">
-								{grammarNotes.map((note) => (
-									<div key={note.id} className="grammar-card">
-										<div className="grammar-pattern">{note.pattern}</div>
-										<div className="grammar-modern">
-											Modern: {note.modern} · e.g. {note.examples.join(", ")}
-										</div>
-										<p className="grammar-desc">{note.explanation}</p>
-									</div>
-								))}
-							</div>
-						)}
-					</section>
-				)}
-
 				<section className="dict-disclosure" aria-label="KRV Words">
 					<button
 						type="button"
@@ -268,6 +205,33 @@ export function FootnotesGuide({
 						</div>
 					)}
 				</section>
+
+				{grammarNotes.length > 0 && !query.trim() && (
+					<section className="dict-disclosure" aria-label="KRV Grammar Notes">
+						<button
+							type="button"
+							className="dict-disclosure-btn"
+							aria-expanded={grammarOpen}
+							onClick={() => setGrammarOpen((prev) => !prev)}
+						>
+							<span>KRV Grammar ({grammarNotes.length})</span>
+							{grammarOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+						</button>
+						{grammarOpen && (
+							<div className="grammar-cards">
+								{grammarNotes.map((note) => (
+									<div key={note.id} className="grammar-card">
+										<div className="grammar-pattern">{note.pattern}</div>
+										<div className="grammar-modern">
+											Modern: {note.modern} · e.g. {note.examples.join(", ")}
+										</div>
+										<p className="grammar-desc">{note.explanation}</p>
+									</div>
+								))}
+							</div>
+						)}
+					</section>
+				)}
 			</div>
 		</aside>
 	);

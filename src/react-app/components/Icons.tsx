@@ -40,12 +40,14 @@ export const ArrowRight = makeIcon(
 	</>,
 );
 
-export const ArrowUpDown = makeIcon(
+export const Bible = makeIcon(
 	<>
-		<path d="m21 16-4 4-4-4" />
-		<path d="M17 20V4" />
-		<path d="m3 8 4-4 4 4" />
-		<path d="M7 4v16" />
+		<path
+			d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a2.5 2.5 0 0 1 0-5H20"
+			fill="var(--accent-soft)"
+		/>
+		<path d="M12.5 6v6.5" />
+		<path d="M10 8.5h5" />
 	</>,
 );
 
@@ -82,6 +84,8 @@ export const Pause = makeIcon(
 		<rect x="5" y="3" width="5" height="18" rx="1" />
 	</>,
 );
+
+export const Play = makeIcon(<polygon points="6 3 20 12 6 21 6 3" />);
 
 export const RefreshCw = makeIcon(
 	<>

@@ -84,7 +84,7 @@ export function HomePage({
 				</div>
 
 				<h1 className="home-title">
-					Logos{" "}
+					Logos2Rhema{" "}
 					<span className="home-title-ko" lang="ko">
 						말씀
 					</span>
@@ -114,24 +114,6 @@ export function HomePage({
 						<ArrowRight size={15} />
 					</button>
 				</div>
-
-				<form className="home-search-form" onSubmit={handleSearchSubmit}>
-					<Search size={16} className="home-search-icon" />
-					<input
-						type="search"
-						className="home-search-input"
-						placeholder="Go to passage (e.g. John 3:16, 요 3:16, 시 23, Ruth 4)..."
-						value={query}
-						onChange={(e) => {
-							setQuery(e.target.value);
-							if (selectedBook) setSelectedBook(null);
-						}}
-						aria-label="Go to Bible passage"
-					/>
-					<button type="submit" className="home-search-submit">
-						Go
-					</button>
-				</form>
 			</section>
 
 			<section className="home-section" aria-label="Featured Passages">
@@ -174,6 +156,24 @@ export function HomePage({
 						!query.trim() && <TestamentTabs testament={testament} onChange={setTestament} />
 					)}
 				</div>
+
+				<form className="home-search-form" onSubmit={handleSearchSubmit}>
+					<Search size={16} className="home-search-icon" />
+					<input
+						type="search"
+						className="home-search-input"
+						placeholder="Go to passage (e.g. John 3:16, 요 3:16, 시 23, Ruth 4)..."
+						value={query}
+						onChange={(e) => {
+							setQuery(e.target.value);
+							if (selectedBook) setSelectedBook(null);
+						}}
+						aria-label="Go to Bible passage"
+					/>
+					<button type="submit" className="home-search-submit">
+						Go
+					</button>
+				</form>
 
 				<BookChapterGrid
 					books={filteredBooks}

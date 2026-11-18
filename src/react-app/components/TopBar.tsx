@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { TranslationMeta } from "../../shared/types";
-import { ArrowUpDown, Search, Type } from "./Icons";
+import { Bible, Search, Type } from "./Icons";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
 export type ReaderTheme = "paper" | "sepia" | "dark";
@@ -72,15 +72,15 @@ export function TopBar({
 					<a
 						href="#/"
 						className={`brand-mark ${isHome ? "is-home" : ""}`}
-						aria-label="Logos Home"
-						title="Return to Logos Home"
+						aria-label="Logos2Rhema Home"
+						title="Return to Logos2Rhema Home"
 						onClick={(e) => {
 							e.preventDefault();
 							onGoHome();
 						}}
 					>
-						<span className="brand-dot" aria-hidden="true" />
-						<span>Logos</span>
+						<Bible size={17} className="brand-icon" />
+						<span>Logos2Rhema</span>
 					</a>
 					<button
 						type="button"
@@ -94,30 +94,13 @@ export function TopBar({
 				</div>
 
 				<div className="top-controls">
-					<div className="translation-pill-group" aria-label="Canonical language editions">
-						<span className="translation-badge" title={selectedEn.nativeName}>
-							{selectedEn.code}
-						</span>
-
-						<button
-							type="button"
-							className="flip-btn"
-							onClick={onFlipStackOrder}
-							title={
-								stackOrder === "en-first"
-									? "Flip stack: put Korean above English"
-									: "Flip stack: put English above Korean"
-							}
-							aria-label="Flip language stack order"
-						>
-							<ArrowUpDown size={12} />
-							<span>{stackOrder === "en-first" ? "EN / 한" : "한 / EN"}</span>
-						</button>
-
-						<span className="translation-badge" title={selectedKo.nativeName}>
-							{selectedKo.code}
-						</span>
-					</div>
+					<span
+						className="translation-badge"
+						aria-label="Canonical language editions"
+						title={`${selectedEn.nativeName} · ${selectedKo.nativeName}`}
+					>
+						{selectedEn.code} / {selectedKo.code}
+					</span>
 
 					<div className="popover-anchor">
 						<button
@@ -186,6 +169,36 @@ export function TopBar({
 											onClick={() => onChangeKoFontStyle("sans")}
 										>
 											Sans (고딕)
+										</button>
+									</div>
+								</div>
+
+								<div className="settings-group">
+									<p className="popover-title">Stack Order</p>
+									<div
+										className="segmented-row"
+										role="group"
+										aria-label="Flip language stack order"
+									>
+										<button
+											type="button"
+											className={`segmented-btn ${stackOrder === "en-first" ? "active" : ""}`}
+											onClick={() => {
+												if (stackOrder !== "en-first") onFlipStackOrder();
+											}}
+											aria-pressed={stackOrder === "en-first"}
+										>
+											EN / 한
+										</button>
+										<button
+											type="button"
+											className={`segmented-btn ${stackOrder === "ko-first" ? "active" : ""}`}
+											onClick={() => {
+												if (stackOrder !== "ko-first") onFlipStackOrder();
+											}}
+											aria-pressed={stackOrder === "ko-first"}
+										>
+											한 / EN
 										</button>
 									</div>
 								</div>
