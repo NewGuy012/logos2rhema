@@ -10,7 +10,7 @@ export const BUILTIN_ENGLISH_TRANSLATIONS: readonly TranslationMeta[] = [
 		source: "bundled",
 		hasAudio: false,
 		description:
-			"Bundled local ESV text; pairs with Korean audio by default or Bible Brain audio if configured.",
+			"Bundled local ESV text; pairs with Korean audio by default or ESV API / Bible Brain audio if configured.",
 	},
 	{
 		id: "bsb",

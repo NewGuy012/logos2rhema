@@ -1,3 +1,7 @@
+# Optional: Free non-commercial Crossway ESV API key (https://api.esv.org/)
+# Enables official ESV chapter audio narration (never exposed to browser clients).
+# ESV_API_KEY=
+
 # Optional: Free Faith Comes By Hearing Bible Brain API v4 key (https://4.dbt.io/api_key/request)
 # Enables additional Korean/English audio bibles & verse-level timestamps when available.
 # BIBLE_BRAIN_API_KEY=

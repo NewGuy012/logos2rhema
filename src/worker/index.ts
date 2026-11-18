@@ -12,6 +12,7 @@ import {
 	fetchBibleBrainChapterText,
 	listBibleBrainTranslations,
 } from "./bible-brain";
+import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
 import {
 	extractHelloAoAudioTracks,
 	fetchHelloAoChapter,
@@ -20,6 +21,7 @@ import {
 } from "./helloao";
 
 export interface WorkerBindings {
+	ESV_API_KEY?: string;
 	BIBLE_BRAIN_API_KEY?: string;
 	AUDIO_BASE_URL?: string;
 }
@@ -57,9 +59,20 @@ export function createApp(deps: WorkerDeps = {}) {
 	app.get("/api/health", (c) => c.json({ ok: true, service: "logos" }));
 
 	app.get("/api/translations", async (c) => {
-		const english: TranslationMeta[] = [...BUILTIN_ENGLISH_TRANSLATIONS];
-		const korean: TranslationMeta[] = [...BUILTIN_KOREAN_TRANSLATIONS];
+		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
+		const esvAudioEnabled = Boolean(esvApiKey || apiKey);
+
+		const english: TranslationMeta[] = BUILTIN_ENGLISH_TRANSLATIONS.map((t) =>
+			t.id === "esv" && esvAudioEnabled
+				? {
+						...t,
+						hasAudio: true,
+						audioLabel: esvApiKey ? "David Cochran Heath (ESV)" : "Bible Brain ESV Narration",
+					}
+				: t,
+		);
+		const korean: TranslationMeta[] = [...BUILTIN_KOREAN_TRANSLATIONS];
 
 		if (apiKey) {
 			const [bbKo, bbEn] = await Promise.all([
@@ -70,11 +83,12 @@ export function createApp(deps: WorkerDeps = {}) {
 			english.push(...bbEn);
 		}
 
-		c.header("Cache-Control", "public, max-age=300");
+		c.header("Cache-Control", "private, max-age=300");
 		return c.json({
 			english,
 			korean,
 			bibleBrainEnabled: Boolean(apiKey),
+			esvAudioEnabled,
 		});
 	});
 
@@ -146,6 +160,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		const tracks: AudioTrackOption[] = [];
+		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
 		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
 
@@ -219,29 +234,51 @@ export function createApp(deps: WorkerDeps = {}) {
 					}),
 				);
 			}
-		} else if (apiKey && (enFileset || enId === "esv" || enId.startsWith("bb:"))) {
-			const candidates = pickFilesetsForTestament(
-				enFileset || (enId === "esv" ? "" : enId.slice(3)),
-				book.testament,
-				enId === "esv" ? "ENGESVO2DA" : undefined,
-				enId === "esv" ? "ENGESVN2DA" : undefined,
-			);
-			for (const targetFileset of candidates) {
-				const bbEnTrack = await fetchBibleBrainAudioTrack(
-					apiKey,
+		} else {
+			if (enId === "esv" && esvApiKey) {
+				const esvTrack = await fetchEsvAudioTrack(
+					esvApiKey,
 					{
-						filesetId: targetFileset,
 						usfm,
+						bookEn: book.en,
 						chapter,
-						translationId: enId,
-						language: "en",
-						label: `${enId.toUpperCase()} Audio (${targetFileset})`,
+						chaptersInBook: book.chapters,
 					},
 					fetcher,
 				).catch(() => null);
-				if (bbEnTrack) {
-					tracks.push(bbEnTrack);
-					break;
+				if (esvTrack) {
+					tracks.push(esvTrack);
+				}
+			}
+
+			if (
+				!tracks.some((t) => t.language === "en") &&
+				apiKey &&
+				(enFileset || enId === "esv" || enId.startsWith("bb:"))
+			) {
+				const candidates = pickFilesetsForTestament(
+					enFileset || (enId === "esv" ? "" : enId.slice(3)),
+					book.testament,
+					enId === "esv" ? "ENGESVO2DA" : undefined,
+					enId === "esv" ? "ENGESVN2DA" : undefined,
+				);
+				for (const targetFileset of candidates) {
+					const bbEnTrack = await fetchBibleBrainAudioTrack(
+						apiKey,
+						{
+							filesetId: targetFileset,
+							usfm,
+							chapter,
+							translationId: enId,
+							language: "en",
+							label: `${enId.toUpperCase()} Audio (${targetFileset})`,
+						},
+						fetcher,
+					).catch(() => null);
+					if (bbEnTrack) {
+						tracks.push(bbEnTrack);
+						break;
+					}
 				}
 			}
 		}
@@ -252,8 +289,63 @@ export function createApp(deps: WorkerDeps = {}) {
 			tracks,
 		};
 
-		c.header("Cache-Control", "public, max-age=1800");
+		c.header("Cache-Control", "private, max-age=1800");
 		return c.json(responseBody);
+	});
+
+	app.get("/api/audio/esv/:usfm/:chapter", async (c) => {
+		const usfm = c.req.param("usfm").toUpperCase();
+		const chapter = Number.parseInt(c.req.param("chapter"), 10);
+		const book = getBookByUsfm(usfm);
+		if (!book || Number.isNaN(chapter) || chapter < 1 || chapter > book.chapters) {
+			return c.json({ error: "Invalid book or chapter reference" }, 400);
+		}
+
+		const esvApiKey = c.env?.ESV_API_KEY?.trim();
+		if (!esvApiKey) {
+			return c.json({ error: "ESV audio is not configured" }, 503);
+		}
+
+		const resolved = await resolveEsvAudioUrl(
+			esvApiKey,
+			{
+				bookEn: book.en,
+				chapter,
+				chaptersInBook: book.chapters,
+			},
+			fetcher,
+		).catch(() => null);
+
+		if (!resolved) {
+			return c.json({ error: "ESV audio unavailable for this passage" }, 502);
+		}
+
+		if (resolved.url) {
+			const rangeHeader = c.req.header("Range");
+			const upstream = await fetcher(resolved.url, {
+				headers: rangeHeader ? { Range: rangeHeader } : undefined,
+			});
+			const headers = new Headers();
+			for (const name of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+				const val = upstream.headers.get(name);
+				if (val) headers.set(name, val);
+			}
+			headers.set("Cache-Control", "private, max-age=1800");
+			return new Response(upstream.body, { status: upstream.status, headers });
+		}
+
+		if (resolved.directStreamResponse) {
+			const headers = new Headers();
+			const contentType = resolved.directStreamResponse.headers.get("content-type") ?? "audio/mpeg";
+			headers.set("Content-Type", contentType);
+			headers.set("Cache-Control", "private, max-age=1800");
+			return new Response(resolved.directStreamResponse.body, {
+				status: resolved.directStreamResponse.status,
+				headers,
+			});
+		}
+
+		return c.json({ error: "ESV audio unavailable" }, 502);
 	});
 
 	return app;

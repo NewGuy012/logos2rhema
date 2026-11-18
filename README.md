@@ -24,9 +24,10 @@ bun run data:build   # Rebuild bundled ESV/KRV chapters and compact Korean lexic
 
 ## Optional Audio Configuration
 
-Copy `.dev.vars.example` to `.dev.vars` if you want to enable Bible Brain translations/timestamps or point `개역한글` to your own hosted/R2 MP3 files:
+Copy `.dev.vars.example` to `.dev.vars` (gitignored; kept server-side in Worker bindings) if you want to enable official Crossway ESV audio, Bible Brain translations/timestamps, or point `개역한글` to your own hosted/R2 MP3 files:
 
 ```env
+ESV_API_KEY=your_free_esv_key
 BIBLE_BRAIN_API_KEY=your_free_key
 AUDIO_BASE_URL=https://cdn.example.com/audio/krv
 ```

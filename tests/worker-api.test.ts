@@ -159,6 +159,59 @@ describe("HelloAO parser & Hono Worker API", () => {
 		expect(enTrack?.verseTimings?.[16]).toBe(48.2);
 	});
 
+	it("resolves official ESV audio via ESV_API_KEY without ever exposing the key", async () => {
+		const secretKey = "esv-super-secret-token-123";
+		const captured = { authHeader: null as string | null, query: null as string | null };
+
+		const mockFetch: FetchLike = async (input, init) => {
+			const url = String(input);
+			if (url.startsWith("https://api.esv.org/v3/passage/audio/")) {
+				captured.authHeader = new Headers(init?.headers).get("Authorization");
+				captured.query = new URL(url).searchParams.get("q");
+				return new Response(null, {
+					status: 302,
+					headers: { Location: "https://audio.esv.org/hw/65001001-65001025.mp3" },
+				});
+			}
+			if (url.includes("/kor_old/JUD/1.json")) {
+				return Response.json({ thisChapterAudioLinks: {} });
+			}
+			return new Response("Not Found", { status: 404 });
+		};
+
+		const app = createApp({ fetcher: mockFetch });
+
+		const catalogRes = await app.request("/api/translations", undefined, {
+			ESV_API_KEY: secretKey,
+		});
+		expect(catalogRes.status).toBe(200);
+		const catalogText = await catalogRes.text();
+		expect(catalogText).not.toContain(secretKey);
+		const catalog = JSON.parse(catalogText) as {
+			english: Array<{ id: string; hasAudio: boolean }>;
+			esvAudioEnabled: boolean;
+		};
+		expect(catalog.esvAudioEnabled).toBe(true);
+		expect(catalog.english.find((t) => t.id === "esv")?.hasAudio).toBe(true);
+
+		const audioRes = await app.request("/api/audio/JUD/1?ko=krv&en=esv", undefined, {
+			ESV_API_KEY: secretKey,
+		});
+		expect(audioRes.status).toBe(200);
+		const audioText = await audioRes.text();
+		expect(audioText).not.toContain(secretKey);
+		expect(captured.authHeader).toBe(`Token ${secretKey}`);
+		expect(captured.query).toBe("Jude 1:1-99");
+
+		const audioBody = JSON.parse(audioText) as ChapterAudioResponse;
+		const enTrack = audioBody.tracks.find((t) => t.language === "en");
+		expect(enTrack?.source).toBe("esv-api");
+		expect(enTrack?.url).toBe("https://audio.esv.org/hw/65001001-65001025.mp3");
+
+		const unconfiguredProxy = await app.request("/api/audio/esv/GEN/1");
+		expect(unconfiguredProxy.status).toBe(503);
+	});
+
 	it("validates invalid chapter references with HTTP 400", async () => {
 		const app = createApp();
 		const res = await app.request("/api/audio/GEN/999");

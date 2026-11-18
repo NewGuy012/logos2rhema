@@ -101,7 +101,7 @@ export interface AudioTrackOption {
 	language: TranslationLanguage;
 	translationId: string;
 	url: string;
-	source: "helloao" | "bible-brain" | "custom";
+	source: "helloao" | "bible-brain" | "esv-api" | "custom";
 	verseTimings?: Record<number, number>;
 	note?: string;
 }
