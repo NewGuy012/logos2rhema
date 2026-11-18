@@ -103,9 +103,7 @@ export function KoreanToken({ token, onSelectFootnote }: KoreanTokenProps) {
 								{token.grammarNote && <span>{token.grammarNote}</span>}
 							</div>
 						)}
-						{token.footnoteId && (
-							<div className="ko-tooltip-hint">Click to view in footnotes ↓</div>
-						)}
+						{token.footnoteId && <div className="ko-tooltip-hint">Click to view in dictionary</div>}
 					</div>,
 					document.body,
 				)}

@@ -1,14 +1,14 @@
 import {
+	BookOpen,
 	ChevronLeft,
 	ChevronRight,
 	Headphones,
 	Loader2,
 	Pause,
-	Play,
 	RotateCcw,
 	RotateCw,
-	X,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 
@@ -21,8 +21,6 @@ interface FloatingBottomBarProps {
 	onPrevChapter: () => void;
 	onNextChapter: () => void;
 	onOpenPicker: () => void;
-	audioDrawerOpen: boolean;
-	onToggleAudioDrawer: () => void;
 	tracks: AudioTrackOption[];
 	preferredLang: TranslationLanguage;
 	activeTrack: AudioTrackOption | null;
@@ -31,17 +29,18 @@ interface FloatingBottomBarProps {
 	currentTime: number;
 	duration: number;
 	playbackRate: number;
-	autoAdvance: boolean;
 	errorMessage: string | null;
 	activeEnCode: string;
 	activeKoCode: string;
+	dictionaryOpen: boolean;
+	dictionarySheet?: ReactNode;
+	onToggleDictionary: () => void;
 	onTogglePlay: () => void;
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
 	onSelectTrack: (track: AudioTrackOption) => void;
 	onSelectLanguage: (lang: TranslationLanguage) => void;
 	onCycleSpeed: () => void;
-	onToggleAutoAdvance: () => void;
 }
 
 function formatTime(totalSeconds: number): string {
@@ -60,8 +59,6 @@ export function FloatingBottomBar({
 	onPrevChapter,
 	onNextChapter,
 	onOpenPicker,
-	audioDrawerOpen,
-	onToggleAudioDrawer,
 	tracks,
 	preferredLang,
 	activeTrack,
@@ -70,214 +67,187 @@ export function FloatingBottomBar({
 	currentTime,
 	duration,
 	playbackRate,
-	autoAdvance,
 	errorMessage,
 	activeEnCode,
 	activeKoCode,
+	dictionaryOpen,
+	dictionarySheet,
+	onToggleDictionary,
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
 	onSelectTrack,
 	onSelectLanguage,
 	onCycleSpeed,
-	onToggleAutoAdvance,
 }: FloatingBottomBarProps) {
+	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const koTracks = tracks.filter((t) => t.language === "ko");
-	const enTracks = tracks.filter((t) => t.language === "en");
+	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
+	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
+	const showUnavailable = Boolean(!activeTrack && preferredLang === "en");
+
+	const handleCycleNarrator = () => {
+		if (langTracks.length <= 1 || !activeTrack) return;
+		const idx = langTracks.findIndex((t) => t.id === activeTrack.id);
+		const next = langTracks[(idx + 1) % langTracks.length];
+		onSelectTrack(next);
+	};
 
 	return (
 		<div className="floating-dock">
-			{audioDrawerOpen && (
-				<section className="audio-drawer" aria-label="Bible Audio Reader">
-					<div className="audio-drawer-top">
-						<div className="audio-track-pills">
-							<button
-								type="button"
-								className={`audio-track-chip ${preferredLang === "ko" ? "active" : ""}`}
-								onClick={() => onSelectLanguage("ko")}
-							>
-								한국어 ({activeKoCode})
-							</button>
-							<button
-								type="button"
-								className={`audio-track-chip ${preferredLang === "en" ? "active" : ""}`}
-								onClick={() => onSelectLanguage("en")}
-							>
-								English ({activeEnCode})
-							</button>
+			{dictionarySheet}
 
-							{preferredLang === "en" &&
-								enTracks.length > 1 &&
-								enTracks.map((track) => (
+			<nav className="quick-bar" aria-label="Chapter, Audio, and Dictionary Quick Access">
+				{(showScrubber || errorMessage || showUnavailable) && (
+					<div className="quick-bar-strip">
+						{errorMessage ? (
+							<span className="quick-strip-note">{errorMessage}</span>
+						) : showUnavailable ? (
+							<div className="quick-strip-unavailable">
+								<span>
+									No audio recording linked to <strong>{activeLangCode}</strong> for this chapter.
+								</span>
+								{koTracks.length > 0 && (
 									<button
-										key={track.id}
 										type="button"
-										className={`audio-track-chip ${activeTrack?.id === track.id ? "active" : ""}`}
-										onClick={() => onSelectTrack(track)}
+										className="quick-inline-chip active"
+										onClick={() => onSelectLanguage("ko")}
 									>
-										{track.label.split(" ")[0]}
+										Use {activeKoCode}
 									</button>
-								))}
-						</div>
-
-						<button
-							type="button"
-							className="pill-nav-btn"
-							onClick={onToggleAudioDrawer}
-							aria-label="Hide audio player"
-						>
-							<X size={15} />
-						</button>
-					</div>
-
-					{activeTrack ? (
-						<>
-							<div className="audio-scrubber-row">
-								<span>{formatTime(currentTime)}</span>
+								)}
+							</div>
+						) : (
+							<>
+								<span className="quick-time">{formatTime(currentTime)}</span>
 								<input
 									type="range"
 									className="audio-range"
 									min={0}
 									max={duration > 0 ? duration : 100}
 									step={0.5}
-									value={duration > 0 ? currentTime : 0}
+									value={duration > 0 ? Math.min(currentTime, duration) : 0}
 									onChange={(e) => onSeek(Number.parseFloat(e.target.value))}
 									aria-label="Audio playback progress"
 								/>
-								<span>{formatTime(duration)}</span>
-							</div>
-
-							<div className="audio-controls-row">
-								<div className="audio-transport">
+								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>
+								{langTracks.length > 1 && activeTrack && (
 									<button
 										type="button"
-										className="icon-btn"
-										onClick={() => onSkipBy(-10)}
-										title="Rewind 10 seconds"
-										aria-label="Rewind 10 seconds"
+										className="quick-inline-chip"
+										onClick={handleCycleNarrator}
+										title={`Switch narrator (${activeTrack.label})`}
 									>
-										<RotateCcw size={14} />
-										<span>10s</span>
+										{activeTrack.label.split(" ")[0]} ↻
 									</button>
+								)}
+							</>
+						)}
+					</div>
+				)}
 
-									<button
-										type="button"
-										className="play-circle-btn"
-										onClick={onTogglePlay}
-										aria-label={isPlaying ? "Pause audio" : "Play audio"}
-									>
-										{isLoading ? (
-											<Loader2 size={16} className="spin" />
-										) : isPlaying ? (
-											<Pause size={16} />
-										) : (
-											<Play size={16} style={{ marginLeft: 1 }} />
-										)}
-									</button>
+				<div className="quick-bar-row">
+					<button
+						type="button"
+						className={`pill-nav-btn ${isPlaying ? "skip-mode" : ""}`}
+						disabled={isPlaying ? false : !hasPrev}
+						onClick={() => (isPlaying ? onSkipBy(-10) : onPrevChapter())}
+						aria-label={isPlaying ? "Rewind 10 seconds" : "Previous chapter"}
+						title={isPlaying ? "Rewind 10 seconds (Left Arrow)" : "Previous chapter (Left Arrow)"}
+					>
+						{isPlaying ? (
+							<span className="skip-btn-inner">
+								<RotateCcw size={14} />
+								<span className="skip-tag">10</span>
+							</span>
+						) : (
+							<ChevronLeft size={18} />
+						)}
+					</button>
 
-									<button
-										type="button"
-										className="icon-btn"
-										onClick={() => onSkipBy(10)}
-										title="Forward 10 seconds"
-										aria-label="Forward 10 seconds"
-									>
-										<span>10s</span>
-										<RotateCw size={14} />
-									</button>
-								</div>
+					<button type="button" className="pill-chapter-btn" onClick={onOpenPicker}>
+						{bookEn} {chapter} · {bookKo} {chapter}장
+					</button>
 
-								<div className="audio-transport">
-									<button
-										type="button"
-										className="speed-pill"
-										onClick={onCycleSpeed}
-										title="Change reading speed"
-									>
-										{playbackRate}x
-									</button>
-									<button
-										type="button"
-										className={`audio-track-chip ${autoAdvance ? "active" : ""}`}
-										onClick={onToggleAutoAdvance}
-										title="Auto-advance to next chapter when finished"
-									>
-										Auto-next
-									</button>
-								</div>
-							</div>
+					<button
+						type="button"
+						className={`pill-audio-btn ${isPlaying ? "playing" : ""}`}
+						disabled={!activeTrack && !isPlaying}
+						onClick={onTogglePlay}
+						aria-label={isPlaying ? "Pause audio" : "Play audio"}
+						title={activeTrack ? activeTrack.label : `No audio available for ${activeLangCode}`}
+					>
+						{isLoading ? (
+							<Loader2 size={14} className="spin" />
+						) : isPlaying ? (
+							<Pause size={14} />
+						) : (
+							<Headphones size={14} />
+						)}
+						<span>{isPlaying ? "Pause" : "Listen"}</span>
+					</button>
 
-							<p className="audio-note">
-								{errorMessage
-									? errorMessage
-									: `${activeTrack.label}${activeTrack.note ? ` · ${activeTrack.note}` : ""}`}
-							</p>
-						</>
-					) : (
-						<div>
-							<p className="audio-note" style={{ marginTop: 0 }}>
-								No human audio recording is linked to{" "}
-								<strong>{preferredLang === "ko" ? activeKoCode : activeEnCode}</strong> for this
-								chapter.
-							</p>
-							{preferredLang === "en" && koTracks.length > 0 && (
-								<button
-									type="button"
-									className="audio-track-chip active"
-									style={{ marginTop: "0.45rem" }}
-									onClick={() => onSelectLanguage("ko")}
-								>
-									Switch to Korean Audio ({activeKoCode})
-								</button>
-							)}
-						</div>
+					<div className="quick-lang-toggle" role="group" aria-label="Audio language">
+						<button
+							type="button"
+							className={`quick-lang-btn ${preferredLang === "ko" ? "active" : ""}`}
+							onClick={() => onSelectLanguage("ko")}
+							title={`Korean audio (${activeKoCode})`}
+						>
+							한
+						</button>
+						<button
+							type="button"
+							className={`quick-lang-btn ${preferredLang === "en" ? "active" : ""}`}
+							onClick={() => onSelectLanguage("en")}
+							title={`English audio (${activeEnCode})`}
+						>
+							EN
+						</button>
+					</div>
+
+					{activeTrack && (
+						<button
+							type="button"
+							className="speed-pill"
+							onClick={onCycleSpeed}
+							title="Change reading speed"
+							aria-label={`Playback speed ${playbackRate}x`}
+						>
+							{playbackRate}x
+						</button>
 					)}
-				</section>
-			)}
 
-			<nav className="bottom-pill" aria-label="Chapter and Audio Navigation">
-				<button
-					type="button"
-					className="pill-nav-btn"
-					disabled={!hasPrev}
-					onClick={onPrevChapter}
-					aria-label="Previous chapter"
-				>
-					<ChevronLeft size={18} />
-				</button>
+					<button
+						type="button"
+						className={`quick-dict-btn ${dictionaryOpen ? "active" : ""}`}
+						onClick={onToggleDictionary}
+						aria-expanded={dictionaryOpen}
+						aria-label="Toggle Korean dictionary"
+						title="Toggle Korean dictionary & grammar guide"
+					>
+						<BookOpen size={14} />
+						<span>어휘</span>
+					</button>
 
-				<button type="button" className="pill-chapter-btn" onClick={onOpenPicker}>
-					{bookEn} {chapter} · {bookKo} {chapter}장
-				</button>
-
-				<button
-					type="button"
-					className={`pill-audio-btn ${isPlaying || audioDrawerOpen ? "playing" : ""}`}
-					onClick={() => {
-						if (!audioDrawerOpen) {
-							onToggleAudioDrawer();
-							if (!isPlaying && activeTrack) {
-								onTogglePlay();
-							}
-						} else {
-							onTogglePlay();
-						}
-					}}
-					aria-label="Listen to Bible audio"
-				>
-					<Headphones size={14} />
-					<span>{isPlaying ? "Pause" : "Listen"}</span>
-				</button>
-
-				<button
-					type="button"
-					className="pill-nav-btn"
-					disabled={!hasNext}
-					onClick={onNextChapter}
-					aria-label="Next chapter"
-				>
-					<ChevronRight size={18} />
-				</button>
+					<button
+						type="button"
+						className={`pill-nav-btn ${isPlaying ? "skip-mode" : ""}`}
+						disabled={isPlaying ? false : !hasNext}
+						onClick={() => (isPlaying ? onSkipBy(10) : onNextChapter())}
+						aria-label={isPlaying ? "Forward 10 seconds" : "Next chapter"}
+						title={isPlaying ? "Forward 10 seconds (Right Arrow)" : "Next chapter (Right Arrow)"}
+					>
+						{isPlaying ? (
+							<span className="skip-btn-inner">
+								<span className="skip-tag">10</span>
+								<RotateCw size={14} />
+							</span>
+						) : (
+							<ChevronRight size={18} />
+						)}
+					</button>
+				</div>
 			</nav>
 		</div>
 	);

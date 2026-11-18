@@ -54,17 +54,29 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		audio.preload = "metadata";
 		audioRef.current = audio;
 
-		const handleTimeUpdate = () => setCurrentTime(audio.currentTime || 0);
+		const syncDuration = () => {
+			if (Number.isFinite(audio.duration) && audio.duration > 0) {
+				setDuration(audio.duration);
+			}
+		};
+		const handleTimeUpdate = () => {
+			setCurrentTime(audio.currentTime || 0);
+			syncDuration();
+		};
 		const handleDurationChange = () =>
 			setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
 		const handlePlay = () => {
 			setIsPlaying(true);
 			setIsLoading(false);
 			setErrorMessage(null);
+			syncDuration();
 		};
 		const handlePause = () => setIsPlaying(false);
 		const handleWaiting = () => setIsLoading(true);
-		const handleCanPlay = () => setIsLoading(false);
+		const handleCanPlay = () => {
+			setIsLoading(false);
+			syncDuration();
+		};
 		const handleEnded = () => {
 			setIsPlaying(false);
 			onEndedRef.current?.();
@@ -76,6 +88,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		};
 
 		audio.addEventListener("timeupdate", handleTimeUpdate);
+		audio.addEventListener("loadedmetadata", syncDuration);
 		audio.addEventListener("durationchange", handleDurationChange);
 		audio.addEventListener("play", handlePlay);
 		audio.addEventListener("pause", handlePause);
@@ -88,6 +101,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 			audio.pause();
 			audio.removeAttribute("src");
 			audio.removeEventListener("timeupdate", handleTimeUpdate);
+			audio.removeEventListener("loadedmetadata", syncDuration);
 			audio.removeEventListener("durationchange", handleDurationChange);
 			audio.removeEventListener("play", handlePlay);
 			audio.removeEventListener("pause", handlePause);
@@ -163,7 +177,11 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 	const seekTo = useCallback((seconds: number) => {
 		const audio = audioRef.current;
 		if (!audio) return;
-		const clamped = Math.max(0, Math.min(seconds, audio.duration || seconds));
+		const validDuration =
+			Number.isFinite(audio.duration) && audio.duration > 0
+				? audio.duration
+				: Number.POSITIVE_INFINITY;
+		const clamped = Math.max(0, Math.min(seconds, validDuration));
 		audio.currentTime = clamped;
 		setCurrentTime(clamped);
 	}, []);

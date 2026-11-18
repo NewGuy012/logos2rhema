@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Headphones } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Headphones } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
@@ -69,9 +69,29 @@ function readStoredPrefs(): StoredPrefs {
 	}
 }
 
+function useIsDesktopLayout(): boolean {
+	const [isDesktop, setIsDesktop] = useState(() =>
+		typeof window !== "undefined" && typeof window.matchMedia === "function"
+			? window.matchMedia("(min-width: 1080px)").matches
+			: true,
+	);
+
+	useEffect(() => {
+		if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+		const mql = window.matchMedia("(min-width: 1080px)");
+		const update = () => setIsDesktop(mql.matches);
+		update();
+		mql.addEventListener("change", update);
+		return () => mql.removeEventListener("change", update);
+	}, []);
+
+	return isDesktop;
+}
+
 export default function App() {
 	const initialPrefs = useMemo(() => readStoredPrefs(), []);
 	const initialHash = useMemo(() => readInitialLocation(), []);
+	const isDesktop = useIsDesktopLayout();
 
 	const [bookNumber, setBookNumber] = useState(initialHash?.bookNumber ?? initialPrefs.bookNumber);
 	const [chapter, setChapter] = useState(initialHash?.chapter ?? initialPrefs.chapter);
@@ -96,8 +116,8 @@ export default function App() {
 	const [chapterError, setChapterError] = useState<string | null>(null);
 
 	const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
-	const [audioDrawerOpen, setAudioDrawerOpen] = useState(false);
-	const [autoAdvance, setAutoAdvance] = useState(true);
+	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [sheetOpen, setSheetOpen] = useState(false);
 
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [selectedVerse, setSelectedVerse] = useState<number | null>(null);
@@ -243,10 +263,10 @@ export default function App() {
 	const prepareNextPlayRef = useRef<() => void>(() => {});
 
 	const handleChapterEnded = useCallback(() => {
-		if (!autoAdvance || !nextChapterTarget) return;
+		if (!nextChapterTarget) return;
 		prepareNextPlayRef.current();
 		navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
-	}, [autoAdvance, nextChapterTarget, navigateTo]);
+	}, [nextChapterTarget, navigateTo]);
 
 	const audio = useHumanAudio({
 		tracks: audioTracks,
@@ -263,7 +283,7 @@ export default function App() {
 		}
 	}, [audio.activeVerse]);
 
-	// Keyboard shortcuts: Cmd/Ctrl+K to jump, ArrowLeft/ArrowRight to turn chapters
+	// Keyboard shortcuts: Cmd/Ctrl+K to jump, ArrowLeft/ArrowRight skip 10s while playing or turn chapters otherwise
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			const tag = (e.target as HTMLElement | null)?.tagName;
@@ -273,36 +293,58 @@ export default function App() {
 				return;
 			}
 			if (pickerOpen || tag === "INPUT" || tag === "TEXTAREA") return;
-			if (e.key === "ArrowLeft" && prevChapterTarget) {
-				navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter);
-			} else if (e.key === "ArrowRight" && nextChapterTarget) {
-				navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
+			if (e.key === "ArrowLeft") {
+				if (audio.isPlaying) {
+					e.preventDefault();
+					audio.skipBy(-10);
+				} else if (prevChapterTarget) {
+					navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter);
+				}
+			} else if (e.key === "ArrowRight") {
+				if (audio.isPlaying) {
+					e.preventDefault();
+					audio.skipBy(10);
+				} else if (nextChapterTarget) {
+					navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
+				}
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [pickerOpen, prevChapterTarget, nextChapterTarget, navigateTo]);
+	}, [pickerOpen, prevChapterTarget, nextChapterTarget, navigateTo, audio]);
 
 	const handleSelectVerse = useCallback(
 		(verseNum: number) => {
 			setSelectedVerse((prev) => (prev === verseNum ? null : verseNum));
-			if (audioDrawerOpen || audio.isPlaying) {
+			if (audio.isPlaying) {
 				audio.jumpToVerse(verseNum);
 			}
 		},
-		[audio, audioDrawerOpen],
+		[audio],
 	);
 
-	const handleSelectFootnote = useCallback((footnoteId: string) => {
-		setHighlightedFootnoteId(footnoteId);
-		const el = document.getElementById(footnoteId);
-		if (el) {
-			el.scrollIntoView({ behavior: "smooth", block: "center" });
+	const handleToggleDictionary = useCallback(() => {
+		if (isDesktop) {
+			setSidebarOpen((prev) => !prev);
+		} else {
+			setSheetOpen((prev) => !prev);
 		}
-		window.setTimeout(() => {
-			setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
-		}, 2400);
-	}, []);
+	}, [isDesktop]);
+
+	const handleSelectFootnote = useCallback(
+		(footnoteId: string) => {
+			setHighlightedFootnoteId(footnoteId);
+			if (isDesktop) {
+				setSidebarOpen(true);
+			} else {
+				setSheetOpen(true);
+			}
+			window.setTimeout(() => {
+				setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
+			}, 2600);
+		},
+		[isDesktop],
+	);
 
 	const handleJumpFromFootnote = useCallback((verseNum: number) => {
 		setSelectedVerse(verseNum);
@@ -323,6 +365,8 @@ export default function App() {
 	);
 
 	const activeAudioForCurrentLang = audioTracks.filter((t) => t.language === audio.preferredLang);
+	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
+	const showDictionary = !loadingChapter && !chapterError;
 
 	return (
 		<div id="top" className="app-shell" style={readerStyle}>
@@ -348,123 +392,128 @@ export default function App() {
 				onChangeStudyMask={setStudyMask}
 			/>
 
-			<main className="reader-main">
-				<header className="chapter-header">
-					<div className="chapter-kicker">
-						<span>
-							{currentBook.testament === "OT" ? "Old Testament · 구약" : "New Testament · 신약"}
-						</span>
-						<span>
-							{selectedEn.code} · {selectedKo.code}
-						</span>
-					</div>
+			<div className={`reader-workspace ${isDesktop && sidebarOpen ? "with-sidebar" : ""}`}>
+				<main className="reader-main">
+					<header className="chapter-header">
+						<div className="chapter-kicker">
+							<span>
+								{currentBook.testament === "OT" ? "Old Testament · 구약" : "New Testament · 신약"}
+							</span>
+							<span>
+								{selectedEn.code} · {selectedKo.code}
+							</span>
+						</div>
 
-					<div className="chapter-title-row">
-						<h1 className="chapter-title-en">
-							{currentBook.en} {chapter}
-						</h1>
-						<p className="chapter-title-ko" lang="ko">
-							{currentBook.ko} {chapter}장
-						</p>
-					</div>
+						<div className="chapter-title-row">
+							<h1 className="chapter-title-en">
+								{currentBook.en} {chapter}
+							</h1>
+							<p className="chapter-title-ko" lang="ko">
+								{currentBook.ko} {chapter}장
+							</p>
+						</div>
 
-					<div className="chapter-subbar">
+						<div className="chapter-subbar">
+							<button
+								type="button"
+								className="footnote-jump-link"
+								disabled={!audio.activeTrack && !audio.isPlaying}
+								onClick={audio.togglePlay}
+							>
+								<Headphones size={13} />
+								<span>
+									{audio.isPlaying
+										? `Pause (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
+										: activeAudioForCurrentLang.length > 0
+											? `Listen (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
+											: `No Audio (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`}
+								</span>
+							</button>
+
+							<button type="button" className="footnote-jump-link" onClick={handleToggleDictionary}>
+								<BookOpen size={13} />
+								<span>Korean Dictionary ({analysis.footnotes.length})</span>
+							</button>
+						</div>
+					</header>
+
+					{loadingChapter ? (
+						<p className="footnotes-subtitle">Loading chapter...</p>
+					) : chapterError ? (
+						<div className="grammar-card">
+							<div className="grammar-pattern">Unable to load passage</div>
+							<p className="grammar-desc">{chapterError}</p>
+						</div>
+					) : (
+						<section className="verses-list" aria-label="Bilingual Scripture">
+							{alignedVerses.map((verse) => (
+								<VerseBlock
+									key={verse.verse}
+									verse={verse}
+									stackOrder={stackOrder}
+									studyMask={studyMask}
+									isSelected={selectedVerse === verse.verse}
+									isAudioActive={audio.activeVerse === verse.verse}
+									enCode={selectedEn.code}
+									koCode={selectedKo.code}
+									hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
+									onSelectVerse={handleSelectVerse}
+									onSelectFootnote={handleSelectFootnote}
+								/>
+							))}
+						</section>
+					)}
+
+					<div className="chapter-nav-footer">
 						<button
 							type="button"
-							className="footnote-jump-link"
-							onClick={() => {
-								setAudioDrawerOpen(true);
-								if (!audio.isPlaying && audio.activeTrack) {
-									audio.togglePlay();
-								}
-							}}
+							className="nav-chapter-btn"
+							disabled={!prevChapterTarget}
+							onClick={() =>
+								prevChapterTarget &&
+								navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
+							}
 						>
-							<Headphones size={13} />
-							<span>
-								{activeAudioForCurrentLang.length > 0
-									? `Listen (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
-									: "Audio Settings"}
-							</span>
+							<ChevronLeft size={16} />
+							<span>Previous Chapter</span>
 						</button>
 
-						<a href="#footnotes" className="footnote-jump-link">
-							Korean Word Footnotes ({analysis.footnotes.length}) ↓
-						</a>
+						<button
+							type="button"
+							className="nav-chapter-btn"
+							disabled={!nextChapterTarget}
+							onClick={() =>
+								nextChapterTarget &&
+								navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
+							}
+						>
+							<span>Next Chapter</span>
+							<ChevronRight size={16} />
+						</button>
 					</div>
-				</header>
 
-				{loadingChapter ? (
-					<p className="footnotes-subtitle">Loading chapter...</p>
-				) : chapterError ? (
-					<div className="grammar-card">
-						<div className="grammar-pattern">Unable to load passage</div>
-						<p className="grammar-desc">{chapterError}</p>
+					<footer className="copyright-footer">
+						Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
+						{selectedEn.nativeName} · Hover any Korean word for instant translation.
+					</footer>
+				</main>
+
+				{showDictionary && isDesktop && sidebarOpen && (
+					<div className="dict-sidebar-wrap">
+						<FootnotesGuide
+							bookEn={currentBook.en}
+							bookKo={currentBook.ko}
+							chapter={chapter}
+							footnotes={analysis.footnotes}
+							grammarNotes={analysis.grammarNotes}
+							highlightedFootnoteId={highlightedFootnoteId}
+							variant="sidebar"
+							onClose={() => setSidebarOpen(false)}
+							onJumpToVerse={handleJumpFromFootnote}
+						/>
 					</div>
-				) : (
-					<section className="verses-list" aria-label="Bilingual Scripture">
-						{alignedVerses.map((verse) => (
-							<VerseBlock
-								key={verse.verse}
-								verse={verse}
-								stackOrder={stackOrder}
-								studyMask={studyMask}
-								isSelected={selectedVerse === verse.verse}
-								isAudioActive={audio.activeVerse === verse.verse}
-								enCode={selectedEn.code}
-								koCode={selectedKo.code}
-								hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
-								onSelectVerse={handleSelectVerse}
-								onSelectFootnote={handleSelectFootnote}
-							/>
-						))}
-					</section>
 				)}
-
-				<div className="chapter-nav-footer">
-					<button
-						type="button"
-						className="nav-chapter-btn"
-						disabled={!prevChapterTarget}
-						onClick={() =>
-							prevChapterTarget &&
-							navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-						}
-					>
-						<ChevronLeft size={16} />
-						<span>Previous Chapter</span>
-					</button>
-
-					<button
-						type="button"
-						className="nav-chapter-btn"
-						disabled={!nextChapterTarget}
-						onClick={() =>
-							nextChapterTarget &&
-							navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-						}
-					>
-						<span>Next Chapter</span>
-						<ChevronRight size={16} />
-					</button>
-				</div>
-
-				{!loadingChapter && !chapterError && (
-					<FootnotesGuide
-						bookEn={currentBook.en}
-						bookKo={currentBook.ko}
-						chapter={chapter}
-						footnotes={analysis.footnotes}
-						grammarNotes={analysis.grammarNotes}
-						highlightedFootnoteId={highlightedFootnoteId}
-						onJumpToVerse={handleJumpFromFootnote}
-					/>
-				)}
-
-				<footer className="copyright-footer">
-					Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
-					{selectedEn.nativeName} · Hover any Korean word for instant translation.
-				</footer>
-			</main>
+			</div>
 
 			<FloatingBottomBar
 				bookEn={currentBook.en}
@@ -479,8 +528,6 @@ export default function App() {
 					nextChapterTarget && navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
 				}
 				onOpenPicker={() => setPickerOpen(true)}
-				audioDrawerOpen={audioDrawerOpen}
-				onToggleAudioDrawer={() => setAudioDrawerOpen((prev) => !prev)}
 				tracks={audioTracks}
 				preferredLang={audio.preferredLang}
 				activeTrack={audio.activeTrack}
@@ -489,17 +536,34 @@ export default function App() {
 				currentTime={audio.currentTime}
 				duration={audio.duration}
 				playbackRate={audio.playbackRate}
-				autoAdvance={autoAdvance}
 				errorMessage={audio.errorMessage}
 				activeEnCode={selectedEn.code}
 				activeKoCode={selectedKo.code}
+				dictionaryOpen={dictionaryOpen}
+				dictionarySheet={
+					showDictionary && !isDesktop && sheetOpen ? (
+						<div className="dict-sheet-wrap">
+							<FootnotesGuide
+								bookEn={currentBook.en}
+								bookKo={currentBook.ko}
+								chapter={chapter}
+								footnotes={analysis.footnotes}
+								grammarNotes={analysis.grammarNotes}
+								highlightedFootnoteId={highlightedFootnoteId}
+								variant="sheet"
+								onClose={() => setSheetOpen(false)}
+								onJumpToVerse={handleJumpFromFootnote}
+							/>
+						</div>
+					) : undefined
+				}
+				onToggleDictionary={handleToggleDictionary}
 				onTogglePlay={audio.togglePlay}
 				onSeek={audio.seekTo}
 				onSkipBy={audio.skipBy}
 				onSelectTrack={audio.selectTrack}
 				onSelectLanguage={audio.selectLanguage}
 				onCycleSpeed={audio.cyclePlaybackRate}
-				onToggleAutoAdvance={() => setAutoAdvance((prev) => !prev)}
 			/>
 
 			<PassagePicker

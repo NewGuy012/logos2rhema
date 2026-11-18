@@ -92,16 +92,29 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(screen.queryByRole("tooltip")).toBeNull();
 	});
 
-	it("renders FootnotesGuide vocabulary and jumps to verse on chip click", () => {
+	it("renders FootnotesGuide vocabulary, jumps to verse on chip click, and expands All when highlighting a pronoun", () => {
 		const onJump = mock(() => {});
-		render(
+		const onClose = mock(() => {});
+		const { rerender } = render(
 			<FootnotesGuide
 				bookEn="Genesis"
 				bookKo="창세기"
 				chapter={1}
-				footnotes={analysis.footnotes}
+				footnotes={[
+					...analysis.footnotes,
+					{
+						id: "vocab-그",
+						lemma: "그",
+						surfaceForms: ["그"],
+						verses: [1],
+						gloss: "he / that / the",
+						pos: "pronoun",
+					},
+				]}
 				grammarNotes={analysis.grammarNotes}
 				highlightedFootnoteId={null}
+				variant="sidebar"
+				onClose={onClose}
 				onJumpToVerse={onJump}
 			/>,
 		);
@@ -112,6 +125,34 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		const verseChip = screen.getAllByRole("button", { name: "v.1" })[0];
 		fireEvent.click(verseChip);
 		expect(onJump).toHaveBeenCalledWith(1);
+
+		rerender(
+			<FootnotesGuide
+				bookEn="Genesis"
+				bookKo="창세기"
+				chapter={1}
+				footnotes={[
+					...analysis.footnotes,
+					{
+						id: "vocab-그",
+						lemma: "그",
+						surfaceForms: ["그"],
+						verses: [1],
+						gloss: "he / that / the",
+						pos: "pronoun",
+					},
+				]}
+				grammarNotes={analysis.grammarNotes}
+				highlightedFootnoteId="vocab-그"
+				variant="sidebar"
+				onClose={onClose}
+				onJumpToVerse={onJump}
+			/>,
+		);
+
+		expect(screen.getByText("he / that / the")).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Close dictionary panel" }));
+		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
 	it("supports 1-click language stack flip and translation selection in TopBar", () => {
@@ -170,62 +211,113 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
-	it("renders synced human audio controls and reports unavailable tracks honestly", () => {
+	it("renders single quick-access bottom bar without a popup and maps arrows to 10s skip while playing", () => {
 		const onSelectLanguage = mock(() => {});
+		const onPrevChapter = mock(() => {});
+		const onNextChapter = mock(() => {});
+		const onSkipBy = mock((_delta: number) => {});
+		const onToggleDictionary = mock(() => {});
 
-		const { rerender } = render(
+		const koTrack = {
+			id: "helloao:krv:wordproject",
+			label: "Wordproject Reader (KRV)",
+			language: "ko" as const,
+			translationId: "krv",
+			url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
+			source: "helloao" as const,
+		};
+
+		const { container, rerender } = render(
 			<FloatingBottomBar
 				bookEn="Genesis"
 				bookKo="창세기"
 				chapter={1}
 				hasPrev={false}
 				hasNext={true}
-				onPrevChapter={() => {}}
-				onNextChapter={() => {}}
+				onPrevChapter={onPrevChapter}
+				onNextChapter={onNextChapter}
 				onOpenPicker={() => {}}
-				audioDrawerOpen={true}
-				onToggleAudioDrawer={() => {}}
-				tracks={[
-					{
-						id: "helloao:krv:wordproject",
-						label: "Wordproject Reader (KRV)",
-						language: "ko",
-						translationId: "krv",
-						url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
-						source: "helloao",
-					},
-				]}
+				tracks={[koTrack]}
 				preferredLang="ko"
-				activeTrack={{
-					id: "helloao:krv:wordproject",
-					label: "Wordproject Reader (KRV)",
-					language: "ko",
-					translationId: "krv",
-					url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
-					source: "helloao",
-				}}
+				activeTrack={koTrack}
 				isPlaying={false}
 				isLoading={false}
 				currentTime={0}
 				duration={120}
 				playbackRate={1}
-				autoAdvance={true}
 				errorMessage={null}
 				activeEnCode="ESV"
 				activeKoCode="개역한글"
+				dictionaryOpen={false}
+				onToggleDictionary={onToggleDictionary}
 				onTogglePlay={() => {}}
 				onSeek={() => {}}
-				onSkipBy={() => {}}
+				onSkipBy={onSkipBy}
 				onSelectTrack={() => {}}
 				onSelectLanguage={onSelectLanguage}
 				onCycleSpeed={() => {}}
-				onToggleAutoAdvance={() => {}}
 			/>,
 		);
 
-		expect(screen.getByText("Wordproject Reader (KRV)")).toBeDefined();
+		// No secondary audio drawer popup should exist
+		expect(container.querySelector(".audio-drawer")).toBeNull();
 		expect(screen.getByRole("button", { name: "Play audio" })).toBeDefined();
 
+		// When paused/stopped on Genesis 1, Previous Chapter is disabled and Next Chapter navigates
+		const prevChapterBtn = screen.getByRole("button", { name: "Previous chapter" });
+		expect((prevChapterBtn as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Next chapter" }));
+		expect(onNextChapter).toHaveBeenCalledTimes(1);
+
+		// Toggle dictionary button
+		fireEvent.click(screen.getByRole("button", { name: "Toggle Korean dictionary" }));
+		expect(onToggleDictionary).toHaveBeenCalledTimes(1);
+
+		// While playing (even on Genesis 1 with hasPrev=false), left/right arrows become 10s skip
+		rerender(
+			<FloatingBottomBar
+				bookEn="Genesis"
+				bookKo="창세기"
+				chapter={1}
+				hasPrev={false}
+				hasNext={false}
+				onPrevChapter={onPrevChapter}
+				onNextChapter={onNextChapter}
+				onOpenPicker={() => {}}
+				tracks={[koTrack]}
+				preferredLang="ko"
+				activeTrack={koTrack}
+				isPlaying={true}
+				isLoading={false}
+				currentTime={15}
+				duration={120}
+				playbackRate={1}
+				errorMessage={null}
+				activeEnCode="ESV"
+				activeKoCode="개역한글"
+				dictionaryOpen={true}
+				onToggleDictionary={onToggleDictionary}
+				onTogglePlay={() => {}}
+				onSeek={() => {}}
+				onSkipBy={onSkipBy}
+				onSelectTrack={() => {}}
+				onSelectLanguage={onSelectLanguage}
+				onCycleSpeed={() => {}}
+			/>,
+		);
+
+		const rewindBtn = screen.getByRole("button", { name: "Rewind 10 seconds" });
+		const forwardBtn = screen.getByRole("button", { name: "Forward 10 seconds" });
+		expect((rewindBtn as HTMLButtonElement).disabled).toBe(false);
+		expect((forwardBtn as HTMLButtonElement).disabled).toBe(false);
+		expect(screen.getByRole("slider", { name: "Audio playback progress" })).toBeDefined();
+
+		fireEvent.click(rewindBtn);
+		fireEvent.click(forwardBtn);
+		expect(onSkipBy).toHaveBeenNthCalledWith(1, -10);
+		expect(onSkipBy).toHaveBeenNthCalledWith(2, 10);
+
+		// Switching to unavailable EN audio displays inline status right inside the single bar
 		rerender(
 			<FloatingBottomBar
 				bookEn="Genesis"
@@ -233,21 +325,10 @@ describe("VerseBlock & Korean hover tooltip", () => {
 				chapter={1}
 				hasPrev={false}
 				hasNext={true}
-				onPrevChapter={() => {}}
-				onNextChapter={() => {}}
+				onPrevChapter={onPrevChapter}
+				onNextChapter={onNextChapter}
 				onOpenPicker={() => {}}
-				audioDrawerOpen={true}
-				onToggleAudioDrawer={() => {}}
-				tracks={[
-					{
-						id: "helloao:krv:wordproject",
-						label: "Wordproject Reader (KRV)",
-						language: "ko",
-						translationId: "krv",
-						url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
-						source: "helloao",
-					},
-				]}
+				tracks={[koTrack]}
 				preferredLang="en"
 				activeTrack={null}
 				isPlaying={false}
@@ -255,22 +336,22 @@ describe("VerseBlock & Korean hover tooltip", () => {
 				currentTime={0}
 				duration={0}
 				playbackRate={1}
-				autoAdvance={true}
 				errorMessage={null}
 				activeEnCode="ESV"
 				activeKoCode="개역한글"
+				dictionaryOpen={false}
+				onToggleDictionary={onToggleDictionary}
 				onTogglePlay={() => {}}
 				onSeek={() => {}}
-				onSkipBy={() => {}}
+				onSkipBy={onSkipBy}
 				onSelectTrack={() => {}}
 				onSelectLanguage={onSelectLanguage}
 				onCycleSpeed={() => {}}
-				onToggleAutoAdvance={() => {}}
 			/>,
 		);
 
-		expect(screen.getByText(/No human audio recording is linked/)).toBeDefined();
-		fireEvent.click(screen.getByRole("button", { name: /Switch to Korean Audio/ }));
+		expect(screen.getByText(/No audio recording linked/)).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: /Use 개역한글/ }));
 		expect(onSelectLanguage).toHaveBeenCalledWith("ko");
 	});
 });
