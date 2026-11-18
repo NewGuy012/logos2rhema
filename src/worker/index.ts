@@ -7,7 +7,6 @@ import type {
 	BookMeta,
 	ChapterAudioResponse,
 	ReaderConfigResponse,
-	TranslationLanguage,
 	TranslationMeta,
 } from "../shared/types";
 import {
@@ -37,7 +36,7 @@ export interface WorkerDeps {
 async function resolveBibleBrainTracksForLanguage(
 	apiKey: string,
 	options: {
-		language: TranslationLanguage;
+		language: string;
 		translationId: string;
 		usfm: string;
 		chapter: number;
@@ -87,6 +86,16 @@ async function resolveBibleBrainTracksForLanguage(
 
 	return results.filter((t): t is AudioTrackOption => t !== null);
 }
+
+function parsePositiveInt(raw: string | undefined, min: number, max: number): number | null {
+	if (!raw || !/^\d+$/.test(raw)) return null;
+	const val = Number.parseInt(raw, 10);
+	return val >= min && val <= max ? val : null;
+}
+
+const FILESET_ID_RE = /^[A-Za-z0-9_-]{4,24}$/;
+const ISO_639_3_RE = /^[a-z]{3}$/i;
+const BIBLE_ABBR_RE = /^[A-Za-z0-9_-]{2,16}$/;
 
 function parseChapterRef(
 	usfmRaw: string,
@@ -161,9 +170,21 @@ export function createApp(deps: WorkerDeps = {}) {
 			});
 		}
 
-		const languages = await fetchBibleBrainLanguages(apiKey, fetcher).catch(() => []);
+		const pageParam = c.req.query("page");
+		const limitParam = c.req.query("limit");
+		const page = pageParam !== undefined ? parsePositiveInt(pageParam, 1, 500) : 1;
+		const limit = limitParam !== undefined ? parsePositiveInt(limitParam, 1, 250) : 250;
+		if (page === null || limit === null) {
+			return c.json({ error: "Invalid page or limit parameter" }, 400);
+		}
+
+		const { languages, pagination } = await fetchBibleBrainLanguages(
+			apiKey,
+			{ page, limit },
+			fetcher,
+		).catch(() => ({ languages: [], pagination: undefined }));
 		c.header("Cache-Control", "private, max-age=3600");
-		return c.json({ bibleBrainEnabled: true, languages });
+		return c.json({ bibleBrainEnabled: true, languages, ...(pagination ? { pagination } : {}) });
 	});
 
 	app.get("/api/passage/:target/:usfm/:chapter", async (c) => {
@@ -191,6 +212,9 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		if (target.startsWith("bb:")) {
 			const filesetId = target.slice(3);
+			if (!FILESET_ID_RE.test(filesetId)) {
+				return c.json({ error: "Invalid fileset identifier" }, 400);
+			}
 			const verses = await fetchBibleBrainChapterText(apiKey, filesetId, usfm, chapter, fetcher);
 			c.header("Cache-Control", "public, max-age=3600");
 			return c.json({ translationId: target, usfm, chapter, verses });
@@ -198,12 +222,11 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		if (target.startsWith("lang:")) {
 			const langIso = target.slice(5);
-			const resolved = await resolveBibleBrainLanguageTextFileset(
-				apiKey,
-				langIso,
-				c.req.query("abbr"),
-				fetcher,
-			);
+			const abbr = c.req.query("abbr");
+			if (!ISO_639_3_RE.test(langIso) || (abbr !== undefined && !BIBLE_ABBR_RE.test(abbr))) {
+				return c.json({ error: "Invalid language or Bible abbreviation" }, 400);
+			}
+			const resolved = await resolveBibleBrainLanguageTextFileset(apiKey, langIso, abbr, fetcher);
 			if (!resolved) {
 				return c.json({ error: `No text fileset found for language ${langIso}` }, 404);
 			}
@@ -340,12 +363,38 @@ export function createApp(deps: WorkerDeps = {}) {
 			return enTracks;
 		};
 
-		const [koTracks, enTracks] = await Promise.all([resolveKoreanTracks(), resolveEnglishTracks()]);
+		const extraLang = c.req.query("lang")?.toLowerCase();
+		const extraBible = c.req.query("bible");
+		if (extraLang !== undefined && !ISO_639_3_RE.test(extraLang)) {
+			return c.json({ error: "Invalid ISO 639-3 language code" }, 400);
+		}
+		if (extraBible !== undefined && !BIBLE_ABBR_RE.test(extraBible)) {
+			return c.json({ error: "Invalid Bible identifier" }, 400);
+		}
+
+		const [koTracks, enTracks, extraTracks] = await Promise.all([
+			resolveKoreanTracks(),
+			resolveEnglishTracks(),
+			extraLang && apiKey && extraLang !== "kor" && extraLang !== "eng"
+				? resolveBibleBrainTracksForLanguage(
+						apiKey,
+						{
+							language: extraLang,
+							translationId: extraBible ?? `lang:${extraLang}`,
+							usfm,
+							chapter,
+							testament: book.testament,
+							bibleId: extraBible,
+						},
+						fetcher,
+					)
+				: Promise.resolve([]),
+		]);
 
 		const responseBody: ChapterAudioResponse = {
 			bookUsfm: usfm,
 			chapter,
-			tracks: [...koTracks, ...enTracks],
+			tracks: [...koTracks, ...enTracks, ...extraTracks],
 			providerStatus: {
 				bibleBrainEnabled: Boolean(apiKey),
 				esvAudioEnabled: Boolean(apiKey || esvApiKey),

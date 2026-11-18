@@ -104,7 +104,7 @@ export interface AlignedVerse {
 export interface AudioTrackOption {
 	id: string;
 	label: string;
-	language: TranslationLanguage;
+	language: TranslationLanguage | (string & {});
 	translationId: string;
 	url: string;
 	source: "bible-brain" | "esv-api" | "custom" | "helloao";

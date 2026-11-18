@@ -33,16 +33,16 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(body.esvAudioEnabled).toBe(true);
 	});
 
-	it("filters Bible Brain filesets by testament and skips HLS/opus streams", () => {
+	it("filters Bible Brain filesets by testament (including set_type_code/NTPOTP) and skips HLS/opus streams", () => {
 		const filesets = selectAudioFilesetsForTestament(
 			{
 				abbr: "ENGESV",
 				name: "English Standard Version",
 				filesets: {
 					"dbp-prod": [
-						{ id: "ENGESVN2SA", type: "audio_drama_stream", size: "NT" },
+						{ id: "ENGESVN2SA", set_type_code: "audio_drama_stream", set_size_code: "NT" },
 						{ id: "ENGESVN2DA-opus16", type: "audio_drama", size: "NT" },
-						{ id: "ENGESVN2DA", type: "audio_drama", size: "NT", codec: "mp3" },
+						{ id: "ENGESVN2DA", set_type_code: "audio_drama", set_size_code: "NTPOTP" },
 						{ id: "ENGESVN1DA", type: "audio", size: "NT", codec: "mp3" },
 						{ id: "ENGESVO1DA", type: "audio", size: "OT", codec: "mp3" },
 					],
@@ -198,10 +198,11 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(enTrack?.url).toBe("https://audio.esv.org/hw/65001001-65001025.mp3");
 	});
 
-	it("supports future Bible Brain languages & passage loading via /api/languages and /api/passage/lang:*", async () => {
+	it("supports future Bible Brain languages, text_plain preference, and ?lang= audio sync", async () => {
 		const mockFetch: FetchLike = async (input) => {
 			const url = String(input);
 			if (url.includes("/languages?")) {
+				expect(url).toContain("limit=250");
 				return Response.json({
 					data: [
 						{ id: 1, name: "English", iso: "eng", autonym: "English" },
@@ -210,12 +211,23 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 				});
 			}
 			if (url.includes("/bibles?language_code=spa")) {
+				expect(url).toContain("limit=250");
 				return Response.json({
 					data: [
 						{
+							abbr: "SPAFMT",
+							name: "Formatted Only",
+							filesets: { "dbp-prod": [{ id: "SPAFMTT", type: "text_format" }] },
+						},
+						{
 							abbr: "SPARVR",
 							name: "Reina Valera",
-							filesets: { "dbp-prod": [{ id: "SPARVRT", type: "text_plain" }] },
+							filesets: {
+								"dbp-prod": [
+									{ id: "SPARVRT", set_type_code: "text_plain" },
+									{ id: "SPARVRN1DA", set_type_code: "audio", set_size_code: "NT" },
+								],
+							},
 						},
 					],
 				});
@@ -224,6 +236,12 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 				return Response.json({
 					data: [{ verse_start: 16, verse_text: "Porque de tal manera amó Dios al mundo..." }],
 				});
+			}
+			if (url.includes("/bibles/filesets/SPARVRN1DA/JHN/3")) {
+				return Response.json({ data: [{ path: "https://cdn.example.com/spa-jhn3.mp3" }] });
+			}
+			if (url.includes("/timestamps/SPARVRN1DA/JHN/3")) {
+				return Response.json({ data: [{ verse_sequence: 16, timestamp: 42.5 }] });
 			}
 			return new Response("Not Found", { status: 404 });
 		};
@@ -250,6 +268,15 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		};
 		expect(passageBody.abbr).toBe("SPARVR");
 		expect(passageBody.verses[0]?.verse).toBe(16);
+
+		const audioRes = await app.request("/api/audio/JHN/3?lang=spa", undefined, {
+			BIBLE_BRAIN_API_KEY: "bb-key",
+		});
+		expect(audioRes.status).toBe(200);
+		const audioBody = (await audioRes.json()) as ChapterAudioResponse;
+		const spaTrack = audioBody.tracks.find((t) => t.language === "spa");
+		expect(spaTrack?.url).toBe("https://cdn.example.com/spa-jhn3.mp3");
+		expect(spaTrack?.verseTimings?.[16]).toBe(42.5);
 	});
 
 	it("validates invalid chapter references, methods, and insecure audio URLs", async () => {

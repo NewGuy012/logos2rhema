@@ -1,4 +1,4 @@
-import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+import type { AudioTrackOption } from "../../shared/types";
 
 export function formatTime(totalSeconds: number): string {
 	if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
@@ -13,10 +13,10 @@ export function AudioLanguageToggle({
 	activeEnCode,
 	onSelectLanguage,
 }: {
-	preferredLang: TranslationLanguage;
+	preferredLang: string;
 	activeKoCode: string;
 	activeEnCode: string;
-	onSelectLanguage: (lang: TranslationLanguage) => void;
+	onSelectLanguage: (lang: string) => void;
 }) {
 	return (
 		<div className="quick-lang-toggle" role="group" aria-label="Audio language">
@@ -69,10 +69,10 @@ export function AudioFallbackAction({
 	activeKoCode,
 	onSelectLanguage,
 }: {
-	preferredLang: TranslationLanguage;
+	preferredLang: string;
 	tracks: AudioTrackOption[];
 	activeKoCode: string;
-	onSelectLanguage: (lang: TranslationLanguage) => void;
+	onSelectLanguage: (lang: string) => void;
 }) {
 	if (preferredLang !== "en" || !tracks.some((t) => t.language === "ko")) return null;
 	return (

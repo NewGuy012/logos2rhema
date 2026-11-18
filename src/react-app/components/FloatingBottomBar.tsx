@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+import type { AudioTrackOption } from "../../shared/types";
 import { AudioFallbackAction, AudioLanguageToggle, AudioScrubber, formatTime } from "./AudioShared";
 import {
 	BookOpen,
@@ -23,7 +23,7 @@ interface FloatingBottomBarProps {
 	onNextChapter: () => void;
 	onOpenPicker: () => void;
 	tracks: AudioTrackOption[];
-	preferredLang: TranslationLanguage;
+	preferredLang: string;
 	activeTrack: AudioTrackOption | null;
 	isPlaying: boolean;
 	isLoading: boolean;
@@ -40,7 +40,7 @@ interface FloatingBottomBarProps {
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
 	onSelectTrack: (track: AudioTrackOption) => void;
-	onSelectLanguage: (lang: TranslationLanguage) => void;
+	onSelectLanguage: (lang: string) => void;
 	onCycleSpeed: () => void;
 }
 
