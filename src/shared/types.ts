@@ -12,7 +12,8 @@ export interface BookMeta {
 }
 
 export type TranslationLanguage = "en" | "ko";
-export type TranslationSource = "bundled" | "helloao" | "bible-brain";
+export type TranslationSource = "bundled" | "bible-brain";
+export type AudioStyle = "standard" | "drama";
 
 export interface TranslationMeta {
 	id: string;
@@ -20,11 +21,16 @@ export interface TranslationMeta {
 	name: string;
 	nativeName: string;
 	language: TranslationLanguage;
+	languageLabel: string;
 	source: TranslationSource;
-	externalId?: string;
+	bibleBrainIso?: string;
+	bibleBrainBibleId?: string;
+	preferredAudioFilesets?: {
+		OT: readonly string[];
+		NT: readonly string[];
+	};
 	hasAudio: boolean;
 	audioLabel?: string;
-	audioFilesetIds?: string[];
 	description: string;
 }
 
@@ -101,7 +107,9 @@ export interface AudioTrackOption {
 	language: TranslationLanguage;
 	translationId: string;
 	url: string;
-	source: "helloao" | "bible-brain" | "esv-api" | "custom";
+	source: "bible-brain" | "esv-api" | "custom" | "helloao";
+	audioStyle?: AudioStyle;
+	filesetId?: string;
 	verseTimings?: Record<number, number>;
 	note?: string;
 }
@@ -110,7 +118,18 @@ export interface ChapterAudioResponse {
 	bookUsfm: string;
 	chapter: number;
 	tracks: AudioTrackOption[];
+	providerStatus?: {
+		bibleBrainEnabled: boolean;
+		esvAudioEnabled: boolean;
+	};
 	unavailableReason?: string;
+}
+
+export interface ReaderConfigResponse {
+	english: TranslationMeta;
+	korean: TranslationMeta;
+	bibleBrainEnabled: boolean;
+	esvAudioEnabled: boolean;
 }
 
 export interface ParsedReference {

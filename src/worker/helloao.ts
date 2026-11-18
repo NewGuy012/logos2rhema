@@ -1,83 +1,12 @@
-import type { AudioTrackOption, TranslationLanguage, VerseEntry } from "../shared/types";
+import type { AudioTrackOption, TranslationLanguage } from "../shared/types";
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-export interface HelloAoContentText {
-	text?: string;
-	noteId?: number;
-	lineBreak?: boolean;
-}
-
-export type HelloAoContentPiece = string | HelloAoContentText;
-
-export interface HelloAoChapterNode {
-	type: "heading" | "line_break" | "verse" | "hebrew_subtitle";
-	number?: number;
-	content?: HelloAoContentPiece[];
-}
-
-export interface HelloAoChapterPayload {
-	translation?: {
-		id: string;
-		name: string;
-		shortName: string;
-	};
-	chapter?: {
-		number: number;
-		content: HelloAoChapterNode[];
-	};
+export interface HelloAoAudioPayload {
 	thisChapterAudioLinks?: Record<string, string>;
 	thisChapterAudioTimings?: Record<string, Record<string, number>>;
-}
-
-function flattenContentPieces(pieces: HelloAoContentPiece[] = []): string {
-	const chunks: string[] = [];
-	for (const piece of pieces) {
-		if (typeof piece === "string") {
-			chunks.push(piece);
-		} else if (piece && typeof piece === "object") {
-			if (typeof piece.text === "string") {
-				chunks.push(piece.text);
-			} else if (piece.lineBreak) {
-				chunks.push(" ");
-			}
-		}
-	}
-	return chunks
-		.join(" ")
-		.replace(/\s+([,.;:!?])/g, "$1")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-export function parseHelloAoVerses(payload: HelloAoChapterPayload): VerseEntry[] {
-	const nodes = payload.chapter?.content ?? [];
-	const verses: VerseEntry[] = [];
-	let pendingHeading: string | undefined;
-
-	for (const node of nodes) {
-		if (node.type === "heading" || node.type === "hebrew_subtitle") {
-			const headingText = flattenContentPieces(node.content);
-			if (headingText) {
-				pendingHeading = pendingHeading ? `${pendingHeading} — ${headingText}` : headingText;
-			}
-			continue;
-		}
-
-		if (node.type === "verse" && typeof node.number === "number") {
-			const text = flattenContentPieces(node.content);
-			if (!text) continue;
-			const entry: VerseEntry = pendingHeading
-				? { verse: node.number, text, heading: pendingHeading }
-				: { verse: node.number, text };
-			verses.push(entry);
-			pendingHeading = undefined;
-		}
-	}
-
-	return verses;
 }
 
 function formatReaderName(readerKey: string): string {
@@ -86,7 +15,7 @@ function formatReaderName(readerKey: string): string {
 }
 
 export function extractHelloAoAudioTracks(
-	payload: HelloAoChapterPayload,
+	payload: HelloAoAudioPayload,
 	options: {
 		translationId: string;
 		language: TranslationLanguage;
@@ -105,7 +34,7 @@ export function extractHelloAoAudioTracks(
 			verseTimings = {};
 			for (const [vStr, sec] of Object.entries(rawTimings)) {
 				const vNum = Number.parseInt(vStr, 10);
-				if (!Number.isNaN(vNum) && typeof sec === "number") {
+				if (!Number.isNaN(vNum) && vNum >= 1 && typeof sec === "number") {
 					verseTimings[vNum] = sec;
 				}
 			}
@@ -118,6 +47,7 @@ export function extractHelloAoAudioTracks(
 			translationId: options.translationId,
 			url,
 			source: "helloao",
+			audioStyle: "standard",
 			verseTimings,
 			note: options.note,
 		});
@@ -131,7 +61,7 @@ export async function fetchHelloAoChapter(
 	usfm: string,
 	chapter: number,
 	fetcher: FetchLike = fetch,
-): Promise<HelloAoChapterPayload | null> {
+): Promise<HelloAoAudioPayload | null> {
 	const url = `${HELLOAO_BASE}/${encodeURIComponent(externalTranslationId)}/${encodeURIComponent(usfm)}/${chapter}.json`;
 	const response = await fetcher(url, {
 		headers: { Accept: "application/json" },
@@ -139,5 +69,5 @@ export async function fetchHelloAoChapter(
 	if (!response.ok) {
 		return null;
 	}
-	return (await response.json()) as HelloAoChapterPayload;
+	return (await response.json()) as HelloAoAudioPayload;
 }

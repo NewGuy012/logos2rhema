@@ -2,7 +2,7 @@ import { BookOpen, ChevronLeft, ChevronRight, Headphones } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
-import { BUILTIN_ENGLISH_TRANSLATIONS, BUILTIN_KOREAN_TRANSLATIONS } from "../shared/translations";
+import { CANONICAL_BIBLES } from "../shared/translations";
 import type { AudioTrackOption, LexiconMap, TranslationMeta, VerseEntry } from "../shared/types";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { FootnotesGuide } from "./components/FootnotesGuide";
@@ -12,8 +12,8 @@ import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/Ve
 import { useHumanAudio } from "./hooks/useHumanAudio";
 import {
 	alignChapterVerses,
-	loadAvailableTranslations,
 	loadLexicon,
+	loadReaderConfig,
 	loadSyncedChapterAudio,
 	loadTranslationChapter,
 } from "./lib/bible-loader";
@@ -23,8 +23,6 @@ const STORAGE_KEY = "logos.reader.preferences.v1";
 interface StoredPrefs {
 	bookNumber: number;
 	chapter: number;
-	enId: string;
-	koId: string;
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
@@ -35,8 +33,6 @@ interface StoredPrefs {
 const DEFAULT_PREFS: StoredPrefs = {
 	bookNumber: 1,
 	chapter: 1,
-	enId: "esv",
-	koId: "krv",
 	stackOrder: "en-first",
 	theme: "paper",
 	fontScale: 1,
@@ -95,14 +91,8 @@ export default function App() {
 
 	const [bookNumber, setBookNumber] = useState(initialHash?.bookNumber ?? initialPrefs.bookNumber);
 	const [chapter, setChapter] = useState(initialHash?.chapter ?? initialPrefs.chapter);
-	const [enTranslations, setEnTranslations] = useState<TranslationMeta[]>([
-		...BUILTIN_ENGLISH_TRANSLATIONS,
-	]);
-	const [koTranslations, setKoTranslations] = useState<TranslationMeta[]>([
-		...BUILTIN_KOREAN_TRANSLATIONS,
-	]);
-	const [enId, setEnId] = useState(initialPrefs.enId);
-	const [koId, setKoId] = useState(initialPrefs.koId);
+	const [selectedEn, setSelectedEn] = useState<TranslationMeta>(CANONICAL_BIBLES.en);
+	const [selectedKo, setSelectedKo] = useState<TranslationMeta>(CANONICAL_BIBLES.ko);
 	const [stackOrder, setStackOrder] = useState<StackOrder>(initialPrefs.stackOrder);
 	const [theme, setTheme] = useState<ReaderTheme>(initialPrefs.theme);
 	const [fontScale, setFontScale] = useState<number>(initialPrefs.fontScale);
@@ -125,14 +115,6 @@ export default function App() {
 	const [pendingScrollVerse, setPendingScrollVerse] = useState<number | null>(null);
 
 	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
-	const selectedEn = useMemo(
-		() => enTranslations.find((t) => t.id === enId) ?? enTranslations[0],
-		[enTranslations, enId],
-	);
-	const selectedKo = useMemo(
-		() => koTranslations.find((t) => t.id === koId) ?? koTranslations[0],
-		[koTranslations, koId],
-	);
 
 	const prevChapterTarget = useMemo(
 		() => getAdjacentChapter(bookNumber, chapter, -1),
@@ -154,8 +136,6 @@ export default function App() {
 			const prefs: StoredPrefs = {
 				bookNumber,
 				chapter,
-				enId,
-				koId,
 				stackOrder,
 				theme,
 				fontScale,
@@ -166,7 +146,7 @@ export default function App() {
 		} catch {
 			// Ignore storage quota errors
 		}
-	}, [bookNumber, chapter, enId, koId, stackOrder, theme, fontScale, koFontStyle, studyMask]);
+	}, [bookNumber, chapter, stackOrder, theme, fontScale, koFontStyle, studyMask]);
 
 	// Sync theme attribute to <html>
 	useEffect(() => {
@@ -181,13 +161,13 @@ export default function App() {
 		}
 	}, [currentBook.usfm, chapter]);
 
-	// Load dynamic translation catalog + compact Korean lexicon once
+	// Load canonical reader configuration + compact Korean lexicon once
 	useEffect(() => {
 		let cancelled = false;
-		loadAvailableTranslations().then((catalog) => {
+		loadReaderConfig().then((cfg) => {
 			if (cancelled) return;
-			setEnTranslations(catalog.english);
-			setKoTranslations(catalog.korean);
+			setSelectedEn(cfg.english);
+			setSelectedKo(cfg.korean);
 		});
 		loadLexicon().then((lex) => {
 			if (!cancelled) setLexicon(lex);
@@ -224,21 +204,19 @@ export default function App() {
 		};
 	}, [selectedEn, selectedKo, bookNumber, chapter]);
 
-	// Sync human-narrated audio tracks whenever book, chapter, or selected translations change
+	// Sync human-narrated audio tracks whenever book or chapter changes
 	useEffect(() => {
 		let cancelled = false;
 		loadSyncedChapterAudio({
 			usfm: currentBook.usfm,
 			chapter,
-			koTranslation: selectedKo,
-			enTranslation: selectedEn,
 		}).then((res) => {
 			if (!cancelled) setAudioTracks(res.tracks);
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [currentBook.usfm, chapter, selectedKo, selectedEn]);
+	}, [currentBook.usfm, chapter]);
 
 	const navigateTo = useCallback((targetBook: number, targetChapter: number, verse?: number) => {
 		setBookNumber(targetBook);
@@ -371,8 +349,6 @@ export default function App() {
 	return (
 		<div id="top" className="app-shell" style={readerStyle}>
 			<TopBar
-				englishTranslations={enTranslations}
-				koreanTranslations={koTranslations}
 				selectedEn={selectedEn}
 				selectedKo={selectedKo}
 				stackOrder={stackOrder}
@@ -380,8 +356,6 @@ export default function App() {
 				fontScale={fontScale}
 				koFontStyle={koFontStyle}
 				studyMask={studyMask}
-				onSelectEn={(t) => setEnId(t.id)}
-				onSelectKo={(t) => setKoId(t.id)}
 				onFlipStackOrder={() =>
 					setStackOrder((prev) => (prev === "en-first" ? "ko-first" : "en-first"))
 				}

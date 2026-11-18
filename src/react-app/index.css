@@ -200,7 +200,8 @@ button {
 	gap: 2px;
 }
 
-.translation-btn {
+.translation-btn,
+.translation-badge {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.3rem;

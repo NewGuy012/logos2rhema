@@ -8,10 +8,7 @@ import { PassagePicker } from "../src/react-app/components/PassagePicker";
 import { TopBar } from "../src/react-app/components/TopBar";
 import { VerseBlock } from "../src/react-app/components/VerseBlock";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
-import {
-	BUILTIN_ENGLISH_TRANSLATIONS,
-	BUILTIN_KOREAN_TRANSLATIONS,
-} from "../src/shared/translations";
+import { CANONICAL_BIBLES } from "../src/shared/translations";
 
 describe("VerseBlock & Korean hover tooltip", () => {
 	const analysis = analyzeKoreanChapter([
@@ -155,23 +152,18 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
-	it("supports 1-click language stack flip and translation selection in TopBar", () => {
+	it("displays canonical ESV and KRV editions and flips stack order in TopBar", () => {
 		const onFlip = mock(() => {});
-		const onSelectEn = mock(() => {});
 
 		render(
 			<TopBar
-				englishTranslations={[...BUILTIN_ENGLISH_TRANSLATIONS]}
-				koreanTranslations={[...BUILTIN_KOREAN_TRANSLATIONS]}
-				selectedEn={BUILTIN_ENGLISH_TRANSLATIONS[0]}
-				selectedKo={BUILTIN_KOREAN_TRANSLATIONS[0]}
+				selectedEn={CANONICAL_BIBLES.en}
+				selectedKo={CANONICAL_BIBLES.ko}
 				stackOrder="en-first"
 				theme="paper"
 				fontScale={1}
 				koFontStyle="serif"
 				studyMask="none"
-				onSelectEn={onSelectEn}
-				onSelectKo={() => {}}
 				onFlipStackOrder={onFlip}
 				onOpenSearch={() => {}}
 				onChangeTheme={() => {}}
@@ -181,12 +173,13 @@ describe("VerseBlock & Korean hover tooltip", () => {
 			/>,
 		);
 
+		expect(screen.getByText("ESV")).toBeDefined();
+		expect(screen.getByText("개역한글")).toBeDefined();
+		expect(screen.queryByRole("button", { name: "Select English translation" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Select Korean translation" })).toBeNull();
+
 		fireEvent.click(screen.getByRole("button", { name: "Flip language stack order" }));
 		expect(onFlip).toHaveBeenCalledTimes(1);
-
-		fireEvent.click(screen.getByRole("button", { name: "Select English translation" }));
-		fireEvent.click(screen.getByRole("menuitemradio", { name: /Berean Standard Bible/ }));
-		expect(onSelectEn).toHaveBeenCalledTimes(1);
 	});
 
 	it("jumps to bilingual passage references from PassagePicker", () => {

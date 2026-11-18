@@ -1,14 +1,12 @@
 import { getBookByNumber } from "../../shared/books";
 import { analyzeKoreanChapter, type ChapterAnalysisResult } from "../../shared/korean-morphology";
-import {
-	BUILTIN_ENGLISH_TRANSLATIONS,
-	BUILTIN_KOREAN_TRANSLATIONS,
-} from "../../shared/translations";
+import { CANONICAL_BIBLES } from "../../shared/translations";
 import type {
 	AlignedVerse,
 	BookBibleData,
 	ChapterAudioResponse,
 	LexiconMap,
+	ReaderConfigResponse,
 	TranslationMeta,
 	VerseEntry,
 } from "../../shared/types";
@@ -27,27 +25,20 @@ export async function loadLexicon(): Promise<LexiconMap> {
 	return lexiconPromise;
 }
 
-export async function loadAvailableTranslations(): Promise<{
-	english: TranslationMeta[];
-	korean: TranslationMeta[];
-	bibleBrainEnabled: boolean;
-}> {
+export async function loadReaderConfig(): Promise<ReaderConfigResponse> {
 	try {
-		const res = await fetch("/api/translations");
+		const res = await fetch("/api/config");
 		if (res.ok) {
-			return (await res.json()) as {
-				english: TranslationMeta[];
-				korean: TranslationMeta[];
-				bibleBrainEnabled: boolean;
-			};
+			return (await res.json()) as ReaderConfigResponse;
 		}
 	} catch {
-		// Fallback to built-ins if API is unreachable during isolated testing
+		// Fallback to canonical bundled config if API is unreachable during isolated testing
 	}
 	return {
-		english: [...BUILTIN_ENGLISH_TRANSLATIONS],
-		korean: [...BUILTIN_KOREAN_TRANSLATIONS],
+		english: CANONICAL_BIBLES.en,
+		korean: CANONICAL_BIBLES.ko,
 		bibleBrainEnabled: false,
+		esvAudioEnabled: false,
 	};
 }
 
@@ -99,21 +90,8 @@ export async function loadTranslationChapter(
 export async function loadSyncedChapterAudio(options: {
 	usfm: string;
 	chapter: number;
-	koTranslation: TranslationMeta;
-	enTranslation: TranslationMeta;
 }): Promise<ChapterAudioResponse> {
-	const params = new URLSearchParams({
-		ko: options.koTranslation.id,
-		en: options.enTranslation.id,
-	});
-	if (options.koTranslation.audioFilesetIds?.length) {
-		params.set("koFileset", options.koTranslation.audioFilesetIds.join(","));
-	}
-	if (options.enTranslation.audioFilesetIds?.length) {
-		params.set("enFileset", options.enTranslation.audioFilesetIds.join(","));
-	}
-
-	const res = await fetch(`/api/audio/${options.usfm}/${options.chapter}?${params.toString()}`);
+	const res = await fetch(`/api/audio/${options.usfm}/${options.chapter}`);
 	if (!res.ok) {
 		return {
 			bookUsfm: options.usfm,

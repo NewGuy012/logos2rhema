@@ -1,4 +1,4 @@
-import { ArrowUpDown, Check, ChevronDown, Headphones, Search, Type } from "lucide-react";
+import { ArrowUpDown, Search, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { TranslationMeta } from "../../shared/types";
@@ -8,8 +8,6 @@ export type ReaderTheme = "paper" | "sepia" | "dark";
 export type KoreanFontStyle = "serif" | "sans";
 
 interface TopBarProps {
-	englishTranslations: TranslationMeta[];
-	koreanTranslations: TranslationMeta[];
 	selectedEn: TranslationMeta;
 	selectedKo: TranslationMeta;
 	stackOrder: StackOrder;
@@ -17,8 +15,6 @@ interface TopBarProps {
 	fontScale: number;
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
-	onSelectEn: (t: TranslationMeta) => void;
-	onSelectKo: (t: TranslationMeta) => void;
 	onFlipStackOrder: () => void;
 	onOpenSearch: () => void;
 	onChangeTheme: (theme: ReaderTheme) => void;
@@ -27,11 +23,9 @@ interface TopBarProps {
 	onChangeStudyMask: (mode: StudyMaskMode) => void;
 }
 
-type OpenPopover = "en" | "ko" | "display" | null;
+type OpenPopover = "display" | null;
 
 export function TopBar({
-	englishTranslations,
-	koreanTranslations,
 	selectedEn,
 	selectedKo,
 	stackOrder,
@@ -39,8 +33,6 @@ export function TopBar({
 	fontScale,
 	koFontStyle,
 	studyMask,
-	onSelectEn,
-	onSelectKo,
 	onFlipStackOrder,
 	onOpenSearch,
 	onChangeTheme,
@@ -89,54 +81,10 @@ export function TopBar({
 				</div>
 
 				<div className="top-controls">
-					<div className="translation-pill-group">
-						<div className="popover-anchor">
-							<button
-								type="button"
-								className="translation-btn"
-								onClick={() => setOpenPopover((prev) => (prev === "en" ? null : "en"))}
-								aria-expanded={openPopover === "en"}
-								aria-label="Select English translation"
-							>
-								<span>{selectedEn.code}</span>
-								<ChevronDown size={13} />
-							</button>
-
-							{openPopover === "en" && (
-								<div className="popover-card" role="menu">
-									<p className="popover-title">English Translation</p>
-									{englishTranslations.map((t) => (
-										<button
-											key={t.id}
-											type="button"
-											role="menuitemradio"
-											aria-checked={t.id === selectedEn.id}
-											className={`translation-option ${t.id === selectedEn.id ? "selected" : ""}`}
-											onClick={() => {
-												onSelectEn(t);
-												setOpenPopover(null);
-											}}
-										>
-											<div>
-												<div className="translation-option-code">
-													{t.code}{" "}
-													{t.id === selectedEn.id && (
-														<Check size={13} style={{ verticalAlign: "middle" }} />
-													)}
-												</div>
-												<div className="translation-option-name">{t.name}</div>
-											</div>
-											{t.hasAudio && (
-												<span className="audio-badge" title={t.audioLabel || "Audio available"}>
-													<Headphones size={11} />
-													Audio
-												</span>
-											)}
-										</button>
-									))}
-								</div>
-							)}
-						</div>
+					<div className="translation-pill-group" aria-label="Canonical language editions">
+						<span className="translation-badge" title={selectedEn.nativeName}>
+							{selectedEn.code}
+						</span>
 
 						<button
 							type="button"
@@ -153,53 +101,9 @@ export function TopBar({
 							<span>{stackOrder === "en-first" ? "EN / 한" : "한 / EN"}</span>
 						</button>
 
-						<div className="popover-anchor">
-							<button
-								type="button"
-								className="translation-btn"
-								onClick={() => setOpenPopover((prev) => (prev === "ko" ? null : "ko"))}
-								aria-expanded={openPopover === "ko"}
-								aria-label="Select Korean translation"
-							>
-								<span>{selectedKo.code}</span>
-								<ChevronDown size={13} />
-							</button>
-
-							{openPopover === "ko" && (
-								<div className="popover-card" role="menu">
-									<p className="popover-title">Korean Translation (한국어)</p>
-									{koreanTranslations.map((t) => (
-										<button
-											key={t.id}
-											type="button"
-											role="menuitemradio"
-											aria-checked={t.id === selectedKo.id}
-											className={`translation-option ${t.id === selectedKo.id ? "selected" : ""}`}
-											onClick={() => {
-												onSelectKo(t);
-												setOpenPopover(null);
-											}}
-										>
-											<div>
-												<div className="translation-option-code">
-													{t.code}{" "}
-													{t.id === selectedKo.id && (
-														<Check size={13} style={{ verticalAlign: "middle" }} />
-													)}
-												</div>
-												<div className="translation-option-name">{t.name}</div>
-											</div>
-											{t.hasAudio && (
-												<span className="audio-badge" title={t.audioLabel || "Audio available"}>
-													<Headphones size={11} />
-													Audio
-												</span>
-											)}
-										</button>
-									))}
-								</div>
-							)}
-						</div>
+						<span className="translation-badge" title={selectedKo.nativeName}>
+							{selectedKo.code}
+						</span>
 					</div>
 
 					<div className="popover-anchor">
