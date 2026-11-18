@@ -97,7 +97,6 @@ const ENGLISH_STOPWORDS = new Set([
 	"him",
 	"sth",
 	"etc",
-	"one",
 	"some",
 ]);
 
@@ -328,12 +327,11 @@ function buildCompactBibleLexicon(
 						}
 					} else {
 						// Check a couple extra stem possibilities directly against fullKengdic
+						const withRieul = replaceLastFinalConsonant(token.lemma, "ㄹ");
 						const altCandidates = [
 							token.lemma,
 							`${token.lemma}다`,
-							replaceLastFinalConsonant(token.lemma, "ㄹ")
-								? `${replaceLastFinalConsonant(token.lemma, "ㄹ")}다`
-								: "",
+							withRieul ? `${withRieul}다` : "",
 							stripLastFinalConsonant(token.lemma)?.stem ?? "",
 						].filter((c) => c.length >= 2);
 						for (const alt of altCandidates) {
@@ -389,8 +387,6 @@ async function main() {
 			Bun.write(join(krvOutDir, `${book.usfm}.json`), JSON.stringify(krvBook)),
 		]);
 	}
-
-	await Bun.write(join(PUBLIC_DATA_DIR, "books.json"), JSON.stringify(BIBLE_BOOKS, null, 2));
 
 	const { lexicon, totalHangulWords, matchedWords } = buildCompactBibleLexicon(
 		krvBooks,

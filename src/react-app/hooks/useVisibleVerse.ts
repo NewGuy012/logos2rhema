@@ -91,8 +91,5 @@ export function useVisibleVerse({ enabled, verseNumbers, resetKey }: UseVisibleV
 		};
 	}, [enabled, verseNumbers]);
 
-	return {
-		visibleVerse,
-		setVisibleVerse,
-	};
+	return { visibleVerse };
 }

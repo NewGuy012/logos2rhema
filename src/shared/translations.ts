@@ -39,19 +39,3 @@ export const CANONICAL_BIBLES: Record<TranslationLanguage, TranslationMeta> = {
 			"Bundled local 1961 개역한글 text synced with Korean human narration and verse timestamps when available.",
 	},
 };
-
-export const BUILTIN_ENGLISH_TRANSLATIONS: readonly TranslationMeta[] = [CANONICAL_BIBLES.en];
-export const BUILTIN_KOREAN_TRANSLATIONS: readonly TranslationMeta[] = [CANONICAL_BIBLES.ko];
-
-export const ALL_BUILTIN_TRANSLATIONS: readonly TranslationMeta[] = [
-	CANONICAL_BIBLES.en,
-	CANONICAL_BIBLES.ko,
-];
-
-export function getCanonicalTranslation(language: TranslationLanguage): TranslationMeta {
-	return CANONICAL_BIBLES[language];
-}
-
-export function getBuiltinTranslation(id: string): TranslationMeta | undefined {
-	return ALL_BUILTIN_TRANSLATIONS.find((t) => t.id === id);
-}
