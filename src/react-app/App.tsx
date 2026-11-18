@@ -200,7 +200,6 @@ export default function App() {
 		resetKey: `${currentBook.usfm}:${chapter}`,
 	});
 
-	// Persist preferences
 	useEffect(() => {
 		try {
 			const prefs: StoredPrefs = {
@@ -219,12 +218,10 @@ export default function App() {
 		}
 	}, [bookNumber, chapter, stackOrder, theme, fontScale, koFontStyle, studyMask, autoSync]);
 
-	// Sync theme attribute to <html>
 	useEffect(() => {
 		document.documentElement.setAttribute("data-theme", theme);
 	}, [theme]);
 
-	// Listen to browser hash/history changes (Back/Forward between Home and chapters)
 	useEffect(() => {
 		const syncFromLocation = () => {
 			const route = parseLocationHash();
@@ -246,7 +243,6 @@ export default function App() {
 		};
 	}, []);
 
-	// Load canonical reader configuration + compact Korean lexicon once
 	useEffect(() => {
 		let cancelled = false;
 		loadReaderConfig().then((cfg) => {
@@ -263,7 +259,6 @@ export default function App() {
 		};
 	}, []);
 
-	// Load chapter verses when viewing a passage
 	useEffect(() => {
 		if (view !== "reader") return;
 		let cancelled = false;
@@ -291,7 +286,6 @@ export default function App() {
 		};
 	}, [view, selectedEn, selectedKo, bookNumber, chapter]);
 
-	// Sync human-narrated audio tracks whenever viewing a chapter
 	useEffect(() => {
 		if (view !== "reader") return;
 		let cancelled = false;
@@ -325,7 +319,6 @@ export default function App() {
 		}
 	}, []);
 
-	// Scroll to requested verse once chapter finishes rendering
 	useEffect(() => {
 		if (!pendingScrollVerse || loadingChapter) return;
 		if (scrollToVerse(pendingScrollVerse)) {
@@ -370,7 +363,6 @@ export default function App() {
 		};
 	}, [audio, autoSync]);
 
-	// Scroll active audio verse into view smoothly when auto-sync & following are active
 	useEffect(() => {
 		if (!audio.activeVerse || !autoSync || !audio.isFollowingAudio) return;
 		scrollToVerse(audio.activeVerse);

@@ -86,7 +86,6 @@ export function useHumanAudio({
 	const playbackRateRef = useRef(playbackRate);
 	playbackRateRef.current = playbackRate;
 
-	// Sync active track cleanly whenever available tracks or preferred language changes
 	const activeTrack = useMemo(() => {
 		const langTracks = tracks.filter((t) => t.language === preferredLang);
 		if (langTracks.length === 0) return null;
@@ -102,7 +101,6 @@ export function useHumanAudio({
 		return resolveVerseAtTime(activeTrack?.verseTimings, currentTime);
 	}, [activeTrack, currentTime, isPlaying]);
 
-	// Initialize persistent HTMLAudioElement once in browser
 	useEffect(() => {
 		if (typeof Audio === "undefined") return;
 		const audio = new Audio();
