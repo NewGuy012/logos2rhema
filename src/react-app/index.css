@@ -41,12 +41,12 @@
 	--glass-shadow: 0 12px 32px -8px rgba(28, 26, 23, 0.1), 0 2px 6px rgba(28, 26, 23, 0.04);
 	--rail-surface: linear-gradient(
 		168deg,
-		color-mix(in srgb, var(--accent) 10%, var(--bg-page)) 0%,
-		color-mix(in srgb, var(--accent) 14%, var(--bg-page)) 100%
+		rgba(242, 239, 232, 0.96) 0%,
+		rgba(236, 233, 225, 0.94) 100%
 	);
-	--rail-border: color-mix(in srgb, var(--accent) 28%, var(--border-hairline));
-	--rail-control: rgba(255, 255, 255, 0.58);
-	--rail-control-hover: rgba(255, 255, 255, 0.82);
+	--rail-border: rgba(28, 26, 23, 0.12);
+	--rail-control: rgba(255, 255, 255, 0.65);
+	--rail-control-hover: rgba(255, 255, 255, 0.88);
 }
 
 [data-theme="sepia"] {
@@ -91,12 +91,12 @@
 	--glass-shadow: 0 12px 32px -8px rgba(45, 36, 24, 0.12), 0 2px 6px rgba(45, 36, 24, 0.05);
 	--rail-surface: linear-gradient(
 		168deg,
-		color-mix(in srgb, var(--accent) 10%, var(--bg-page)) 0%,
-		color-mix(in srgb, var(--accent) 14%, var(--bg-page)) 100%
+		rgba(233, 223, 208, 0.96) 0%,
+		rgba(227, 216, 199, 0.94) 100%
 	);
-	--rail-border: color-mix(in srgb, var(--accent) 28%, var(--border-hairline));
-	--rail-control: rgba(255, 252, 245, 0.54);
-	--rail-control-hover: rgba(255, 252, 245, 0.78);
+	--rail-border: rgba(45, 36, 24, 0.14);
+	--rail-control: rgba(255, 252, 245, 0.58);
+	--rail-control-hover: rgba(255, 252, 245, 0.82);
 }
 
 [data-theme="dark"] {
@@ -134,12 +134,8 @@
 		inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 	--glass-control-specular: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 3px rgba(0, 0, 0, 0.25);
 	--glass-shadow: 0 16px 38px -8px rgba(0, 0, 0, 0.48), 0 2px 8px rgba(0, 0, 0, 0.22);
-	--rail-surface: linear-gradient(
-		168deg,
-		color-mix(in srgb, var(--accent) 12%, var(--bg-surface)) 0%,
-		color-mix(in srgb, var(--accent) 16%, var(--bg-page)) 100%
-	);
-	--rail-border: color-mix(in srgb, var(--accent) 32%, var(--border-hairline));
+	--rail-surface: linear-gradient(168deg, rgba(44, 41, 38, 0.94) 0%, rgba(36, 34, 31, 0.92) 100%);
+	--rail-border: rgba(234, 230, 223, 0.14);
 	--rail-control: rgba(255, 255, 255, 0.08);
 	--rail-control-hover: rgba(255, 255, 255, 0.14);
 }
