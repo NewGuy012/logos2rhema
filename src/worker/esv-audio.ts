@@ -1,5 +1,5 @@
 import type { AudioTrackOption } from "../shared/types";
-import type { FetchLike } from "./helloao";
+import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
 
 const ESV_AUDIO_API_BASE = "https://api.esv.org/v3/passage/audio/";
 
@@ -28,7 +28,7 @@ export async function resolveEsvAudioUrl(
 	const query = formatEsvPassageQuery(options.bookEn, options.chapter, options.chaptersInBook);
 	const endpoint = `${ESV_AUDIO_API_BASE}?q=${encodeURIComponent(query)}`;
 
-	const response = await fetcher(endpoint, {
+	const response = await fetchWithTimeout(fetcher, endpoint, {
 		headers: {
 			Authorization: `Token ${apiKey}`,
 			Accept: "audio/mpeg, */*",
@@ -41,7 +41,12 @@ export async function resolveEsvAudioUrl(
 		const location = response.headers.get("location");
 		if (!location) return null;
 		const resolved = new URL(location, ESV_AUDIO_API_BASE);
-		if (resolved.protocol !== "https:" || resolved.href.includes(apiKey)) {
+		if (
+			!isSafeHttpsUrl(resolved.href, {
+				allowedHostSuffix: ".esv.org",
+				forbiddenSubstring: apiKey,
+			})
+		) {
 			return null;
 		}
 		return { url: resolved.href };
@@ -52,7 +57,10 @@ export async function resolveEsvAudioUrl(
 		if (
 			response.url &&
 			!response.url.startsWith(ESV_AUDIO_API_BASE) &&
-			!response.url.includes(apiKey)
+			isSafeHttpsUrl(response.url, {
+				allowedHostSuffix: ".esv.org",
+				forbiddenSubstring: apiKey,
+			})
 		) {
 			return { url: response.url };
 		}

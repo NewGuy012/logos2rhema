@@ -4,6 +4,7 @@ import { getBookByUsfm } from "../shared/books";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
 	AudioTrackOption,
+	BookMeta,
 	ChapterAudioResponse,
 	ReaderConfigResponse,
 	TranslationLanguage,
@@ -18,7 +19,8 @@ import {
 	type ResolvedAudioFileset,
 } from "./bible-brain";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
-import { extractHelloAoAudioTracks, fetchHelloAoChapter, type FetchLike } from "./helloao";
+import { extractHelloAoAudioTracks, fetchHelloAoChapter } from "./helloao";
+import { type FetchLike, isSafeHttpsUrl } from "./http";
 
 export interface WorkerBindings {
 	ESV_API_KEY?: string;
@@ -86,9 +88,32 @@ async function resolveBibleBrainTracksForLanguage(
 	return results.filter((t): t is AudioTrackOption => t !== null);
 }
 
+function parseChapterRef(
+	usfmRaw: string,
+	chapterRaw: string,
+): { book: BookMeta; usfm: string; chapter: number } | null {
+	if (!/^\d+$/.test(chapterRaw)) return null;
+	const usfm = usfmRaw.toUpperCase();
+	const chapter = Number.parseInt(chapterRaw, 10);
+	const book = getBookByUsfm(usfm);
+	if (!book || chapter < 1 || chapter > book.chapters) return null;
+	return { book, usfm, chapter };
+}
+
 export function createApp(deps: WorkerDeps = {}) {
 	const fetcher = deps.fetcher ?? fetch;
 	const app = new Hono<{ Bindings: WorkerBindings }>();
+
+	app.use("*", async (c, next) => {
+		if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+			c.header("Allow", "GET, HEAD");
+			return c.json({ error: "Method not allowed" }, 405);
+		}
+		await next();
+		c.header("X-Content-Type-Options", "nosniff");
+		c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+		c.header("X-Frame-Options", "DENY");
+	});
 
 	app.get("/api/health", (c) => c.json({ ok: true, service: "logos" }));
 
@@ -143,13 +168,11 @@ export function createApp(deps: WorkerDeps = {}) {
 
 	app.get("/api/passage/:target/:usfm/:chapter", async (c) => {
 		const target = c.req.param("target");
-		const usfm = c.req.param("usfm").toUpperCase();
-		const chapter = Number.parseInt(c.req.param("chapter"), 10);
-
-		const book = getBookByUsfm(usfm);
-		if (!book || Number.isNaN(chapter) || chapter < 1 || chapter > book.chapters) {
+		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		if (!parsed) {
 			return c.json({ error: "Invalid book or chapter reference" }, 400);
 		}
+		const { usfm, chapter } = parsed;
 
 		if (target === "esv" || target === "krv") {
 			return c.json(
@@ -205,13 +228,11 @@ export function createApp(deps: WorkerDeps = {}) {
 	});
 
 	app.get("/api/audio/:usfm/:chapter", async (c) => {
-		const usfm = c.req.param("usfm").toUpperCase();
-		const chapter = Number.parseInt(c.req.param("chapter"), 10);
-
-		const book = getBookByUsfm(usfm);
-		if (!book || Number.isNaN(chapter) || chapter < 1 || chapter > book.chapters) {
+		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		if (!parsed) {
 			return c.json({ error: "Invalid book or chapter reference" }, 400);
 		}
+		const { book, usfm, chapter } = parsed;
 
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
@@ -240,7 +261,7 @@ export function createApp(deps: WorkerDeps = {}) {
 			}
 
 			// 2. Custom hosted/R2 KRV MP3 files
-			if (customAudioBase) {
+			if (customAudioBase && isSafeHttpsUrl(customAudioBase)) {
 				const cleanBase = customAudioBase.replace(/\/+$/, "");
 				koTracks.push({
 					id: `custom:krv:${usfm}:${chapter}`,
@@ -336,12 +357,11 @@ export function createApp(deps: WorkerDeps = {}) {
 	});
 
 	app.get("/api/audio/esv/:usfm/:chapter", async (c) => {
-		const usfm = c.req.param("usfm").toUpperCase();
-		const chapter = Number.parseInt(c.req.param("chapter"), 10);
-		const book = getBookByUsfm(usfm);
-		if (!book || Number.isNaN(chapter) || chapter < 1 || chapter > book.chapters) {
+		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		if (!parsed) {
 			return c.json({ error: "Invalid book or chapter reference" }, 400);
 		}
+		const { book, chapter } = parsed;
 
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		if (!esvApiKey) {
@@ -363,22 +383,14 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		if (resolved.url) {
-			const rangeHeader = c.req.header("Range");
-			const upstream = await fetcher(resolved.url, {
-				headers: rangeHeader ? { Range: rangeHeader } : undefined,
-			});
-			const headers = new Headers();
-			for (const name of ["content-type", "content-length", "content-range", "accept-ranges"]) {
-				const val = upstream.headers.get(name);
-				if (val) headers.set(name, val);
-			}
-			headers.set("Cache-Control", "private, max-age=1800");
-			return new Response(upstream.body, { status: upstream.status, headers });
+			c.header("Cache-Control", "private, max-age=1800");
+			return c.redirect(resolved.url, 302);
 		}
 
 		if (resolved.directStreamResponse) {
 			const headers = new Headers();
-			const contentType = resolved.directStreamResponse.headers.get("content-type") ?? "audio/mpeg";
+			const rawType = resolved.directStreamResponse.headers.get("content-type") ?? "";
+			const contentType = rawType.startsWith("audio/") ? rawType : "audio/mpeg";
 			headers.set("Content-Type", contentType);
 			headers.set("Cache-Control", "private, max-age=1800");
 			return new Response(resolved.directStreamResponse.body, {

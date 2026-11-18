@@ -5,10 +5,11 @@ import type {
 	TranslationLanguage,
 	VerseEntry,
 } from "../shared/types";
-import type { FetchLike } from "./helloao";
+import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
 
 const BIBLE_BRAIN_BASE = "https://4.dbt.io/api";
 const CATALOG_CACHE_TTL_MS = 60 * 60 * 1000;
+const MAX_CATALOG_CACHE_ENTRIES = 100;
 
 export interface BibleBrainFileset {
 	id: string;
@@ -139,30 +140,51 @@ function scoreKoreanBibleForKrv(item: BibleBrainBibleItem): number {
 	return 10;
 }
 
-async function fetchBiblesByLanguage(
-	apiKey: string,
-	langIso: string,
+function setCatalogCache(cacheKey: string, items: BibleBrainBibleItem[]): void {
+	if (items.length === 0) return;
+	if (catalogCache.size >= MAX_CATALOG_CACHE_ENTRIES && !catalogCache.has(cacheKey)) {
+		const oldestKey = catalogCache.keys().next().value;
+		if (oldestKey) catalogCache.delete(oldestKey);
+	}
+	catalogCache.set(cacheKey, {
+		value: items,
+		expiresAt: Date.now() + CATALOG_CACHE_TTL_MS,
+	});
+}
+
+async function fetchCatalogItems<T>(
+	cacheKey: string,
+	url: string,
 	fetcher: FetchLike,
+	extract: (payload: T) => BibleBrainBibleItem[],
 ): Promise<BibleBrainBibleItem[]> {
-	const cacheKey = `lang:${langIso}:${apiKey.slice(-6)}`;
 	const cached = catalogCache.get(cacheKey);
 	if (cached && cached.expiresAt > Date.now()) {
 		return cached.value;
 	}
 
-	const url = `${BIBLE_BRAIN_BASE}/bibles?language_code=${encodeURIComponent(langIso)}&v=4&key=${encodeURIComponent(apiKey)}`;
-	const response = await fetcher(url, {
+	const response = await fetchWithTimeout(fetcher, url, {
 		headers: { Accept: "application/json" },
 	});
 	if (!response.ok) return [];
 
-	const payload = (await response.json()) as { data?: BibleBrainBibleItem[] };
-	const items = payload.data ?? [];
-	catalogCache.set(cacheKey, {
-		value: items,
-		expiresAt: Date.now() + CATALOG_CACHE_TTL_MS,
-	});
+	const items = extract((await response.json()) as T);
+	setCatalogCache(cacheKey, items);
 	return items;
+}
+
+async function fetchBiblesByLanguage(
+	apiKey: string,
+	langIso: string,
+	fetcher: FetchLike,
+): Promise<BibleBrainBibleItem[]> {
+	const url = `${BIBLE_BRAIN_BASE}/bibles?language_code=${encodeURIComponent(langIso)}&v=4&key=${encodeURIComponent(apiKey)}`;
+	return fetchCatalogItems<{ data?: BibleBrainBibleItem[] }>(
+		`lang:${langIso}:${apiKey.slice(-6)}`,
+		url,
+		fetcher,
+		(payload) => payload.data ?? [],
+	);
 }
 
 async function fetchBibleById(
@@ -170,25 +192,14 @@ async function fetchBibleById(
 	bibleId: string,
 	fetcher: FetchLike,
 ): Promise<BibleBrainBibleItem | null> {
-	const cacheKey = `bible:${bibleId}:${apiKey.slice(-6)}`;
-	const cached = catalogCache.get(cacheKey);
-	if (cached && cached.expiresAt > Date.now()) {
-		return cached.value[0] ?? null;
-	}
-
 	const url = `${BIBLE_BRAIN_BASE}/bibles/${encodeURIComponent(bibleId)}?v=4&key=${encodeURIComponent(apiKey)}`;
-	const response = await fetcher(url, {
-		headers: { Accept: "application/json" },
-	});
-	if (!response.ok) return null;
-
-	const payload = (await response.json()) as { data?: BibleBrainBibleItem };
-	if (!payload.data) return null;
-	catalogCache.set(cacheKey, {
-		value: [payload.data],
-		expiresAt: Date.now() + CATALOG_CACHE_TTL_MS,
-	});
-	return payload.data;
+	const items = await fetchCatalogItems<{ data?: BibleBrainBibleItem }>(
+		`bible:${bibleId}:${apiKey.slice(-6)}`,
+		url,
+		fetcher,
+		(payload) => (payload.data ? [payload.data] : []),
+	);
+	return items[0] ?? null;
 }
 
 /**
@@ -252,7 +263,9 @@ export async function fetchBibleBrainLanguages(
 	fetcher: FetchLike = fetch,
 ): Promise<BibleBrainLanguageItem[]> {
 	const url = `${BIBLE_BRAIN_BASE}/languages?v=4&key=${encodeURIComponent(apiKey)}`;
-	const response = await fetcher(url, { headers: { Accept: "application/json" } });
+	const response = await fetchWithTimeout(fetcher, url, {
+		headers: { Accept: "application/json" },
+	});
 	if (!response.ok) return [];
 	const payload = (await response.json()) as { data?: BibleBrainLanguageItem[] };
 	return payload.data ?? [];
@@ -294,7 +307,9 @@ export async function fetchBibleBrainChapterText(
 	fetcher: FetchLike = fetch,
 ): Promise<VerseEntry[]> {
 	const url = `${BIBLE_BRAIN_BASE}/bibles/filesets/${encodeURIComponent(filesetId)}/${encodeURIComponent(usfm)}/${chapter}?v=4&key=${encodeURIComponent(apiKey)}`;
-	const response = await fetcher(url, { headers: { Accept: "application/json" } });
+	const response = await fetchWithTimeout(fetcher, url, {
+		headers: { Accept: "application/json" },
+	});
 	if (!response.ok) return [];
 
 	const payload = (await response.json()) as BibleBrainVersesResponse;
@@ -324,15 +339,15 @@ export async function fetchBibleBrainAudioTrack(
 
 	// Request audio stream URL and verse timestamps in parallel
 	const [audioRes, tsRes] = await Promise.all([
-		fetcher(audioUrl, { headers: { Accept: "application/json" } }),
-		fetcher(tsUrl, { headers: { Accept: "application/json" } }).catch(() => null),
+		fetchWithTimeout(fetcher, audioUrl, { headers: { Accept: "application/json" } }),
+		fetchWithTimeout(fetcher, tsUrl, { headers: { Accept: "application/json" } }).catch(() => null),
 	]);
 
 	if (!audioRes.ok) return null;
 
 	const audioPayload = (await audioRes.json()) as BibleBrainVersesResponse;
 	const mp3Path = audioPayload.data?.[0]?.path;
-	if (!mp3Path) return null;
+	if (!mp3Path || !isSafeHttpsUrl(mp3Path, { forbiddenSubstring: apiKey })) return null;
 
 	let verseTimings: Record<number, number> | undefined;
 	if (tsRes?.ok) {

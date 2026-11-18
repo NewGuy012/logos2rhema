@@ -1,8 +1,9 @@
 import type { AudioTrackOption, TranslationLanguage } from "../shared/types";
+import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
+
+export type { FetchLike };
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
-
-export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface HelloAoAudioPayload {
 	thisChapterAudioLinks?: Record<string, string>;
@@ -27,7 +28,7 @@ export function extractHelloAoAudioTracks(
 	const tracks: AudioTrackOption[] = [];
 
 	for (const [readerKey, url] of Object.entries(links)) {
-		if (!url) continue;
+		if (!url || !isSafeHttpsUrl(url)) continue;
 		const rawTimings = timingsByReader[readerKey];
 		let verseTimings: Record<number, number> | undefined;
 		if (rawTimings && Object.keys(rawTimings).length > 0) {
@@ -63,7 +64,7 @@ export async function fetchHelloAoChapter(
 	fetcher: FetchLike = fetch,
 ): Promise<HelloAoAudioPayload | null> {
 	const url = `${HELLOAO_BASE}/${encodeURIComponent(externalTranslationId)}/${encodeURIComponent(usfm)}/${chapter}.json`;
-	const response = await fetcher(url, {
+	const response = await fetchWithTimeout(fetcher, url, {
 		headers: { Accept: "application/json" },
 	});
 	if (!response.ok) {

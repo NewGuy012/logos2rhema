@@ -252,9 +252,26 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(passageBody.verses[0]?.verse).toBe(16);
 	});
 
-	it("validates invalid chapter references with HTTP 400", async () => {
-		const app = createApp();
-		const res = await app.request("/api/audio/GEN/999");
-		expect(res.status).toBe(400);
+	it("validates invalid chapter references, methods, and insecure audio URLs", async () => {
+		const mockFetch: FetchLike = async (input) => {
+			const url = String(input);
+			if (url.includes("/kor_old/GEN/1.json")) {
+				return Response.json({
+					thisChapterAudioLinks: { wordproject: "http://insecure.example.com/gen1.mp3" },
+				});
+			}
+			return new Response("Not Found", { status: 404 });
+		};
+
+		const app = createApp({ fetcher: mockFetch });
+		expect((await app.request("/api/audio/GEN/999")).status).toBe(400);
+		expect((await app.request("/api/audio/GEN/1abc")).status).toBe(400);
+		expect((await app.request("/api/audio/GEN/1", { method: "POST" })).status).toBe(405);
+
+		const res = await app.request("/api/audio/GEN/1");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		const body = (await res.json()) as ChapterAudioResponse;
+		expect(body.tracks).toEqual([]);
 	});
 });
