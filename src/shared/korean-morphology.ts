@@ -1,5 +1,10 @@
 import { BIBLICAL_GLOSSARY, detectKrvGrammarNotes } from "./biblical-glossary";
-import { containsHangul, replaceLastFinalConsonant, stripLastFinalConsonant } from "./hangul";
+import {
+	containsHangul,
+	hasFinalConsonant,
+	replaceLastFinalConsonant,
+	stripLastFinalConsonant,
+} from "./hangul";
 import type {
 	FootnoteVocabEntry,
 	GlossToken,
@@ -187,7 +192,6 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	{ suffix: "으니", note: "'so / since / when'", kind: "verb" },
 	{ suffix: "으나", note: "'but / though'", kind: "verb" },
 	{ suffix: "으면", note: "'if / when'", kind: "verb" },
-	{ suffix: "으로", note: "'because of / by'", kind: "verb" },
 	{ suffix: "으라", note: "imperative ('command')", kind: "verb" },
 	{ suffix: "으사", note: "archaic connective ('having ...')", kind: "verb" },
 	{ suffix: "으되", note: "'though / saying'", kind: "verb" },
@@ -322,9 +326,162 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	{ suffix: "라", note: "imperative / declarative", kind: "verb" },
 ];
 
-const ALL_LEXICON_LOOKUP = (key: string, lexicon: LexiconMap): LexiconEntry | undefined => {
-	return BIBLICAL_GLOSSARY[key] ?? lexicon[key];
-};
+const SORTED_PARTICLE_RULES: readonly SuffixRule[] = [...PARTICLE_RULES].sort(
+	(a, b) => b.suffix.length - a.suffix.length,
+);
+
+const SORTED_NOMINAL_RULES: readonly SuffixRule[] = [...PARTICLE_RULES, ...COPULA_RULES].sort(
+	(a, b) => b.suffix.length - a.suffix.length,
+);
+
+const SORTED_VERB_ENDING_RULES: readonly SuffixRule[] = [...VERB_ENDING_RULES].sort(
+	(a, b) => b.suffix.length - a.suffix.length,
+);
+
+type EntryLookup = (key: string) => LexiconEntry | undefined;
+
+function isSafeLexiconNounStem(stem: string): boolean {
+	return stem.length >= 2 && !stem.endsWith("하");
+}
+
+function makeToken(
+	parts: { leadPunct: string; word: string; trailPunct: string },
+	raw: string,
+	lemma: string,
+	entry: LexiconEntry,
+	grammarNote?: string,
+): GlossToken {
+	return {
+		raw,
+		leadPunct: parts.leadPunct,
+		word: parts.word,
+		trailPunct: parts.trailPunct,
+		lemma,
+		gloss: entry.gloss,
+		hanja: entry.hanja,
+		pos: entry.pos,
+		grammarNote,
+		matched: true,
+	};
+}
+
+function matchNominalRules(
+	raw: string,
+	parts: { leadPunct: string; word: string; trailPunct: string },
+	lookup: EntryLookup,
+	allowSingleCharNoun: boolean,
+): GlossToken | null {
+	const { word } = parts;
+	for (const rule of SORTED_NOMINAL_RULES) {
+		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
+		const stem = word.slice(0, -rule.suffix.length);
+
+		if (allowSingleCharNoun || isSafeLexiconNounStem(stem)) {
+			const directStem = lookup(stem);
+			if (directStem) {
+				return makeToken(parts, raw, stem, directStem, `${rule.suffix} (${rule.note})`);
+			}
+		}
+
+		// Handle nominalized verb + particle/copula (e.g. 부족함이, 있음이, 함이라)
+		if (stem.endsWith("음") && stem.length >= 2) {
+			const baseStem = stem.slice(0, -1);
+			for (const candidate of generatePredicateLemmaCandidates(baseStem, false)) {
+				const hit = lookup(candidate);
+				if (hit) {
+					return makeToken(
+						parts,
+						raw,
+						candidate,
+						hit,
+						`-음 (nominalizer) + ${rule.suffix} (${rule.note})`,
+					);
+				}
+			}
+		}
+
+		// Strip -ㅁ/-ㄴ/-ㄹ nominalizer/modifier inside particles, or -ㅁ nominalizer inside copulas
+		const coda = stripLastFinalConsonant(stem);
+		const allowCoda =
+			coda &&
+			(rule.kind === "particle" ? ["ㅁ", "ㄴ", "ㄹ"].includes(coda.final) : coda.final === "ㅁ");
+		if (coda && allowCoda) {
+			for (const candidate of generatePredicateLemmaCandidates(coda.stem, false)) {
+				const hit = lookup(candidate);
+				if (hit) {
+					return makeToken(
+						parts,
+						raw,
+						candidate,
+						hit,
+						`-${coda.final} + ${rule.suffix} (${rule.note})`,
+					);
+				}
+			}
+		}
+	}
+	return null;
+}
+
+function matchVerbOrModifier(
+	raw: string,
+	parts: { leadPunct: string; word: string; trailPunct: string },
+	lookup: EntryLookup,
+	allowSingleCharNoun: boolean,
+): GlossToken | null {
+	const { word } = parts;
+
+	for (const rule of SORTED_VERB_ENDING_RULES) {
+		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
+		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
+
+		for (const candidate of generatePredicateLemmaCandidates(stem, rule.suffix === "지")) {
+			const hit = lookup(candidate);
+			if (hit) {
+				return makeToken(parts, raw, candidate, hit, `-${rule.suffix} (${rule.note})`);
+			}
+		}
+
+		// Handle -ㄹ찌라도 / -ㄹ지니라 / -ㄹ지어다 / -ㄹ찐대 / -ㄹ까 where ㄹ is the final consonant of stem
+		if (["찌라도", "지라도", "찐대", "지니라", "지어다", "까"].includes(rule.suffix)) {
+			const strippedRieul = stripLastFinalConsonant(stem);
+			if (strippedRieul && strippedRieul.final === "ㄹ") {
+				for (const candidate of generatePredicateLemmaCandidates(strippedRieul.stem, false)) {
+					const hit = lookup(candidate);
+					if (hit) {
+						return makeToken(parts, raw, candidate, hit, `-ㄹ${rule.suffix} (${rule.note})`);
+					}
+				}
+			}
+		}
+
+		if (allowSingleCharNoun || isSafeLexiconNounStem(stem)) {
+			const nounHit = lookup(stem);
+			if (nounHit) {
+				return makeToken(parts, raw, stem, nounHit, `-${rule.suffix} (${rule.note})`);
+			}
+		}
+	}
+
+	// Check predicate modifiers formed purely via final consonant (-ㄴ/-ㄹ/-ㅁ) without suffix (큰 -> 크다, 무를 -> 무르다)
+	const strippedTail = stripLastFinalConsonant(word);
+	if (strippedTail && ["ㄴ", "ㄹ", "ㅁ"].includes(strippedTail.final)) {
+		for (const candidate of generatePredicateLemmaCandidates(strippedTail.stem, false)) {
+			const hit = lookup(candidate);
+			if (hit) {
+				const modNote =
+					strippedTail.final === "ㄴ"
+						? "-ㄴ (modifier)"
+						: strippedTail.final === "ㄹ"
+							? "-ㄹ (future modifier)"
+							: "-ㅁ (nominalizer)";
+				return makeToken(parts, raw, candidate, hit, modNote);
+			}
+		}
+	}
+
+	return null;
+}
 
 function generatePredicateLemmaCandidates(rawStem: string, allowHaSuffix = true): string[] {
 	if (!rawStem) return [];
@@ -385,13 +542,16 @@ function generatePredicateLemmaCandidates(rawStem: string, allowHaSuffix = true)
 		}
 	}
 
-	// ㄹ-deletion before -시-/-니-/-ㅂ- (만드시니라 -> 만드 -> 만들다)
-	const withRieul = replaceLastFinalConsonant(rawStem, "ㄹ");
-	if (withRieul) push(`${withRieul}다`);
+	// ㄹ-deletion & ㅅ-irregular only occur when the surface stem ends in an open vowel (no coda)
+	if (!hasFinalConsonant(rawStem)) {
+		// ㄹ-deletion before -시-/-니-/-ㅂ- (만드시니라 -> 만드 -> 만들다)
+		const withRieul = replaceLastFinalConsonant(rawStem, "ㄹ");
+		if (withRieul) push(`${withRieul}다`);
 
-	// ㅅ-irregular (지으시니 -> 지 -> 짓다)
-	const withSiot = replaceLastFinalConsonant(rawStem, "ㅅ");
-	if (withSiot) push(`${withSiot}다`);
+		// ㅅ-irregular (지으시니 -> 지 -> 짓다)
+		const withSiot = replaceLastFinalConsonant(rawStem, "ㅅ");
+		if (withSiot) push(`${withSiot}다`);
+	}
 
 	// ㄷ-irregular (들으라 -> 들 -> 듣다)
 	const strippedCoda = stripLastFinalConsonant(rawStem);
@@ -431,7 +591,8 @@ function splitPunctuation(raw: string): {
 }
 
 export function analyzeKoreanWord(raw: string, lexicon: LexiconMap = {}): GlossToken {
-	const { leadPunct, word, trailPunct } = splitPunctuation(raw);
+	const parts = splitPunctuation(raw);
+	const { leadPunct, word, trailPunct } = parts;
 
 	if (!word || !containsHangul(word)) {
 		return {
@@ -445,222 +606,49 @@ export function analyzeKoreanWord(raw: string, lexicon: LexiconMap = {}): GlossT
 		};
 	}
 
+	const glossaryLookup: EntryLookup = (key) => BIBLICAL_GLOSSARY[key];
+	const lexiconLookup: EntryLookup = (key) => lexicon[key];
+
 	// 1. Direct exact lookup in curated biblical glossary first
 	const exactGlossary = BIBLICAL_GLOSSARY[word];
 	if (exactGlossary) {
-		return {
-			raw,
-			leadPunct,
-			word,
-			trailPunct,
-			lemma: word,
-			gloss: exactGlossary.gloss,
-			hanja: exactGlossary.hanja,
-			pos: exactGlossary.pos,
-			matched: true,
-		};
+		return makeToken(parts, raw, word, exactGlossary);
 	}
 
-	// 2. Prioritize curated biblical stem + particle (avoids noisy Kengdic entries like 위에="hereinbefore")
-	for (const rule of PARTICLE_RULES) {
-		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
-		const stem = word.slice(0, -rule.suffix.length);
-		const glossaryStem = BIBLICAL_GLOSSARY[stem];
-		if (glossaryStem) {
-			return {
-				raw,
-				leadPunct,
-				word,
-				trailPunct,
-				lemma: stem,
-				gloss: glossaryStem.gloss,
-				hanja: glossaryStem.hanja,
-				pos: glossaryStem.pos,
-				grammarNote: `${rule.suffix} (${rule.note})`,
-				matched: true,
-			};
+	// 2. Curated biblical stem + particle/copula (avoids noisy Kengdic entries like 위에="hereinbefore")
+	const glossaryNominal = matchNominalRules(raw, parts, glossaryLookup, true);
+	if (glossaryNominal) {
+		return glossaryNominal;
+	}
+
+	// 3. Curated biblical verbs/adjectives & irregular conjugations before general Kengdic lookup
+	const glossaryVerb = matchVerbOrModifier(raw, parts, glossaryLookup, true);
+	if (glossaryVerb) {
+		return glossaryVerb;
+	}
+
+	// 4. Direct exact lookup in general lexicon (skip 1-syllable homograph noise)
+	if (word.length >= 2) {
+		const exactLexicon = lexicon[word];
+		if (exactLexicon) {
+			return makeToken(parts, raw, word, exactLexicon);
 		}
 	}
 
-	// 3. Direct exact lookup in general lexicon
-	const exactLexicon = lexicon[word];
-	if (exactLexicon) {
-		return {
-			raw,
-			leadPunct,
-			word,
-			trailPunct,
-			lemma: word,
-			gloss: exactLexicon.gloss,
-			hanja: exactLexicon.hanja,
-			pos: exactLexicon.pos,
-			matched: true,
-		};
+	// 5. Particle & Copula stripping against general lexicon (block 1-syllable and *-하 verb stems)
+	const lexiconNominal = matchNominalRules(raw, parts, lexiconLookup, false);
+	if (lexiconNominal) {
+		return lexiconNominal;
 	}
 
-	// 4. Particle & Copula stripping against full lexicon (nouns, names, nominalized forms)
-	for (const rule of [...PARTICLE_RULES, ...COPULA_RULES]) {
-		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
-		const stem = word.slice(0, -rule.suffix.length);
-
-		const directStem = ALL_LEXICON_LOOKUP(stem, lexicon);
-		if (directStem) {
-			return {
-				raw,
-				leadPunct,
-				word,
-				trailPunct,
-				lemma: stem,
-				gloss: directStem.gloss,
-				hanja: directStem.hanja,
-				pos: directStem.pos,
-				grammarNote: `${rule.suffix} (${rule.note})`,
-				matched: true,
-			};
-		}
-
-		// Handle nominalized verb + particle (e.g. 부족함이 = 부족하 + -ㅁ + 이, 있음이 = 있 + -음 + 이)
-		if (stem.endsWith("음") && stem.length >= 2) {
-			const baseStem = stem.slice(0, -1);
-			for (const candidate of generatePredicateLemmaCandidates(baseStem, false)) {
-				const hit = ALL_LEXICON_LOOKUP(candidate, lexicon);
-				if (hit) {
-					return {
-						raw,
-						leadPunct,
-						word,
-						trailPunct,
-						lemma: candidate,
-						gloss: hit.gloss,
-						hanja: hit.hanja,
-						pos: hit.pos,
-						grammarNote: `-음 (nominalizer) + ${rule.suffix} (${rule.note})`,
-						matched: true,
-					};
-				}
-			}
-		}
-
-		// Only strip -ㅁ/-ㄴ/-ㄹ from stem inside PARTICLE_RULES (e.g. 보내심을 -> 보내다), not full verb conjugation inside copula
-		if (rule.kind === "particle") {
-			const coda = stripLastFinalConsonant(stem);
-			if (coda && ["ㅁ", "ㄴ", "ㄹ"].includes(coda.final)) {
-				for (const candidate of generatePredicateLemmaCandidates(coda.stem, false)) {
-					const hit = ALL_LEXICON_LOOKUP(candidate, lexicon);
-					if (hit) {
-						return {
-							raw,
-							leadPunct,
-							word,
-							trailPunct,
-							lemma: candidate,
-							gloss: hit.gloss,
-							hanja: hit.hanja,
-							pos: hit.pos,
-							grammarNote: `-${coda.final} + ${rule.suffix} (${rule.note})`,
-							matched: true,
-						};
-					}
-				}
-			}
-		}
+	// 6. Verb / Adjective ending stripping against general lexicon
+	const lexiconVerb = matchVerbOrModifier(raw, parts, lexiconLookup, false);
+	if (lexiconVerb) {
+		return lexiconVerb;
 	}
 
-	// 5. Verb / Adjective ending stripping
-	for (const rule of VERB_ENDING_RULES) {
-		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
-		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
-
-		for (const candidate of generatePredicateLemmaCandidates(stem, rule.suffix === "지")) {
-			const hit = ALL_LEXICON_LOOKUP(candidate, lexicon);
-			if (hit) {
-				return {
-					raw,
-					leadPunct,
-					word,
-					trailPunct,
-					lemma: candidate,
-					gloss: hit.gloss,
-					hanja: hit.hanja,
-					pos: hit.pos,
-					grammarNote: `-${rule.suffix} (${rule.note})`,
-					matched: true,
-				};
-			}
-		}
-
-		// Handle -ㄹ찌라도 / -ㄹ지니라 / -ㄹ지어다 / -ㄹ찐대 / -ㄹ까 where ㄹ is the final consonant of stem
-		if (["찌라도", "지라도", "찐대", "지니라", "지어다", "까"].includes(rule.suffix)) {
-			const strippedRieul = stripLastFinalConsonant(stem);
-			if (strippedRieul && strippedRieul.final === "ㄹ") {
-				for (const candidate of generatePredicateLemmaCandidates(strippedRieul.stem, false)) {
-					const hit = ALL_LEXICON_LOOKUP(candidate, lexicon);
-					if (hit) {
-						return {
-							raw,
-							leadPunct,
-							word,
-							trailPunct,
-							lemma: candidate,
-							gloss: hit.gloss,
-							hanja: hit.hanja,
-							pos: hit.pos,
-							grammarNote: `-ㄹ${rule.suffix} (${rule.note})`,
-							matched: true,
-						};
-					}
-				}
-			}
-		}
-
-		// Also allow bare noun + ending in cases like "빛이라" or compound forms
-		const nounHit = ALL_LEXICON_LOOKUP(stem, lexicon);
-		if (nounHit) {
-			return {
-				raw,
-				leadPunct,
-				word,
-				trailPunct,
-				lemma: stem,
-				gloss: nounHit.gloss,
-				hanja: nounHit.hanja,
-				pos: nounHit.pos,
-				grammarNote: `-${rule.suffix} (${rule.note})`,
-				matched: true,
-			};
-		}
-	}
-
-	// 6. Check predicate modifiers formed purely via final consonant (-ㄴ/-ㄹ/-ㅁ) without suffix (큰 -> 크다, 됨 -> 되다)
-	const strippedTail = stripLastFinalConsonant(word);
-	if (strippedTail && ["ㄴ", "ㄹ", "ㅁ"].includes(strippedTail.final)) {
-		for (const candidate of generatePredicateLemmaCandidates(strippedTail.stem, false)) {
-			const hit = ALL_LEXICON_LOOKUP(candidate, lexicon);
-			if (hit) {
-				const modNote =
-					strippedTail.final === "ㄴ"
-						? "-ㄴ (modifier)"
-						: strippedTail.final === "ㄹ"
-							? "-ㄹ (future modifier)"
-							: "-ㅁ (nominalizer)";
-				return {
-					raw,
-					leadPunct,
-					word,
-					trailPunct,
-					lemma: candidate,
-					gloss: hit.gloss,
-					hanja: hit.hanja,
-					pos: hit.pos,
-					grammarNote: modNote,
-					matched: true,
-				};
-			}
-		}
-	}
-
-	// 5. Fallback: strip the most probable particle/ending so even rare words show a clean root guess
-	for (const rule of PARTICLE_RULES) {
+	// 7. Fallback: strip the most probable particle/ending so even rare words show a clean root guess
+	for (const rule of SORTED_PARTICLE_RULES) {
 		if (word.endsWith(rule.suffix) && word.length > rule.suffix.length) {
 			const stem = word.slice(0, -rule.suffix.length);
 			return {

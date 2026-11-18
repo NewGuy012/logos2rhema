@@ -46,6 +46,42 @@ describe("korean-morphology", () => {
 		expect(analyzeKoreanWord("어두운", SAMPLE_LEXICON).lemma).toBe("어둡다");
 	});
 
+	it("avoids 1-syllable and homograph false positives across Ruth 4, Psalm 23, and Gospels", () => {
+		const noisyLexicon: LexiconMap = {
+			하: { gloss: "Below, underneath" },
+			죽: { gloss: "Rice porridge" },
+			무: { gloss: "Radish" },
+			함: { gloss: "box for clothes or stuff" },
+			누: { gloss: "sack" },
+			모: { gloss: "corner, angle" },
+			고하: { gloss: "worth, quality" },
+			행하: { gloss: "giving gifts or money to the workers" },
+			사라: { gloss: "sarah" },
+			사서: { gloss: "librarian" },
+			자라: { gloss: "softshell" },
+			여기: { gloss: "finicky in a bad way" },
+		};
+
+		expect(analyzeKoreanWord("하는", noisyLexicon).lemma).toBe("하다");
+		expect(analyzeKoreanWord("함이라", noisyLexicon).lemma).toBe("하다");
+		expect(analyzeKoreanWord("행하는", noisyLexicon).lemma).toBe("행하다");
+		expect(analyzeKoreanWord("죽은", noisyLexicon).lemma).toBe("죽다");
+		expect(analyzeKoreanWord("무를", noisyLexicon).lemma).toBe("무르다");
+		expect(analyzeKoreanWord("누이시며", noisyLexicon).lemma).toBe("누이다");
+		expect(analyzeKoreanWord("모이고", noisyLexicon).lemma).toBe("모이다");
+		expect(analyzeKoreanWord("사라고", noisyLexicon).lemma).toBe("사다");
+		expect(analyzeKoreanWord("사서", noisyLexicon).lemma).toBe("사다");
+		expect(analyzeKoreanWord("고하여", noisyLexicon).lemma).toBe("고하다");
+		expect(analyzeKoreanWord("취하라", noisyLexicon).lemma).toBe("취하다");
+		expect(analyzeKoreanWord("여기", noisyLexicon).gloss).toBe("here");
+		expect(analyzeKoreanWord("성문에", noisyLexicon).gloss).toBe("city gate");
+		expect(analyzeKoreanWord("기업을", noisyLexicon).gloss).toContain("inheritance");
+		expect(analyzeKoreanWord("지방에서", noisyLexicon).gloss).toContain("region");
+		expect(analyzeKoreanWord("상을", noisyLexicon).lemma).toBe("상");
+		expect(analyzeKoreanWord("아기를", noisyLexicon).lemma).toBe("아기");
+		expect(analyzeKoreanWord("나지", noisyLexicon).lemma).toBe("나다");
+	});
+
 	it("builds deduplicated chapter footnotes and KRV grammar notes", () => {
 		const analysis = analyzeKoreanChapter(
 			[

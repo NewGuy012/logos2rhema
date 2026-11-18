@@ -51,6 +51,62 @@ async function ensureSourceFile(filename: string, url?: string): Promise<string>
 	return targetPath;
 }
 
+interface KengdicCandidate {
+	entry: LexiconEntry;
+	grade: string;
+}
+
+const ENGLISH_STOPWORDS = new Set([
+	"the",
+	"and",
+	"that",
+	"for",
+	"with",
+	"his",
+	"her",
+	"was",
+	"were",
+	"are",
+	"not",
+	"but",
+	"they",
+	"them",
+	"their",
+	"you",
+	"your",
+	"our",
+	"all",
+	"who",
+	"from",
+	"into",
+	"unto",
+	"shall",
+	"will",
+	"have",
+	"had",
+	"has",
+	"this",
+	"then",
+	"said",
+	"when",
+	"upon",
+	"out",
+	"one",
+	"there",
+	"she",
+	"him",
+	"sth",
+	"etc",
+	"one",
+	"some",
+]);
+
+function extractEnglishKeywords(text: string): string[] {
+	const matches = text.toLowerCase().match(/[a-z]{3,}/g);
+	if (!matches) return [];
+	return matches.filter((w) => !ENGLISH_STOPWORDS.has(w));
+}
+
 function cleanGloss(rawGloss: string): string {
 	let cleaned = rawGloss.replace(/\s+/g, " ").trim();
 	// Drop unbalanced leading "(" artifacts found in some kengdic entries
@@ -64,24 +120,55 @@ function cleanGloss(rawGloss: string): string {
 		.split(/\s*[;,]\s*/)
 		.map((s) => s.trim())
 		.filter(Boolean);
-	return parts.slice(0, 2).join(", ");
+	let result = parts.slice(0, 2).join(", ");
+	const openParens = (result.match(/\(/g) ?? []).length;
+	const closeParens = (result.match(/\)/g) ?? []).length;
+	if (openParens > closeParens) {
+		result = `${result})`;
+	} else if (closeParens > openParens) {
+		result = result.replace(/\)+$/, "");
+	}
+	return result;
 }
 
-function scoreKengdicSense(gloss: string, hanja: string): number {
+function scoreKengdicSense(candidate: KengdicCandidate, esvContext?: Map<string, number>): number {
+	const { entry, grade } = candidate;
+	const gloss = entry.gloss;
 	let score = 0;
-	if (gloss.length >= 2 && gloss.length <= 28) score += 20;
-	if (gloss.length > 55) score -= 15;
-	if (/bus|train|register|gizzard|slang|computing/i.test(gloss)) score -= 30;
-	if (/god|heaven|earth|spirit|love|faith|grace|truth|king|light|dark/i.test(gloss)) score += 10;
-	if (hanja) score += 5;
+
+	// Use Kengdic frequency grade (A > B > C) instead of blindly rewarding Hanja homographs
+	if (grade === "A") score += 25;
+	else if (grade === "B") score += 16;
+	else if (grade === "C") score += 6;
+
+	if (gloss.length >= 2 && gloss.length <= 28) score += 12;
+	if (gloss.length > 55) score -= 12;
+	if (
+		/bus|train|register|gizzard|slang|computing|glottis|softshell|librarian|emasculate|nonsuit|demimondaine|bedtick|calyptra|voiceprint/i.test(
+			gloss,
+		)
+	) {
+		score -= 30;
+	}
 	if (!/[()]/.test(gloss)) score += 3;
+
+	if (esvContext) {
+		let esvHits = 0;
+		for (const kw of extractEnglishKeywords(gloss)) {
+			const exact = esvContext.get(kw) ?? 0;
+			const plural = esvContext.get(`${kw}s`) ?? 0;
+			esvHits += exact + plural;
+		}
+		score += Math.min(45, esvHits * 8);
+	}
+
 	return score;
 }
 
-async function loadFullKengdic(tsvPath: string): Promise<LexiconMap> {
+async function loadKengdicCandidates(tsvPath: string): Promise<Map<string, KengdicCandidate[]>> {
 	const tsv = await Bun.file(tsvPath).text();
 	const lines = tsv.split(/\r?\n/);
-	const bestScored = new Map<string, { entry: LexiconEntry; score: number }>();
+	const candidates = new Map<string, KengdicCandidate[]>();
 
 	for (let i = 1; i < lines.length; i++) {
 		const cols = lines[i].split("\t");
@@ -89,24 +176,97 @@ async function loadFullKengdic(tsvPath: string): Promise<LexiconMap> {
 		const surface = cols[1]?.trim();
 		const rawHanja = cols[2]?.trim() ?? "";
 		const rawGloss = cols[3]?.trim() ?? "";
+		const grade = cols[4]?.trim() ?? "";
 		if (!surface || !rawGloss || !containsHangul(surface) || surface.includes(" ")) {
 			continue;
 		}
 		const cleaned = cleanGloss(rawGloss);
 		if (!cleaned || cleaned.length < 2) continue;
 
-		const score = scoreKengdicSense(cleaned, rawHanja);
-		const existing = bestScored.get(surface);
-		if (!existing || score > existing.score) {
-			const entry: LexiconEntry = { gloss: cleaned };
-			if (rawHanja) entry.hanja = rawHanja;
-			bestScored.set(surface, { entry, score });
+		const entry: LexiconEntry = { gloss: cleaned };
+		if (rawHanja) entry.hanja = rawHanja;
+		const list = candidates.get(surface);
+		if (list) {
+			list.push({ entry, grade });
+		} else {
+			candidates.set(surface, [{ entry, grade }]);
 		}
 	}
 
+	return candidates;
+}
+
+function buildEsvContextIndex(
+	esvBooks: Map<number, BookBibleData>,
+	krvBooks: Map<number, BookBibleData>,
+	candidatesBySurface: Map<string, KengdicCandidate[]>,
+): Map<string, Map<string, number>> {
+	// Only track ESV co-occurrence for multi-sense Kengdic entries to keep memory minimal
+	const ambiguousKeys = new Set<string>();
+	for (const [key, list] of candidatesBySurface.entries()) {
+		if (list.length >= 2 && key.length >= 2) {
+			ambiguousKeys.add(key);
+		}
+	}
+
+	const placeholderLexicon: LexiconMap = {};
+	for (const key of ambiguousKeys) {
+		placeholderLexicon[key] = { gloss: key };
+	}
+
+	const contextMap = new Map<string, Map<string, number>>();
+
+	for (const [bookNum, krvBook] of krvBooks.entries()) {
+		const esvBook = esvBooks.get(bookNum);
+		if (!esvBook) continue;
+
+		for (const [chapKey, krvVerses] of Object.entries(krvBook.chapters)) {
+			const esvVerses = esvBook.chapters[chapKey];
+			if (!esvVerses) continue;
+			const esvByNum = new Map(esvVerses.map((v) => [v.verse, v.text]));
+
+			for (const krvVerse of krvVerses) {
+				const esvText = esvByNum.get(krvVerse.verse);
+				if (!esvText) continue;
+				const esvWords = [...new Set(extractEnglishKeywords(esvText))];
+				if (esvWords.length === 0) continue;
+
+				const tokens = analyzeKoreanVerse(krvVerse.text, placeholderLexicon);
+				for (const tok of tokens) {
+					if (!tok.matched || !ambiguousKeys.has(tok.lemma)) continue;
+					let counts = contextMap.get(tok.lemma);
+					if (!counts) {
+						counts = new Map<string, number>();
+						contextMap.set(tok.lemma, counts);
+					}
+					for (const ew of esvWords) {
+						counts.set(ew, (counts.get(ew) ?? 0) + 1);
+					}
+				}
+			}
+		}
+	}
+
+	return contextMap;
+}
+
+function selectBestKengdicLexicon(
+	candidatesBySurface: Map<string, KengdicCandidate[]>,
+	contextIndex: Map<string, Map<string, number>>,
+): LexiconMap {
 	const map: LexiconMap = {};
-	for (const [key, value] of bestScored.entries()) {
-		map[key] = value.entry;
+	for (const [key, list] of candidatesBySurface.entries()) {
+		const esvCtx = contextIndex.get(key);
+		let best = list[0];
+		let bestScore = scoreKengdicSense(best, esvCtx);
+		for (let i = 1; i < list.length; i++) {
+			const score = scoreKengdicSense(list[i], esvCtx);
+			if (score > bestScore) {
+				best = list[i];
+				bestScore = score;
+			}
+		}
+		map[key] = best.entry;
 	}
 	return map;
 }
@@ -159,7 +319,11 @@ function buildCompactBibleLexicon(
 					totalHangulWords++;
 					if (token.matched) {
 						matchedWords++;
-						if (!BIBLICAL_GLOSSARY[token.lemma] && fullKengdic[token.lemma]) {
+						if (
+							token.lemma.length >= 2 &&
+							!BIBLICAL_GLOSSARY[token.lemma] &&
+							fullKengdic[token.lemma]
+						) {
 							compact[token.lemma] = fullKengdic[token.lemma];
 						}
 					} else {
@@ -171,7 +335,7 @@ function buildCompactBibleLexicon(
 								? `${replaceLastFinalConsonant(token.lemma, "ㄹ")}다`
 								: "",
 							stripLastFinalConsonant(token.lemma)?.stem ?? "",
-						].filter(Boolean);
+						].filter((c) => c.length >= 2);
 						for (const alt of altCandidates) {
 							if (fullKengdic[alt] && !BIBLICAL_GLOSSARY[alt]) {
 								compact[alt] = fullKengdic[alt];
@@ -194,14 +358,16 @@ async function main() {
 	const krvPath = await ensureSourceFile("krv_1961.json", KRV_SOURCE_URL);
 	const kengdicPath = await ensureSourceFile("kengdic.tsv", KENGDIC_SOURCE_URL);
 
-	const [esvText, krvRaw, fullKengdic] = await Promise.all([
+	const [esvText, krvRaw, kengdicCandidates] = await Promise.all([
 		Bun.file(esvPath).text(),
 		Bun.file(krvPath).json() as Promise<RawKrvBook[]>,
-		loadFullKengdic(kengdicPath),
+		loadKengdicCandidates(kengdicPath),
 	]);
 
 	const esvParsed = parseSpbContent(esvText, "esv");
 	const krvBooks = parseKrvBooks(krvRaw);
+	const esvContextIndex = buildEsvContextIndex(esvParsed.books, krvBooks, kengdicCandidates);
+	const fullKengdic = selectBestKengdicLexicon(kengdicCandidates, esvContextIndex);
 
 	console.log(`Parsed ESV: ${esvParsed.books.size} books`);
 	console.log(`Parsed KRV: ${krvBooks.size} books`);
