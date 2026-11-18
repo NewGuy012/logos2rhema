@@ -1,9 +1,10 @@
-import { BookOpen, ChevronLeft, ChevronRight, Headphones } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type { AudioTrackOption, LexiconMap, TranslationMeta, VerseEntry } from "../shared/types";
+import { AudioControlRail } from "./components/AudioControlRail";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { FootnotesGuide } from "./components/FootnotesGuide";
 import { HomePage } from "./components/HomePage";
@@ -11,6 +12,7 @@ import { PassagePicker } from "./components/PassagePicker";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
 import { useHumanAudio } from "./hooks/useHumanAudio";
+import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import {
 	alignChapterVerses,
 	loadLexicon,
@@ -29,6 +31,7 @@ interface StoredPrefs {
 	fontScale: number;
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
+	autoSync: boolean;
 }
 
 const DEFAULT_PREFS: StoredPrefs = {
@@ -39,6 +42,7 @@ const DEFAULT_PREFS: StoredPrefs = {
 	fontScale: 1,
 	koFontStyle: "serif",
 	studyMask: "none",
+	autoSync: true,
 };
 
 type AppRoute =
@@ -76,13 +80,13 @@ function readStoredPrefs(): StoredPrefs {
 function useIsDesktopLayout(): boolean {
 	const [isDesktop, setIsDesktop] = useState(() =>
 		typeof window !== "undefined" && typeof window.matchMedia === "function"
-			? window.matchMedia("(min-width: 1080px)").matches
+			? window.matchMedia("(min-width: 1024px)").matches
 			: true,
 	);
 
 	useEffect(() => {
 		if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-		const mql = window.matchMedia("(min-width: 1080px)");
+		const mql = window.matchMedia("(min-width: 1024px)");
 		const update = () => setIsDesktop(mql.matches);
 		update();
 		mql.addEventListener("change", update);
@@ -112,6 +116,7 @@ export default function App() {
 	const [fontScale, setFontScale] = useState<number>(initialPrefs.fontScale);
 	const [koFontStyle, setKoFontStyle] = useState<KoreanFontStyle>(initialPrefs.koFontStyle);
 	const [studyMask, setStudyMask] = useState<StudyMaskMode>(initialPrefs.studyMask);
+	const [autoSync, setAutoSync] = useState<boolean>(initialPrefs.autoSync);
 
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [rawEnVerses, setRawEnVerses] = useState<VerseEntry[]>([]);
@@ -148,6 +153,13 @@ export default function App() {
 		[rawEnVerses, rawKoVerses, lexicon],
 	);
 
+	const verseNumbers = useMemo(() => alignedVerses.map((v) => v.verse), [alignedVerses]);
+	const { visibleVerse } = useVisibleVerse({
+		enabled: view === "reader" && !loadingChapter && verseNumbers.length > 0,
+		verseNumbers,
+		resetKey: `${currentBook.usfm}:${chapter}`,
+	});
+
 	// Persist preferences
 	useEffect(() => {
 		try {
@@ -159,12 +171,13 @@ export default function App() {
 				fontScale,
 				koFontStyle,
 				studyMask,
+				autoSync,
 			};
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
 		} catch {
 			// Ignore storage quota errors
 		}
-	}, [bookNumber, chapter, stackOrder, theme, fontScale, koFontStyle, studyMask]);
+	}, [bookNumber, chapter, stackOrder, theme, fontScale, koFontStyle, studyMask, autoSync]);
 
 	// Sync theme attribute to <html>
 	useEffect(() => {
@@ -289,6 +302,8 @@ export default function App() {
 
 	const audio = useHumanAudio({
 		tracks: audioTracks,
+		visibleVerse,
+		autoSync,
 		onChapterEnded: handleChapterEnded,
 	});
 	prepareNextPlayRef.current = audio.prepareAutoAdvancePlay;
@@ -302,14 +317,34 @@ export default function App() {
 		window.scrollTo({ top: 0, behavior: "smooth" });
 	}, [audio]);
 
-	// Scroll active audio verse into view smoothly when verse timings are available
+	// Pause auto-scroll follow when user manually scrolls via wheel/touch while audio plays
 	useEffect(() => {
-		if (!audio.activeVerse) return;
+		if (!audio.isPlaying || !autoSync) return;
+		const pauseFollow = () => audio.setIsFollowingAudio(false);
+		window.addEventListener("wheel", pauseFollow, { passive: true });
+		window.addEventListener("touchmove", pauseFollow, { passive: true });
+		return () => {
+			window.removeEventListener("wheel", pauseFollow);
+			window.removeEventListener("touchmove", pauseFollow);
+		};
+	}, [audio, autoSync]);
+
+	// Scroll active audio verse into view smoothly when auto-sync & following are active
+	useEffect(() => {
+		if (!audio.activeVerse || !autoSync || !audio.isFollowingAudio) return;
 		const el = document.getElementById(`verse-${audio.activeVerse}`);
 		if (el) {
 			el.scrollIntoView({ behavior: "smooth", block: "center" });
 		}
-	}, [audio.activeVerse]);
+	}, [audio.activeVerse, autoSync, audio.isFollowingAudio]);
+
+	const handleFollowActiveVerse = useCallback(() => {
+		audio.setIsFollowingAudio(true);
+		if (audio.activeVerse) {
+			const el = document.getElementById(`verse-${audio.activeVerse}`);
+			el?.scrollIntoView({ behavior: "smooth", block: "center" });
+		}
+	}, [audio]);
 
 	// Keyboard shortcuts: Cmd/Ctrl+K to jump, ArrowLeft/ArrowRight skip 10s while playing or turn chapters otherwise
 	useEffect(() => {
@@ -392,7 +427,6 @@ export default function App() {
 		[fontScale, koFontStyle],
 	);
 
-	const activeAudioForCurrentLang = audioTracks.filter((t) => t.language === audio.preferredLang);
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
 	const showDictionary = !loadingChapter && !chapterError;
 
@@ -429,7 +463,54 @@ export default function App() {
 				/>
 			) : (
 				<>
-					<div className={`reader-workspace ${isDesktop && sidebarOpen ? "with-sidebar" : ""}`}>
+					<div
+						className={`reader-workspace ${isDesktop ? "desktop-layout" : ""} ${isDesktop && sidebarOpen ? "with-right-rail" : ""}`}
+					>
+						{isDesktop && (
+							<div className="audio-rail-wrap">
+								<AudioControlRail
+									bookEn={currentBook.en}
+									bookKo={currentBook.ko}
+									chapter={chapter}
+									hasPrev={Boolean(prevChapterTarget)}
+									hasNext={Boolean(nextChapterTarget)}
+									tracks={audioTracks}
+									preferredLang={audio.preferredLang}
+									activeTrack={audio.activeTrack}
+									isPlaying={audio.isPlaying}
+									isLoading={audio.isLoading}
+									currentTime={audio.currentTime}
+									duration={audio.duration}
+									playbackRate={audio.playbackRate}
+									errorMessage={audio.errorMessage}
+									activeEnCode={selectedEn.code}
+									activeKoCode={selectedKo.code}
+									visibleVerse={visibleVerse}
+									activeVerse={audio.activeVerse}
+									autoSync={autoSync}
+									isFollowingAudio={audio.isFollowingAudio}
+									onPrevChapter={() =>
+										prevChapterTarget &&
+										navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
+									}
+									onNextChapter={() =>
+										nextChapterTarget &&
+										navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
+									}
+									onOpenPicker={() => setPickerOpen(true)}
+									onTogglePlay={audio.togglePlay}
+									onSeek={audio.seekTo}
+									onSkipBy={audio.skipBy}
+									onSelectTrack={audio.selectTrack}
+									onSelectLanguage={audio.selectLanguage}
+									onCycleSpeed={audio.cyclePlaybackRate}
+									onToggleAutoSync={() => setAutoSync((prev) => !prev)}
+									onSyncToVisibleVerse={() => audio.jumpToVerse(visibleVerse)}
+									onFollowActiveVerse={handleFollowActiveVerse}
+								/>
+							</div>
+						)}
+
 						<main className="reader-main">
 							<header className="chapter-header">
 								<div className="chapter-kicker">
@@ -452,32 +533,18 @@ export default function App() {
 									</p>
 								</div>
 
-								<div className="chapter-subbar">
-									<button
-										type="button"
-										className="footnote-jump-link"
-										disabled={!audio.activeTrack && !audio.isPlaying}
-										onClick={audio.togglePlay}
-									>
-										<Headphones size={13} />
-										<span>
-											{audio.isPlaying
-												? `Pause (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
-												: activeAudioForCurrentLang.length > 0
-													? `Listen (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
-													: `No Audio (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`}
-										</span>
-									</button>
-
-									<button
-										type="button"
-										className="footnote-jump-link"
-										onClick={handleToggleDictionary}
-									>
-										<BookOpen size={13} />
-										<span>Korean Dictionary ({analysis.footnotes.length})</span>
-									</button>
-								</div>
+								{(!isDesktop || !sidebarOpen) && (
+									<div className="chapter-subbar">
+										<button
+											type="button"
+											className="footnote-jump-link"
+											onClick={handleToggleDictionary}
+										>
+											<BookOpen size={13} />
+											<span>Korean Dictionary ({analysis.footnotes.length})</span>
+										</button>
+									</div>
+								)}
 							</header>
 
 							{loadingChapter ? (
@@ -558,58 +625,60 @@ export default function App() {
 						)}
 					</div>
 
-					<FloatingBottomBar
-						bookEn={currentBook.en}
-						bookKo={currentBook.ko}
-						chapter={chapter}
-						hasPrev={Boolean(prevChapterTarget)}
-						hasNext={Boolean(nextChapterTarget)}
-						onPrevChapter={() =>
-							prevChapterTarget &&
-							navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-						}
-						onNextChapter={() =>
-							nextChapterTarget &&
-							navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-						}
-						onOpenPicker={() => setPickerOpen(true)}
-						tracks={audioTracks}
-						preferredLang={audio.preferredLang}
-						activeTrack={audio.activeTrack}
-						isPlaying={audio.isPlaying}
-						isLoading={audio.isLoading}
-						currentTime={audio.currentTime}
-						duration={audio.duration}
-						playbackRate={audio.playbackRate}
-						errorMessage={audio.errorMessage}
-						activeEnCode={selectedEn.code}
-						activeKoCode={selectedKo.code}
-						dictionaryOpen={dictionaryOpen}
-						dictionarySheet={
-							showDictionary && !isDesktop && sheetOpen ? (
-								<div className="dict-sheet-wrap">
-									<FootnotesGuide
-										bookEn={currentBook.en}
-										bookKo={currentBook.ko}
-										chapter={chapter}
-										footnotes={analysis.footnotes}
-										grammarNotes={analysis.grammarNotes}
-										highlightedFootnoteId={highlightedFootnoteId}
-										variant="sheet"
-										onClose={() => setSheetOpen(false)}
-										onJumpToVerse={handleJumpFromFootnote}
-									/>
-								</div>
-							) : undefined
-						}
-						onToggleDictionary={handleToggleDictionary}
-						onTogglePlay={audio.togglePlay}
-						onSeek={audio.seekTo}
-						onSkipBy={audio.skipBy}
-						onSelectTrack={audio.selectTrack}
-						onSelectLanguage={audio.selectLanguage}
-						onCycleSpeed={audio.cyclePlaybackRate}
-					/>
+					{!isDesktop && (
+						<FloatingBottomBar
+							bookEn={currentBook.en}
+							bookKo={currentBook.ko}
+							chapter={chapter}
+							hasPrev={Boolean(prevChapterTarget)}
+							hasNext={Boolean(nextChapterTarget)}
+							onPrevChapter={() =>
+								prevChapterTarget &&
+								navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
+							}
+							onNextChapter={() =>
+								nextChapterTarget &&
+								navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
+							}
+							onOpenPicker={() => setPickerOpen(true)}
+							tracks={audioTracks}
+							preferredLang={audio.preferredLang}
+							activeTrack={audio.activeTrack}
+							isPlaying={audio.isPlaying}
+							isLoading={audio.isLoading}
+							currentTime={audio.currentTime}
+							duration={audio.duration}
+							playbackRate={audio.playbackRate}
+							errorMessage={audio.errorMessage}
+							activeEnCode={selectedEn.code}
+							activeKoCode={selectedKo.code}
+							dictionaryOpen={dictionaryOpen}
+							dictionarySheet={
+								showDictionary && sheetOpen ? (
+									<div className="dict-sheet-wrap">
+										<FootnotesGuide
+											bookEn={currentBook.en}
+											bookKo={currentBook.ko}
+											chapter={chapter}
+											footnotes={analysis.footnotes}
+											grammarNotes={analysis.grammarNotes}
+											highlightedFootnoteId={highlightedFootnoteId}
+											variant="sheet"
+											onClose={() => setSheetOpen(false)}
+											onJumpToVerse={handleJumpFromFootnote}
+										/>
+									</div>
+								) : undefined
+							}
+							onToggleDictionary={handleToggleDictionary}
+							onTogglePlay={audio.togglePlay}
+							onSeek={audio.seekTo}
+							onSkipBy={audio.skipBy}
+							onSelectTrack={audio.selectTrack}
+							onSelectLanguage={audio.selectLanguage}
+							onCycleSpeed={audio.cyclePlaybackRate}
+						/>
+					)}
 				</>
 			)}
 

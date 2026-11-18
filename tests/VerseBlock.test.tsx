@@ -1,14 +1,20 @@
 import { describe, expect, it, mock } from "bun:test";
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 
 import App from "../src/react-app/App";
+import { AudioControlRail } from "../src/react-app/components/AudioControlRail";
 import { FloatingBottomBar } from "../src/react-app/components/FloatingBottomBar";
 import { FootnotesGuide } from "../src/react-app/components/FootnotesGuide";
 import { HomePage } from "../src/react-app/components/HomePage";
 import { PassagePicker } from "../src/react-app/components/PassagePicker";
 import { TopBar } from "../src/react-app/components/TopBar";
 import { VerseBlock } from "../src/react-app/components/VerseBlock";
+import {
+	resolveTimeForVerse,
+	resolveVerseAtTime,
+	useHumanAudio,
+} from "../src/react-app/hooks/useHumanAudio";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 
@@ -215,9 +221,22 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
 	});
 
-	it("defaults App to HomePage at #/ and returns Home when clicking top-left Logos mark", async () => {
+	it("defaults App to HomePage at #/, renders 3-column desktop rails, and returns Home on logo click", async () => {
 		window.location.hash = "";
 		const originalFetch = globalThis.fetch;
+		const originalMatchMedia = window.matchMedia;
+		window.matchMedia = ((query: string) => ({
+			matches: query.includes("min-width: 1024px"),
+			media: query,
+			onchange: null,
+			addListener: () => {},
+			removeListener: () => {},
+			addEventListener: () => {},
+			removeEventListener: () => {},
+			dispatchEvent: () => false,
+		})) as typeof window.matchMedia;
+
+		let audioLoaded = false;
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url.includes("/api/config")) {
@@ -240,6 +259,7 @@ describe("VerseBlock & Korean hover tooltip", () => {
 				});
 			}
 			if (url.includes("/api/audio/")) {
+				audioLoaded = true;
 				return Response.json({ bookUsfm: "GEN", chapter: 1, tracks: [] });
 			}
 			return new Response("Not Found", { status: 404 });
@@ -257,9 +277,16 @@ describe("VerseBlock & Korean hover tooltip", () => {
 			});
 
 			await waitFor(() => {
+				expect(audioLoaded).toBe(true);
 				expect(screen.queryByText("Continue Reading")).toBeNull();
 				expect(window.location.hash).toBe("#/GEN/1");
 				expect(screen.getByText("In the beginning...")).toBeDefined();
+				expect(
+					screen.getByRole("complementary", { name: "Audio Playback and Verse Sync" }),
+				).toBeDefined();
+				expect(
+					screen.getByRole("complementary", { name: "Korean Dictionary & Grammar Guide" }),
+				).toBeDefined();
 			});
 
 			await act(async () => {
@@ -270,6 +297,7 @@ describe("VerseBlock & Korean hover tooltip", () => {
 			expect(window.location.hash).toBe("#/");
 		} finally {
 			globalThis.fetch = originalFetch;
+			window.matchMedia = originalMatchMedia;
 		}
 	});
 
@@ -343,9 +371,16 @@ describe("VerseBlock & Korean hover tooltip", () => {
 			/>,
 		);
 
-		// No secondary audio drawer popup should exist
+		// No secondary audio drawer popup should exist; audio sits left and dictionary sits right
 		expect(container.querySelector(".audio-drawer")).toBeNull();
-		expect(screen.getByRole("button", { name: "Play audio" })).toBeDefined();
+		const rowButtons = Array.from(container.querySelectorAll(".quick-bar-row button"));
+		const playIdx = rowButtons.indexOf(screen.getByRole("button", { name: "Play audio" }));
+		const chapterIdx = rowButtons.indexOf(screen.getByText(/Genesis 1/));
+		const dictIdx = rowButtons.indexOf(
+			screen.getByRole("button", { name: "Toggle Korean dictionary" }),
+		);
+		expect(playIdx).toBeLessThan(chapterIdx);
+		expect(chapterIdx).toBeLessThan(dictIdx);
 
 		// When paused/stopped on Genesis 1, Previous Chapter is disabled and Next Chapter navigates
 		const prevChapterBtn = screen.getByRole("button", { name: "Previous chapter" });
@@ -437,5 +472,156 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(screen.getByText(/No audio recording linked/)).toBeDefined();
 		fireEvent.click(screen.getByRole("button", { name: /Use 개역한글/ }));
 		expect(onSelectLanguage).toHaveBeenCalledWith("ko");
+	});
+
+	it("renders left-margin AudioControlRail with Bible Brain style switching and verse auto-sync", () => {
+		const onSyncToVisible = mock(() => {});
+		const onFollowActive = mock(() => {});
+		const onToggleAutoSync = mock(() => {});
+		const onSelectTrack = mock(() => {});
+
+		const standardTrack = {
+			id: "bb:ENGESVN1DA",
+			label: "ESV · Narration",
+			language: "en" as const,
+			translationId: "esv",
+			url: "https://cdn.example.com/std.mp3",
+			source: "bible-brain" as const,
+			audioStyle: "standard" as const,
+			verseTimings: { 1: 0, 12: 34.5, 16: 48.2 },
+		};
+		const dramaTrack = {
+			id: "bb:ENGESVN2DA",
+			label: "ESV · Drama",
+			language: "en" as const,
+			translationId: "esv",
+			url: "https://cdn.example.com/drama.mp3",
+			source: "bible-brain" as const,
+			audioStyle: "drama" as const,
+			verseTimings: { 1: 0, 12: 36.0, 16: 50.1 },
+		};
+
+		expect(resolveVerseAtTime(standardTrack.verseTimings, 48.5)).toBe(16);
+		expect(resolveTimeForVerse(standardTrack.verseTimings, 17)).toBe(48.2);
+
+		render(
+			<AudioControlRail
+				bookEn="John"
+				bookKo="요한복음"
+				chapter={3}
+				hasPrev={true}
+				hasNext={true}
+				tracks={[standardTrack, dramaTrack]}
+				preferredLang="en"
+				activeTrack={standardTrack}
+				isPlaying={true}
+				isLoading={false}
+				currentTime={35}
+				duration={120}
+				playbackRate={1}
+				errorMessage={null}
+				activeEnCode="ESV"
+				activeKoCode="개역한글"
+				visibleVerse={16}
+				activeVerse={12}
+				autoSync={true}
+				isFollowingAudio={false}
+				onPrevChapter={() => {}}
+				onNextChapter={() => {}}
+				onOpenPicker={() => {}}
+				onTogglePlay={() => {}}
+				onSeek={() => {}}
+				onSkipBy={() => {}}
+				onSelectTrack={onSelectTrack}
+				onSelectLanguage={() => {}}
+				onCycleSpeed={() => {}}
+				onToggleAutoSync={onToggleAutoSync}
+				onSyncToVisibleVerse={onSyncToVisible}
+				onFollowActiveVerse={onFollowActive}
+			/>,
+		);
+
+		expect(screen.getByText("Visible: v.16")).toBeDefined();
+		expect(screen.getByText("Audio: v.12")).toBeDefined();
+
+		fireEvent.click(screen.getByRole("button", { name: "Drama" }));
+		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
+
+		fireEvent.click(screen.getByRole("switch"));
+		expect(onToggleAutoSync).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByRole("button", { name: "Play from v.16" }));
+		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByRole("button", { name: "Follow Audio (v.12)" }));
+		expect(onFollowActive).toHaveBeenCalledTimes(1);
+	});
+
+	it("auto-syncs playback start to the currently visible verse when verse timings exist", async () => {
+		const originalAudio = globalThis.Audio;
+		let mockCurrentTime = 0;
+		const listeners = new Map<string, Array<() => void>>();
+
+		class MockAudio {
+			preload = "metadata";
+			src = "";
+			duration = 120;
+			paused = true;
+			playbackRate = 1;
+			preservesPitch = true;
+			get currentTime() {
+				return mockCurrentTime;
+			}
+			set currentTime(val: number) {
+				mockCurrentTime = val;
+			}
+			load() {}
+			removeAttribute() {}
+			addEventListener(type: string, fn: () => void) {
+				const arr = listeners.get(type) ?? [];
+				arr.push(fn);
+				listeners.set(type, arr);
+			}
+			removeEventListener() {}
+			pause() {
+				this.paused = true;
+			}
+			play() {
+				this.paused = false;
+				for (const fn of listeners.get("play") ?? []) fn();
+				return Promise.resolve();
+			}
+		}
+
+		globalThis.Audio = MockAudio as unknown as typeof Audio;
+
+		try {
+			const koSyncedTrack = {
+				id: "bb:KORKRVN1DA",
+				label: "KRV · Narration",
+				language: "ko" as const,
+				translationId: "krv",
+				url: "https://cdn.example.com/krv.mp3",
+				source: "bible-brain" as const,
+				verseTimings: { 1: 0, 16: 48.2 },
+			};
+
+			const { result } = renderHook(() =>
+				useHumanAudio({
+					tracks: [koSyncedTrack],
+					visibleVerse: 16,
+					autoSync: true,
+				}),
+			);
+
+			await act(async () => {
+				result.current.togglePlay();
+			});
+
+			expect(mockCurrentTime).toBe(48.2);
+			expect(result.current.activeVerse).toBe(16);
+		} finally {
+			globalThis.Audio = originalAudio;
+		}
 	});
 });

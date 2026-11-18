@@ -149,28 +149,6 @@ export function FloatingBottomBar({
 				<div className="quick-bar-row">
 					<button
 						type="button"
-						className={`pill-nav-btn ${isPlaying ? "skip-mode" : ""}`}
-						disabled={isPlaying ? false : !hasPrev}
-						onClick={() => (isPlaying ? onSkipBy(-10) : onPrevChapter())}
-						aria-label={isPlaying ? "Rewind 10 seconds" : "Previous chapter"}
-						title={isPlaying ? "Rewind 10 seconds (Left Arrow)" : "Previous chapter (Left Arrow)"}
-					>
-						{isPlaying ? (
-							<span className="skip-btn-inner">
-								<RotateCcw size={14} />
-								<span className="skip-tag">10</span>
-							</span>
-						) : (
-							<ChevronLeft size={18} />
-						)}
-					</button>
-
-					<button type="button" className="pill-chapter-btn" onClick={onOpenPicker}>
-						{bookEn} {chapter} · {bookKo} {chapter}장
-					</button>
-
-					<button
-						type="button"
 						className={`pill-audio-btn ${isPlaying ? "playing" : ""}`}
 						disabled={!activeTrack && !isPlaying}
 						onClick={onTogglePlay}
@@ -220,14 +198,24 @@ export function FloatingBottomBar({
 
 					<button
 						type="button"
-						className={`quick-dict-btn ${dictionaryOpen ? "active" : ""}`}
-						onClick={onToggleDictionary}
-						aria-expanded={dictionaryOpen}
-						aria-label="Toggle Korean dictionary"
-						title="Toggle Korean dictionary & grammar guide"
+						className={`pill-nav-btn ${isPlaying ? "skip-mode" : ""}`}
+						disabled={isPlaying ? false : !hasPrev}
+						onClick={() => (isPlaying ? onSkipBy(-10) : onPrevChapter())}
+						aria-label={isPlaying ? "Rewind 10 seconds" : "Previous chapter"}
+						title={isPlaying ? "Rewind 10 seconds (Left Arrow)" : "Previous chapter (Left Arrow)"}
 					>
-						<BookOpen size={14} />
-						<span>어휘</span>
+						{isPlaying ? (
+							<span className="skip-btn-inner">
+								<RotateCcw size={14} />
+								<span className="skip-tag">10</span>
+							</span>
+						) : (
+							<ChevronLeft size={18} />
+						)}
+					</button>
+
+					<button type="button" className="pill-chapter-btn" onClick={onOpenPicker}>
+						{bookEn} {chapter} · {bookKo} {chapter}장
 					</button>
 
 					<button
@@ -246,6 +234,18 @@ export function FloatingBottomBar({
 						) : (
 							<ChevronRight size={18} />
 						)}
+					</button>
+
+					<button
+						type="button"
+						className={`quick-dict-btn ${dictionaryOpen ? "active" : ""}`}
+						onClick={onToggleDictionary}
+						aria-expanded={dictionaryOpen}
+						aria-label="Toggle Korean dictionary"
+						title="Toggle Korean dictionary & grammar guide"
+					>
+						<BookOpen size={14} />
+						<span>어휘</span>
 					</button>
 				</div>
 			</nav>

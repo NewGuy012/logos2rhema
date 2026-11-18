@@ -1,13 +1,16 @@
 # Logos — Bilingual Bible Reader (English ESV · 한국어 개역한글)
 
-A minimal, distraction-free bilingual Bible web app for reading Scripture side-by-side in stacked verse pairs while learning Korean.
+A minimal, distraction-free bilingual Bible web app for reading and listening to Scripture side-by-side while learning Korean.
 
 ## Features
 
-- **Stacked Bilingual Reading**: Displays **English (ESV)** above **Korean (개역한글 KRV 1961)** by default, with a **1-click `EN / 한` flip button** in the top bar.
-- **Selectable Translations + Synced Human Audio**: Switch between English (`ESV`, `BSB`, `KJV`, `WEB`, `ASV`) and Korean (`개역한글 KRV`, `한글1910`), or connect a free [Bible Brain API](https://4.dbt.io/api_key/request) key in `.dev.vars` to unlock additional translations and verse-level timestamps. Audio playback uses real human recordings (never synthetic TTS) and automatically syncs when translations change.
-- **Korean Hover Tooltips**: Hover (or tap on mobile) any Korean word to view its English translation, dictionary root (`lemma`), Hanja (when applicable), and particle/ending breakdown.
-- **Chapter Footnotes Vocabulary & Grammar Guide**: Every chapter includes a deduplicated Korean-to-English word list ordered by appearance plus an explanatory guide to 1961 개역한글 archaic endings (`~하시니라`, `가라사대`, `~하매`, `~할지니라`).
+- **Home Page & Instant Passage Navigation**: Opens on a clean Home view (`#/`) with **Continue Reading**, bilingual passage search (`John 3:16`, `요 3:16`, `시 23`), featured chapters, and a full OT/NT browser. Clicking the **Logos** logo in the top left always returns Home.
+- **One Canonical Bible Per Language**: Displays **English (`ESV`)** and **Korean (`개역한글` KRV 1961)** bundled locally, with a **1-click `EN / 한` flip button** in the top bar.
+- **3-Column Reading Workspace**:
+  - **Left Margin**: Sticky **Audio & Verse Sync** controls (Play/Pause, `한` / `EN` audio toggle, speed, scrubber, Standard/Drama tracks, and two-way visible-verse auto-sync).
+  - **Center**: Distraction-free stacked verse pairs with hover/tap Korean word definitions.
+  - **Right Margin**: Sticky **Korean Dictionary & KRV Grammar Guide** (`어휘`) synced to chapter vocabulary.
+- **Bible Brain v4 Primary Audio & Multilingual Future-Proofing**: Uses [Bible Brain API v4](https://4.dbt.io/open-api-4.json) (`BIBLE_BRAIN_API_KEY`) as primary provider for multi-language expansion, standard/dramatized audio, and `/timestamps` verse-level sync—falling back seamlessly to Crossway ESV (`ESV_API_KEY`) and zero-key Korean narration.
 - **Editorial Reader Controls**: Paper, Sepia, and Dark themes; text scaling; Serif (명조) vs. Sans (고딕) Korean typefaces; and blur-to-study self-test mode.
 
 ## Commands (Pure Bun)
@@ -24,10 +27,10 @@ bun run data:build   # Rebuild bundled ESV/KRV chapters and compact Korean lexic
 
 ## Optional Audio Configuration
 
-Copy `.dev.vars.example` to `.dev.vars` (gitignored; kept server-side in Worker bindings) if you want to enable official Crossway ESV audio, Bible Brain translations/timestamps, or point `개역한글` to your own hosted/R2 MP3 files:
+Copy `.dev.vars.example` to `.dev.vars` (gitignored; kept server-side in Worker bindings):
 
 ```env
+BIBLE_BRAIN_API_KEY=your_bible_brain_key
 ESV_API_KEY=your_free_esv_key
-BIBLE_BRAIN_API_KEY=your_free_key
 AUDIO_BASE_URL=https://cdn.example.com/audio/krv
 ```

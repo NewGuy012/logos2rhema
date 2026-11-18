@@ -4,16 +4,67 @@ import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 
 export const PLAYBACK_SPEEDS = [0.75, 0.9, 1.0, 1.25] as const;
 
+export function resolveVerseAtTime(
+	timings: Record<number, number> | undefined,
+	seconds: number,
+): number | null {
+	if (!timings) return null;
+	let current: number | null = null;
+	let bestTime = -1;
+	for (const [vStr, startSec] of Object.entries(timings)) {
+		const vNum = Number.parseInt(vStr, 10);
+		if (!Number.isNaN(vNum) && startSec <= seconds + 0.25 && startSec >= bestTime) {
+			bestTime = startSec;
+			current = vNum;
+		}
+	}
+	return current;
+}
+
+export function resolveTimeForVerse(
+	timings: Record<number, number> | undefined,
+	verseNumber: number,
+): number | null {
+	if (!timings) return null;
+	if (typeof timings[verseNumber] === "number") {
+		return timings[verseNumber];
+	}
+	// Walk backward to nearest preceding timed verse if a verse was merged in audio metadata
+	let bestVerse = -1;
+	let bestTime: number | null = null;
+	for (const [vStr, startSec] of Object.entries(timings)) {
+		const vNum = Number.parseInt(vStr, 10);
+		if (!Number.isNaN(vNum) && vNum <= verseNumber && vNum > bestVerse) {
+			bestVerse = vNum;
+			bestTime = startSec;
+		}
+	}
+	return bestTime;
+}
+
 export interface UseHumanAudioOptions {
 	tracks: AudioTrackOption[];
+	visibleVerse?: number;
+	autoSync?: boolean;
 	onChapterEnded?: () => void;
 }
 
-export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) {
+export function useHumanAudio({
+	tracks,
+	visibleVerse = 1,
+	autoSync = true,
+	onChapterEnded,
+}: UseHumanAudioOptions) {
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const shouldAutoPlayOnTrackSwapRef = useRef(false);
+	const pendingSyncVerseRef = useRef<number | null>(null);
 	const onEndedRef = useRef(onChapterEnded);
 	onEndedRef.current = onChapterEnded;
+
+	const visibleVerseRef = useRef(visibleVerse);
+	visibleVerseRef.current = visibleVerse;
+	const autoSyncRef = useRef(autoSync);
+	autoSyncRef.current = autoSync;
 
 	const [preferredLang, setPreferredLang] = useState<TranslationLanguage>("ko");
 	const [selectedTrackId, setSelectedTrackId] = useState<string>("");
@@ -22,7 +73,11 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 	const [currentTime, setCurrentTime] = useState(0);
 	const [duration, setDuration] = useState(0);
 	const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+	const [isFollowingAudio, setIsFollowingAudio] = useState<boolean>(true);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+	const playbackRateRef = useRef(playbackRate);
+	playbackRateRef.current = playbackRate;
 
 	// Sync active track cleanly whenever available tracks or preferred language changes
 	const activeTrack = useMemo(() => {
@@ -32,19 +87,12 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		return exact ?? langTracks[0];
 	}, [tracks, preferredLang, selectedTrackId]);
 
+	const activeTrackRef = useRef(activeTrack);
+	activeTrackRef.current = activeTrack;
+
 	const activeVerse = useMemo(() => {
-		const timings = activeTrack?.verseTimings;
-		if (!timings || !isPlaying) return null;
-		let current: number | null = null;
-		let bestTime = -1;
-		for (const [vStr, startSec] of Object.entries(timings)) {
-			const vNum = Number.parseInt(vStr, 10);
-			if (!Number.isNaN(vNum) && startSec <= currentTime + 0.25 && startSec >= bestTime) {
-				bestTime = startSec;
-				current = vNum;
-			}
-		}
-		return current;
+		if (!isPlaying) return null;
+		return resolveVerseAtTime(activeTrack?.verseTimings, currentTime);
 	}, [activeTrack, currentTime, isPlaying]);
 
 	// Initialize persistent HTMLAudioElement once in browser
@@ -58,6 +106,22 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 			if (Number.isFinite(audio.duration) && audio.duration > 0) {
 				setDuration(audio.duration);
 			}
+		};
+		const applyPendingVerseSeek = () => {
+			const pendingVerse = pendingSyncVerseRef.current;
+			const track = activeTrackRef.current;
+			if (pendingVerse !== null && track?.verseTimings) {
+				const targetSec = resolveTimeForVerse(track.verseTimings, pendingVerse);
+				if (targetSec !== null) {
+					audio.currentTime = targetSec;
+					setCurrentTime(targetSec);
+				}
+				pendingSyncVerseRef.current = null;
+			}
+		};
+		const handleLoadedMetadata = () => {
+			syncDuration();
+			applyPendingVerseSeek();
 		};
 		const handleTimeUpdate = () => {
 			setCurrentTime(audio.currentTime || 0);
@@ -76,6 +140,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		const handleCanPlay = () => {
 			setIsLoading(false);
 			syncDuration();
+			applyPendingVerseSeek();
 		};
 		const handleEnded = () => {
 			setIsPlaying(false);
@@ -88,7 +153,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		};
 
 		audio.addEventListener("timeupdate", handleTimeUpdate);
-		audio.addEventListener("loadedmetadata", syncDuration);
+		audio.addEventListener("loadedmetadata", handleLoadedMetadata);
 		audio.addEventListener("durationchange", handleDurationChange);
 		audio.addEventListener("play", handlePlay);
 		audio.addEventListener("pause", handlePause);
@@ -101,7 +166,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 			audio.pause();
 			audio.removeAttribute("src");
 			audio.removeEventListener("timeupdate", handleTimeUpdate);
-			audio.removeEventListener("loadedmetadata", syncDuration);
+			audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
 			audio.removeEventListener("durationchange", handleDurationChange);
 			audio.removeEventListener("play", handlePlay);
 			audio.removeEventListener("pause", handlePause);
@@ -112,7 +177,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		};
 	}, []);
 
-	// Sync audio src when activeTrack changes
+	// Sync audio src when activeTrack changes (without resetting position on speed changes)
 	useEffect(() => {
 		const audio = audioRef.current;
 		if (!audio) return;
@@ -120,11 +185,13 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		setCurrentTime(0);
 		setDuration(0);
 		setErrorMessage(null);
+		setIsFollowingAudio(true);
 
 		if (!activeTrack?.url) {
 			audio.pause();
 			audio.removeAttribute("src");
 			setIsPlaying(false);
+			pendingSyncVerseRef.current = null;
 			return;
 		}
 
@@ -135,7 +202,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 			audio.src = activeTrack.url;
 			audio.load();
 		}
-		audio.playbackRate = playbackRate;
+		audio.playbackRate = playbackRateRef.current;
 		if ("preservesPitch" in audio) {
 			audio.preservesPitch = true;
 		}
@@ -147,7 +214,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 				setIsPlaying(false);
 			});
 		}
-	}, [activeTrack, playbackRate]);
+	}, [activeTrack]);
 
 	useEffect(() => {
 		const audio = audioRef.current;
@@ -157,30 +224,6 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 			audio.preservesPitch = true;
 		}
 	}, [playbackRate]);
-
-	const togglePlay = useCallback(() => {
-		const audio = audioRef.current;
-		if (!audio || !activeTrack) return;
-		if (!audio.paused) {
-			audio.pause();
-			return;
-		}
-		setErrorMessage(null);
-		setIsLoading(true);
-		audio.play().catch(() => {
-			setIsLoading(false);
-			setIsPlaying(false);
-			setErrorMessage("Playback blocked or unavailable for this chapter.");
-		});
-	}, [activeTrack]);
-
-	const pause = useCallback(() => {
-		const audio = audioRef.current;
-		if (!audio) return;
-		if (!audio.paused) {
-			audio.pause();
-		}
-	}, []);
 
 	const seekTo = useCallback((seconds: number) => {
 		const audio = audioRef.current;
@@ -194,6 +237,47 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		setCurrentTime(clamped);
 	}, []);
 
+	const togglePlay = useCallback(() => {
+		const audio = audioRef.current;
+		if (!audio || !activeTrack) return;
+		if (!audio.paused) {
+			audio.pause();
+			return;
+		}
+
+		setIsFollowingAudio(true);
+
+		// Two-way auto-sync: start playback from the currently visible verse when timestamps exist
+		if (autoSyncRef.current && activeTrack.verseTimings) {
+			const targetVerse = visibleVerseRef.current;
+			const targetSec = resolveTimeForVerse(activeTrack.verseTimings, targetVerse);
+			const verseAtAudio = resolveVerseAtTime(activeTrack.verseTimings, audio.currentTime || 0);
+			const shouldSnap =
+				targetSec !== null &&
+				(((audio.currentTime || 0) < 0.5 && targetVerse > 1) ||
+					(verseAtAudio !== null && verseAtAudio !== targetVerse));
+			if (shouldSnap) {
+				seekTo(targetSec);
+			}
+		}
+
+		setErrorMessage(null);
+		setIsLoading(true);
+		audio.play().catch(() => {
+			setIsLoading(false);
+			setIsPlaying(false);
+			setErrorMessage("Playback blocked or unavailable for this chapter.");
+		});
+	}, [activeTrack, seekTo]);
+
+	const pause = useCallback(() => {
+		const audio = audioRef.current;
+		if (!audio) return;
+		if (!audio.paused) {
+			audio.pause();
+		}
+	}, []);
+
 	const skipBy = useCallback(
 		(deltaSeconds: number) => {
 			const audio = audioRef.current;
@@ -205,31 +289,38 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 
 	const selectTrack = useCallback(
 		(track: AudioTrackOption) => {
-			const wasPlaying = isPlaying;
-			shouldAutoPlayOnTrackSwapRef.current = wasPlaying;
+			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
+			pendingSyncVerseRef.current = autoSyncRef.current
+				? (activeVerse ?? visibleVerseRef.current)
+				: null;
 			setPreferredLang(track.language);
 			setSelectedTrackId(track.id);
 		},
-		[isPlaying],
+		[isPlaying, activeVerse],
 	);
 
 	const selectLanguage = useCallback(
 		(lang: TranslationLanguage) => {
 			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
+			pendingSyncVerseRef.current = autoSyncRef.current
+				? (activeVerse ?? visibleVerseRef.current)
+				: null;
 			setPreferredLang(lang);
 			setSelectedTrackId("");
 		},
-		[isPlaying],
+		[isPlaying, activeVerse],
 	);
 
 	const prepareAutoAdvancePlay = useCallback(() => {
 		shouldAutoPlayOnTrackSwapRef.current = true;
+		pendingSyncVerseRef.current = null;
 	}, []);
 
 	const jumpToVerse = useCallback(
 		(verseNumber: number) => {
-			const startSec = activeTrack?.verseTimings?.[verseNumber];
-			if (typeof startSec !== "number") return false;
+			const startSec = resolveTimeForVerse(activeTrack?.verseTimings, verseNumber);
+			if (startSec === null) return false;
+			setIsFollowingAudio(true);
 			seekTo(startSec);
 			if (!isPlaying) {
 				audioRef.current?.play().catch(() => {});
@@ -255,7 +346,9 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		currentTime,
 		duration,
 		playbackRate,
+		isFollowingAudio,
 		errorMessage,
+		setIsFollowingAudio,
 		togglePlay,
 		pause,
 		seekTo,
