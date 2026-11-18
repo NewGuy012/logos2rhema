@@ -42,6 +42,7 @@ describe("korean-morphology", () => {
 		expect(analyzeKoreanWord("아나이다").lemma).toBe("알다");
 		expect(analyzeKoreanWord("다닐찌라도").lemma).toBe("다니다");
 		expect(analyzeKoreanWord("멸망치").lemma).toBe("멸망하다");
+		expect(analyzeKoreanWord("갈까").lemma).toBe("가다");
 		expect(analyzeKoreanWord("얻게").lemma).toBe("얻다");
 		expect(analyzeKoreanWord("어두운", SAMPLE_LEXICON).lemma).toBe("어둡다");
 	});

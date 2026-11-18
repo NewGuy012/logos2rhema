@@ -129,6 +129,38 @@ const COPULA_RULES: readonly SuffixRule[] = [
 	{ suffix: "인", note: "'who/which is' (copula modifier)", kind: "copula" },
 ];
 
+const PAST_ENDINGS: ReadonlyArray<readonly [string, string]> = [
+	["음이라", "past nominalizer + 'is'"],
+	["으므로", "past + 'because'"],
+	["느니라", "past declarative"],
+	["노라", "1st-person past declarative"],
+	["나니", "past + 'for / since'"],
+	["더라", "past observed"],
+	["더니", "past + 'and then'"],
+	["으니", "past + 'so / since'"],
+	["으나", "past + 'but / though'"],
+	["으며", "past + 'and'"],
+	["고", "past + 'and'"],
+	["다", "past tense"],
+];
+
+const CONNECTIVE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+	["야", "'must / only if'"],
+	["도", "'even if / though'"],
+	["서", "'because / and then'"],
+];
+
+const STEM_CONTRACTIONS: ReadonlyArray<readonly [string, string]> = [
+	["하여", "하다"],
+	["와", "오다"],
+	["봐", "보다"],
+	["줘", "주다"],
+	["돼", "되다"],
+	["쳐", "치다"],
+	["려", "리다"],
+	["렸", "리다"],
+];
+
 const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	// Honorific + past/present/polite KRV endings
 	{ suffix: "셨느니라", note: "-시- (hon.) + past + -느니라", kind: "verb" },
@@ -205,52 +237,18 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	{ suffix: "겠고", note: "future + 'and'", kind: "verb" },
 	{ suffix: "겠다", note: "future / 'will / would'", kind: "verb" },
 
-	// Past tense endings (including KRV -였음이라 / -었으므로 / -었나니 / -었으나 / -었노라)
-	{ suffix: "였음이라", note: "past nominalizer + 'is'", kind: "verb" },
-	{ suffix: "였으므로", note: "past + 'because'", kind: "verb" },
-	{ suffix: "였느니라", note: "past declarative", kind: "verb" },
-	{ suffix: "였노라", note: "1st-person past declarative", kind: "verb" },
-	{ suffix: "였나니", note: "past + 'for / since'", kind: "verb" },
-	{ suffix: "였더라", note: "past observed", kind: "verb" },
-	{ suffix: "였더니", note: "past + 'and then'", kind: "verb" },
-	{ suffix: "였으니", note: "past + 'so / since'", kind: "verb" },
-	{ suffix: "였으나", note: "past + 'but / though'", kind: "verb" },
-	{ suffix: "였으며", note: "past + 'and'", kind: "verb" },
-	{ suffix: "였고", note: "past + 'and'", kind: "verb" },
-	{ suffix: "였다", note: "past tense", kind: "verb" },
-	{ suffix: "었음이라", note: "past nominalizer + 'is'", kind: "verb" },
-	{ suffix: "었으므로", note: "past + 'because'", kind: "verb" },
-	{ suffix: "었느니라", note: "past declarative", kind: "verb" },
-	{ suffix: "었노라", note: "1st-person past declarative", kind: "verb" },
-	{ suffix: "었나니", note: "past + 'for / since'", kind: "verb" },
-	{ suffix: "었더라", note: "past observed", kind: "verb" },
-	{ suffix: "었더니", note: "past + 'and then'", kind: "verb" },
-	{ suffix: "었으니", note: "past + 'so / since'", kind: "verb" },
-	{ suffix: "었으나", note: "past + 'but / though'", kind: "verb" },
+	// Past tense endings (-였/-었/-았 + -했)
+	...["였", "었", "았"].flatMap((tense): SuffixRule[] =>
+		PAST_ENDINGS.map(([tail, note]) => ({ suffix: `${tense}${tail}`, note, kind: "verb" })),
+	),
+	...["느니라", "더라", "으니", "고", "다"].map((tail): SuffixRule => {
+		const note = PAST_ENDINGS.find(([t]) => t === tail)?.[1] ?? "past tense";
+		return { suffix: `했${tail}`, note, kind: "verb", stemPatch: "하" };
+	}),
 	{ suffix: "었으매", note: "past + 'when / since'", kind: "verb" },
 	{ suffix: "었으되", note: "past + 'though'", kind: "verb" },
-	{ suffix: "었으며", note: "past + 'and'", kind: "verb" },
-	{ suffix: "었고", note: "past + 'and'", kind: "verb" },
-	{ suffix: "었다", note: "past tense", kind: "verb" },
-	{ suffix: "았음이라", note: "past nominalizer + 'is'", kind: "verb" },
-	{ suffix: "았으므로", note: "past + 'because'", kind: "verb" },
-	{ suffix: "았느니라", note: "past declarative", kind: "verb" },
-	{ suffix: "았노라", note: "1st-person past declarative", kind: "verb" },
-	{ suffix: "았나니", note: "past + 'for / since'", kind: "verb" },
-	{ suffix: "았더라", note: "past observed", kind: "verb" },
-	{ suffix: "았더니", note: "past + 'and then'", kind: "verb" },
-	{ suffix: "았으니", note: "past + 'so / since'", kind: "verb" },
-	{ suffix: "았으나", note: "past + 'but / though'", kind: "verb" },
-	{ suffix: "았으며", note: "past + 'and'", kind: "verb" },
-	{ suffix: "았고", note: "past + 'and'", kind: "verb" },
-	{ suffix: "았다", note: "past tense", kind: "verb" },
 	{ suffix: "았다가", note: "past + 'and then'", kind: "verb" },
 	{ suffix: "었다가", note: "past + 'and then'", kind: "verb" },
-	{ suffix: "했느니라", note: "past declarative", kind: "verb", stemPatch: "하" },
-	{ suffix: "했더라", note: "past observed", kind: "verb", stemPatch: "하" },
-	{ suffix: "했으니", note: "past + 'so / since'", kind: "verb", stemPatch: "하" },
-	{ suffix: "했고", note: "past + 'and'", kind: "verb", stemPatch: "하" },
-	{ suffix: "했다", note: "past tense", kind: "verb", stemPatch: "하" },
 
 	// Declarative, concessive, imperative, prophetic & connective endings
 	{ suffix: "을찌라도", note: "'even though' (archaic KRV)", kind: "verb" },
@@ -294,15 +292,9 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	{ suffix: "나", note: "'but / though'", kind: "verb" },
 	{ suffix: "되", note: "'saying / though'", kind: "verb" },
 	{ suffix: "도", note: "'even / though'", kind: "verb" },
-	{ suffix: "어야", note: "'must / only if'", kind: "verb" },
-	{ suffix: "아야", note: "'must / only if'", kind: "verb" },
-	{ suffix: "여야", note: "'must / only if'", kind: "verb" },
-	{ suffix: "어도", note: "'even if / though'", kind: "verb" },
-	{ suffix: "아도", note: "'even if / though'", kind: "verb" },
-	{ suffix: "여도", note: "'even if / though'", kind: "verb" },
-	{ suffix: "어서", note: "'because / and then'", kind: "verb" },
-	{ suffix: "아서", note: "'because / and then'", kind: "verb" },
-	{ suffix: "여서", note: "'because / and then'", kind: "verb" },
+	...["어", "아", "여"].flatMap((vowel): SuffixRule[] =>
+		CONNECTIVE_PAIRS.map(([tail, note]) => ({ suffix: `${vowel}${tail}`, note, kind: "verb" })),
+	),
 	{ suffix: "다가", note: "'while doing, then'", kind: "verb" },
 	{ suffix: "라고", note: "quotative ('to / saying')", kind: "verb" },
 	{ suffix: "지", note: "negative / auxiliary connective", kind: "verb" },
@@ -313,7 +305,7 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	{ suffix: "려", note: "'intending to / in order to'", kind: "verb" },
 	{ suffix: "러", note: "'in order to'", kind: "verb" },
 	{ suffix: "을까", note: "'lest / might'", kind: "verb" },
-	{ suffix: "ㄹ까", note: "'lest / might'", kind: "verb" },
+	{ suffix: "까", note: "'lest / might'", kind: "verb" },
 	{ suffix: "는", note: "present modifier", kind: "verb" },
 	{ suffix: "은", note: "past/adj modifier", kind: "verb" },
 	{ suffix: "을", note: "future modifier", kind: "verb" },
@@ -435,10 +427,12 @@ function matchVerbOrModifier(
 		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
 		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
 
-		for (const candidate of generatePredicateLemmaCandidates(stem, rule.suffix === "지")) {
-			const hit = lookup(candidate);
-			if (hit) {
-				return makeToken(parts, raw, candidate, hit, `-${rule.suffix} (${rule.note})`);
+		if (rule.suffix !== "까") {
+			for (const candidate of generatePredicateLemmaCandidates(stem, rule.suffix === "지")) {
+				const hit = lookup(candidate);
+				if (hit) {
+					return makeToken(parts, raw, candidate, hit, `-${rule.suffix} (${rule.note})`);
+				}
 			}
 		}
 
@@ -455,7 +449,7 @@ function matchVerbOrModifier(
 			}
 		}
 
-		if (allowSingleCharNoun || isSafeLexiconNounStem(stem)) {
+		if (rule.suffix !== "까" && (allowSingleCharNoun || isSafeLexiconNounStem(stem))) {
 			const nounHit = lookup(stem);
 			if (nounHit) {
 				return makeToken(parts, raw, stem, nounHit, `-${rule.suffix} (${rule.note})`);
@@ -498,29 +492,10 @@ function generatePredicateLemmaCandidates(rawStem: string, allowHaSuffix = true)
 	}
 
 	// Common vowel contractions on stem tail
-	if (rawStem.endsWith("하여")) {
-		push(`${rawStem.slice(0, -1)}다`);
-	}
-	if (rawStem.endsWith("와")) {
-		push(`${rawStem.slice(0, -1)}오다`);
-	}
-	if (rawStem.endsWith("봐")) {
-		push(`${rawStem.slice(0, -1)}보다`);
-	}
-	if (rawStem.endsWith("줘")) {
-		push(`${rawStem.slice(0, -1)}주다`);
-	}
-	if (rawStem.endsWith("돼")) {
-		push(`${rawStem.slice(0, -1)}되다`);
-	}
-	if (rawStem.endsWith("쳐")) {
-		push(`${rawStem.slice(0, -1)}치다`);
-	}
-	if (rawStem.endsWith("려")) {
-		push(`${rawStem.slice(0, -1)}리다`);
-	}
-	if (rawStem.endsWith("렸")) {
-		push(`${rawStem.slice(0, -1)}리다`);
+	for (const [tail, replacement] of STEM_CONTRACTIONS) {
+		if (rawStem.endsWith(tail)) {
+			push(`${rawStem.slice(0, -tail.length)}${replacement}`);
+		}
 	}
 	// KRV -지 아니하다 contraction (영접지 -> 영접하다)
 	if (allowHaSuffix && !rawStem.endsWith("하")) {
