@@ -174,6 +174,14 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		});
 	}, [activeTrack]);
 
+	const pause = useCallback(() => {
+		const audio = audioRef.current;
+		if (!audio) return;
+		if (!audio.paused) {
+			audio.pause();
+		}
+	}, []);
+
 	const seekTo = useCallback((seconds: number) => {
 		const audio = audioRef.current;
 		if (!audio) return;
@@ -249,6 +257,7 @@ export function useHumanAudio({ tracks, onChapterEnded }: UseHumanAudioOptions) 
 		playbackRate,
 		errorMessage,
 		togglePlay,
+		pause,
 		seekTo,
 		skipBy,
 		selectTrack,

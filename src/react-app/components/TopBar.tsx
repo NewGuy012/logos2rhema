@@ -8,6 +8,7 @@ export type ReaderTheme = "paper" | "sepia" | "dark";
 export type KoreanFontStyle = "serif" | "sans";
 
 interface TopBarProps {
+	isHome?: boolean;
 	selectedEn: TranslationMeta;
 	selectedKo: TranslationMeta;
 	stackOrder: StackOrder;
@@ -15,6 +16,7 @@ interface TopBarProps {
 	fontScale: number;
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
+	onGoHome: () => void;
 	onFlipStackOrder: () => void;
 	onOpenSearch: () => void;
 	onChangeTheme: (theme: ReaderTheme) => void;
@@ -26,6 +28,7 @@ interface TopBarProps {
 type OpenPopover = "display" | null;
 
 export function TopBar({
+	isHome = false,
 	selectedEn,
 	selectedKo,
 	stackOrder,
@@ -33,6 +36,7 @@ export function TopBar({
 	fontScale,
 	koFontStyle,
 	studyMask,
+	onGoHome,
 	onFlipStackOrder,
 	onOpenSearch,
 	onChangeTheme,
@@ -65,7 +69,17 @@ export function TopBar({
 		<header className="top-bar" ref={navRef}>
 			<div className="top-bar-inner">
 				<div className="brand-group">
-					<a href="#top" className="brand-mark" style={{ textDecoration: "none" }}>
+					<a
+						href="#/"
+						className={`brand-mark ${isHome ? "is-home" : ""}`}
+						style={{ textDecoration: "none" }}
+						aria-label="Logos Home"
+						title="Return to Logos Home"
+						onClick={(e) => {
+							e.preventDefault();
+							onGoHome();
+						}}
+					>
 						<span className="brand-dot" aria-hidden="true" />
 						<span>Logos</span>
 					</a>

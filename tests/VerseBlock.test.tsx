@@ -1,9 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import App from "../src/react-app/App";
 import { FloatingBottomBar } from "../src/react-app/components/FloatingBottomBar";
 import { FootnotesGuide } from "../src/react-app/components/FootnotesGuide";
+import { HomePage } from "../src/react-app/components/HomePage";
 import { PassagePicker } from "../src/react-app/components/PassagePicker";
 import { TopBar } from "../src/react-app/components/TopBar";
 import { VerseBlock } from "../src/react-app/components/VerseBlock";
@@ -152,8 +154,9 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
-	it("displays canonical ESV and KRV editions and flips stack order in TopBar", () => {
+	it("displays canonical ESV and KRV editions, navigates home on logo click, and flips stack order in TopBar", () => {
 		const onFlip = mock(() => {});
+		const onGoHome = mock(() => {});
 
 		render(
 			<TopBar
@@ -164,6 +167,7 @@ describe("VerseBlock & Korean hover tooltip", () => {
 				fontScale={1}
 				koFontStyle="serif"
 				studyMask="none"
+				onGoHome={onGoHome}
 				onFlipStackOrder={onFlip}
 				onOpenSearch={() => {}}
 				onChangeTheme={() => {}}
@@ -178,8 +182,95 @@ describe("VerseBlock & Korean hover tooltip", () => {
 		expect(screen.queryByRole("button", { name: "Select English translation" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Select Korean translation" })).toBeNull();
 
+		fireEvent.click(screen.getByRole("link", { name: "Logos Home" }));
+		expect(onGoHome).toHaveBeenCalledTimes(1);
+
 		fireEvent.click(screen.getByRole("button", { name: "Flip language stack order" }));
 		expect(onFlip).toHaveBeenCalledTimes(1);
+	});
+
+	it("renders HomePage with Continue Reading, passage search, and inline book/chapter navigation", () => {
+		const onOpenPassage = mock(() => {});
+
+		render(
+			<HomePage
+				lastBookNumber={8}
+				lastChapter={4}
+				selectedEn={CANONICAL_BIBLES.en}
+				selectedKo={CANONICAL_BIBLES.ko}
+				bibleBrainEnabled={true}
+				onOpenPassage={onOpenPassage}
+			/>,
+		);
+
+		expect(screen.getByText("Bible Brain Verse-Synced Audio")).toBeDefined();
+		expect(screen.getAllByText(/Ruth 4/).length).toBeGreaterThanOrEqual(1);
+
+		fireEvent.click(screen.getByRole("button", { name: /Open Chapter/ }));
+		expect(onOpenPassage).toHaveBeenCalledWith(8, 4);
+
+		const searchInput = screen.getByRole("searchbox", { name: "Go to Bible passage" });
+		fireEvent.change(searchInput, { target: { value: "시 23" } });
+		fireEvent.submit(searchInput.closest("form") as HTMLFormElement);
+		expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
+	});
+
+	it("defaults App to HomePage at #/ and returns Home when clicking top-left Logos mark", async () => {
+		window.location.hash = "";
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("/api/config")) {
+				return Response.json({
+					english: CANONICAL_BIBLES.en,
+					korean: CANONICAL_BIBLES.ko,
+					bibleBrainEnabled: false,
+					esvAudioEnabled: false,
+				});
+			}
+			if (url.includes("/data/lexicon.json")) {
+				return Response.json({});
+			}
+			if (url.includes("/data/bibles/")) {
+				return Response.json({
+					translationId: "esv",
+					bookNumber: 1,
+					usfm: "GEN",
+					chapters: { "1": [{ verse: 1, text: "In the beginning..." }] },
+				});
+			}
+			if (url.includes("/api/audio/")) {
+				return Response.json({ bookUsfm: "GEN", chapter: 1, tracks: [] });
+			}
+			return new Response("Not Found", { status: 404 });
+		}) as typeof fetch;
+
+		try {
+			render(<App />);
+
+			await waitFor(() => {
+				expect(screen.getByText("Continue Reading")).toBeDefined();
+			});
+
+			await act(async () => {
+				fireEvent.click(screen.getByRole("button", { name: /Open Chapter/ }));
+			});
+
+			await waitFor(() => {
+				expect(screen.queryByText("Continue Reading")).toBeNull();
+				expect(window.location.hash).toBe("#/GEN/1");
+				expect(screen.getByText("In the beginning...")).toBeDefined();
+			});
+
+			await act(async () => {
+				fireEvent.click(screen.getByRole("link", { name: "Logos Home" }));
+			});
+
+			expect(screen.getByText("Continue Reading")).toBeDefined();
+			expect(window.location.hash).toBe("#/");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 
 	it("jumps to bilingual passage references from PassagePicker", () => {

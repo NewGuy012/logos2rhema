@@ -6,6 +6,7 @@ import { CANONICAL_BIBLES } from "../shared/translations";
 import type { AudioTrackOption, LexiconMap, TranslationMeta, VerseEntry } from "../shared/types";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { FootnotesGuide } from "./components/FootnotesGuide";
+import { HomePage } from "./components/HomePage";
 import { PassagePicker } from "./components/PassagePicker";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
@@ -40,17 +41,24 @@ const DEFAULT_PREFS: StoredPrefs = {
 	studyMask: "none",
 };
 
-function readInitialLocation(): { bookNumber: number; chapter: number } | null {
-	if (typeof window === "undefined") return null;
-	const hash = window.location.hash.replace(/^#\/?/, "");
-	const match = hash.match(/^([A-Za-z0-9]+)\/(\d+)$/);
-	if (!match) return null;
+type AppRoute =
+	{ view: "home" } | { view: "reader"; bookNumber: number; chapter: number; verse?: number };
+
+function parseLocationHash(): AppRoute {
+	if (typeof window === "undefined") return { view: "home" };
+	const hash = window.location.hash.replace(/^#\/?/, "").trim();
+	if (!hash || hash === "top") return { view: "home" };
+	const match = hash.match(/^([A-Za-z0-9]+)\/(\d+)(?:\/(\d+))?$/);
+	if (!match) return { view: "home" };
 	const book = getBookByUsfm(match[1]);
 	const chapter = Number.parseInt(match[2], 10);
-	if (!book || Number.isNaN(chapter)) return null;
+	const verse = match[3] ? Number.parseInt(match[3], 10) : undefined;
+	if (!book || Number.isNaN(chapter)) return { view: "home" };
 	return {
+		view: "reader",
 		bookNumber: book.number,
 		chapter: Math.max(1, Math.min(book.chapters, chapter)),
+		verse: verse && !Number.isNaN(verse) ? verse : undefined,
 	};
 }
 
@@ -86,13 +94,19 @@ function useIsDesktopLayout(): boolean {
 
 export default function App() {
 	const initialPrefs = useMemo(() => readStoredPrefs(), []);
-	const initialHash = useMemo(() => readInitialLocation(), []);
+	const initialRoute = useMemo(() => parseLocationHash(), []);
 	const isDesktop = useIsDesktopLayout();
 
-	const [bookNumber, setBookNumber] = useState(initialHash?.bookNumber ?? initialPrefs.bookNumber);
-	const [chapter, setChapter] = useState(initialHash?.chapter ?? initialPrefs.chapter);
+	const [view, setView] = useState<"home" | "reader">(initialRoute.view);
+	const [bookNumber, setBookNumber] = useState(
+		initialRoute.view === "reader" ? initialRoute.bookNumber : initialPrefs.bookNumber,
+	);
+	const [chapter, setChapter] = useState(
+		initialRoute.view === "reader" ? initialRoute.chapter : initialPrefs.chapter,
+	);
 	const [selectedEn, setSelectedEn] = useState<TranslationMeta>(CANONICAL_BIBLES.en);
 	const [selectedKo, setSelectedKo] = useState<TranslationMeta>(CANONICAL_BIBLES.ko);
+	const [bibleBrainEnabled, setBibleBrainEnabled] = useState(false);
 	const [stackOrder, setStackOrder] = useState<StackOrder>(initialPrefs.stackOrder);
 	const [theme, setTheme] = useState<ReaderTheme>(initialPrefs.theme);
 	const [fontScale, setFontScale] = useState<number>(initialPrefs.fontScale);
@@ -102,7 +116,7 @@ export default function App() {
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [rawEnVerses, setRawEnVerses] = useState<VerseEntry[]>([]);
 	const [rawKoVerses, setRawKoVerses] = useState<VerseEntry[]>([]);
-	const [loadingChapter, setLoadingChapter] = useState(true);
+	const [loadingChapter, setLoadingChapter] = useState(false);
 	const [chapterError, setChapterError] = useState<string | null>(null);
 
 	const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
@@ -110,9 +124,13 @@ export default function App() {
 	const [sheetOpen, setSheetOpen] = useState(false);
 
 	const [pickerOpen, setPickerOpen] = useState(false);
-	const [selectedVerse, setSelectedVerse] = useState<number | null>(null);
+	const [selectedVerse, setSelectedVerse] = useState<number | null>(
+		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
+	);
 	const [highlightedFootnoteId, setHighlightedFootnoteId] = useState<string | null>(null);
-	const [pendingScrollVerse, setPendingScrollVerse] = useState<number | null>(null);
+	const [pendingScrollVerse, setPendingScrollVerse] = useState<number | null>(
+		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
+	);
 
 	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
 
@@ -153,13 +171,27 @@ export default function App() {
 		document.documentElement.setAttribute("data-theme", theme);
 	}, [theme]);
 
-	// Sync URL hash cleanly
+	// Listen to browser hash/history changes (Back/Forward between Home and chapters)
 	useEffect(() => {
-		const targetHash = `#/${currentBook.usfm}/${chapter}`;
-		if (window.location.hash !== targetHash) {
-			window.history.replaceState(null, "", targetHash);
-		}
-	}, [currentBook.usfm, chapter]);
+		const syncFromLocation = () => {
+			const route = parseLocationHash();
+			if (route.view === "home") {
+				setView("home");
+				return;
+			}
+			setView("reader");
+			setBookNumber(route.bookNumber);
+			setChapter(route.chapter);
+			setSelectedVerse(route.verse ?? null);
+			setPendingScrollVerse(route.verse ?? null);
+		};
+		window.addEventListener("hashchange", syncFromLocation);
+		window.addEventListener("popstate", syncFromLocation);
+		return () => {
+			window.removeEventListener("hashchange", syncFromLocation);
+			window.removeEventListener("popstate", syncFromLocation);
+		};
+	}, []);
 
 	// Load canonical reader configuration + compact Korean lexicon once
 	useEffect(() => {
@@ -168,6 +200,7 @@ export default function App() {
 			if (cancelled) return;
 			setSelectedEn(cfg.english);
 			setSelectedKo(cfg.korean);
+			setBibleBrainEnabled(cfg.bibleBrainEnabled);
 		});
 		loadLexicon().then((lex) => {
 			if (!cancelled) setLexicon(lex);
@@ -177,8 +210,9 @@ export default function App() {
 		};
 	}, []);
 
-	// Load chapter verses when book, chapter, or selected translations change
+	// Load chapter verses when viewing a passage
 	useEffect(() => {
+		if (view !== "reader") return;
 		let cancelled = false;
 		setLoadingChapter(true);
 		setChapterError(null);
@@ -202,10 +236,11 @@ export default function App() {
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedEn, selectedKo, bookNumber, chapter]);
+	}, [view, selectedEn, selectedKo, bookNumber, chapter]);
 
-	// Sync human-narrated audio tracks whenever book or chapter changes
+	// Sync human-narrated audio tracks whenever viewing a chapter
 	useEffect(() => {
+		if (view !== "reader") return;
 		let cancelled = false;
 		loadSyncedChapterAudio({
 			usfm: currentBook.usfm,
@@ -216,9 +251,15 @@ export default function App() {
 		return () => {
 			cancelled = true;
 		};
-	}, [currentBook.usfm, chapter]);
+	}, [view, currentBook.usfm, chapter]);
 
 	const navigateTo = useCallback((targetBook: number, targetChapter: number, verse?: number) => {
+		const book = getBookByNumber(targetBook) ?? BIBLE_BOOKS[0];
+		const targetHash = `#/${book.usfm}/${targetChapter}`;
+		if (window.location.hash !== targetHash) {
+			window.history.pushState(null, "", targetHash);
+		}
+		setView("reader");
 		setBookNumber(targetBook);
 		setChapter(targetChapter);
 		setSelectedVerse(verse ?? null);
@@ -252,6 +293,15 @@ export default function App() {
 	});
 	prepareNextPlayRef.current = audio.prepareAutoAdvancePlay;
 
+	const goHome = useCallback(() => {
+		audio.pause();
+		setView("home");
+		if (window.location.hash !== "#/" && window.location.hash !== "") {
+			window.history.pushState(null, "", "#/");
+		}
+		window.scrollTo({ top: 0, behavior: "smooth" });
+	}, [audio]);
+
 	// Scroll active audio verse into view smoothly when verse timings are available
 	useEffect(() => {
 		if (!audio.activeVerse) return;
@@ -270,7 +320,7 @@ export default function App() {
 				setPickerOpen((prev) => !prev);
 				return;
 			}
-			if (pickerOpen || tag === "INPUT" || tag === "TEXTAREA") return;
+			if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
 			if (e.key === "ArrowLeft") {
 				if (audio.isPlaying) {
 					e.preventDefault();
@@ -289,7 +339,7 @@ export default function App() {
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [pickerOpen, prevChapterTarget, nextChapterTarget, navigateTo, audio]);
+	}, [pickerOpen, view, prevChapterTarget, nextChapterTarget, navigateTo, audio]);
 
 	const handleSelectVerse = useCallback(
 		(verseNum: number) => {
@@ -349,6 +399,7 @@ export default function App() {
 	return (
 		<div id="top" className="app-shell" style={readerStyle}>
 			<TopBar
+				isHome={view === "home"}
 				selectedEn={selectedEn}
 				selectedKo={selectedKo}
 				stackOrder={stackOrder}
@@ -356,6 +407,7 @@ export default function App() {
 				fontScale={fontScale}
 				koFontStyle={koFontStyle}
 				studyMask={studyMask}
+				onGoHome={goHome}
 				onFlipStackOrder={() =>
 					setStackOrder((prev) => (prev === "en-first" ? "ko-first" : "en-first"))
 				}
@@ -366,179 +418,200 @@ export default function App() {
 				onChangeStudyMask={setStudyMask}
 			/>
 
-			<div className={`reader-workspace ${isDesktop && sidebarOpen ? "with-sidebar" : ""}`}>
-				<main className="reader-main">
-					<header className="chapter-header">
-						<div className="chapter-kicker">
-							<span>
-								{currentBook.testament === "OT" ? "Old Testament · 구약" : "New Testament · 신약"}
-							</span>
-							<span>
-								{selectedEn.code} · {selectedKo.code}
-							</span>
-						</div>
+			{view === "home" ? (
+				<HomePage
+					lastBookNumber={bookNumber}
+					lastChapter={chapter}
+					selectedEn={selectedEn}
+					selectedKo={selectedKo}
+					bibleBrainEnabled={bibleBrainEnabled}
+					onOpenPassage={navigateTo}
+				/>
+			) : (
+				<>
+					<div className={`reader-workspace ${isDesktop && sidebarOpen ? "with-sidebar" : ""}`}>
+						<main className="reader-main">
+							<header className="chapter-header">
+								<div className="chapter-kicker">
+									<span>
+										{currentBook.testament === "OT"
+											? "Old Testament · 구약"
+											: "New Testament · 신약"}
+									</span>
+									<span>
+										{selectedEn.code} · {selectedKo.code}
+									</span>
+								</div>
 
-						<div className="chapter-title-row">
-							<h1 className="chapter-title-en">
-								{currentBook.en} {chapter}
-							</h1>
-							<p className="chapter-title-ko" lang="ko">
-								{currentBook.ko} {chapter}장
-							</p>
-						</div>
+								<div className="chapter-title-row">
+									<h1 className="chapter-title-en">
+										{currentBook.en} {chapter}
+									</h1>
+									<p className="chapter-title-ko" lang="ko">
+										{currentBook.ko} {chapter}장
+									</p>
+								</div>
 
-						<div className="chapter-subbar">
-							<button
-								type="button"
-								className="footnote-jump-link"
-								disabled={!audio.activeTrack && !audio.isPlaying}
-								onClick={audio.togglePlay}
-							>
-								<Headphones size={13} />
-								<span>
-									{audio.isPlaying
-										? `Pause (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
-										: activeAudioForCurrentLang.length > 0
-											? `Listen (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
-											: `No Audio (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`}
-								</span>
-							</button>
+								<div className="chapter-subbar">
+									<button
+										type="button"
+										className="footnote-jump-link"
+										disabled={!audio.activeTrack && !audio.isPlaying}
+										onClick={audio.togglePlay}
+									>
+										<Headphones size={13} />
+										<span>
+											{audio.isPlaying
+												? `Pause (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
+												: activeAudioForCurrentLang.length > 0
+													? `Listen (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`
+													: `No Audio (${audio.preferredLang === "ko" ? selectedKo.code : selectedEn.code})`}
+										</span>
+									</button>
 
-							<button type="button" className="footnote-jump-link" onClick={handleToggleDictionary}>
-								<BookOpen size={13} />
-								<span>Korean Dictionary ({analysis.footnotes.length})</span>
-							</button>
-						</div>
-					</header>
+									<button
+										type="button"
+										className="footnote-jump-link"
+										onClick={handleToggleDictionary}
+									>
+										<BookOpen size={13} />
+										<span>Korean Dictionary ({analysis.footnotes.length})</span>
+									</button>
+								</div>
+							</header>
 
-					{loadingChapter ? (
-						<p className="footnotes-subtitle">Loading chapter...</p>
-					) : chapterError ? (
-						<div className="grammar-card">
-							<div className="grammar-pattern">Unable to load passage</div>
-							<p className="grammar-desc">{chapterError}</p>
-						</div>
-					) : (
-						<section className="verses-list" aria-label="Bilingual Scripture">
-							{alignedVerses.map((verse) => (
-								<VerseBlock
-									key={verse.verse}
-									verse={verse}
-									stackOrder={stackOrder}
-									studyMask={studyMask}
-									isSelected={selectedVerse === verse.verse}
-									isAudioActive={audio.activeVerse === verse.verse}
-									enCode={selectedEn.code}
-									koCode={selectedKo.code}
-									hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
-									onSelectVerse={handleSelectVerse}
-									onSelectFootnote={handleSelectFootnote}
+							{loadingChapter ? (
+								<p className="footnotes-subtitle">Loading chapter...</p>
+							) : chapterError ? (
+								<div className="grammar-card">
+									<div className="grammar-pattern">Unable to load passage</div>
+									<p className="grammar-desc">{chapterError}</p>
+								</div>
+							) : (
+								<section className="verses-list" aria-label="Bilingual Scripture">
+									{alignedVerses.map((verse) => (
+										<VerseBlock
+											key={verse.verse}
+											verse={verse}
+											stackOrder={stackOrder}
+											studyMask={studyMask}
+											isSelected={selectedVerse === verse.verse}
+											isAudioActive={audio.activeVerse === verse.verse}
+											enCode={selectedEn.code}
+											koCode={selectedKo.code}
+											hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
+											onSelectVerse={handleSelectVerse}
+											onSelectFootnote={handleSelectFootnote}
+										/>
+									))}
+								</section>
+							)}
+
+							<div className="chapter-nav-footer">
+								<button
+									type="button"
+									className="nav-chapter-btn"
+									disabled={!prevChapterTarget}
+									onClick={() =>
+										prevChapterTarget &&
+										navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
+									}
+								>
+									<ChevronLeft size={16} />
+									<span>Previous Chapter</span>
+								</button>
+
+								<button
+									type="button"
+									className="nav-chapter-btn"
+									disabled={!nextChapterTarget}
+									onClick={() =>
+										nextChapterTarget &&
+										navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
+									}
+								>
+									<span>Next Chapter</span>
+									<ChevronRight size={16} />
+								</button>
+							</div>
+
+							<footer className="copyright-footer">
+								Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
+								{selectedEn.nativeName} · Hover any Korean word for instant translation.
+							</footer>
+						</main>
+
+						{showDictionary && isDesktop && sidebarOpen && (
+							<div className="dict-sidebar-wrap">
+								<FootnotesGuide
+									bookEn={currentBook.en}
+									bookKo={currentBook.ko}
+									chapter={chapter}
+									footnotes={analysis.footnotes}
+									grammarNotes={analysis.grammarNotes}
+									highlightedFootnoteId={highlightedFootnoteId}
+									variant="sidebar"
+									onClose={() => setSidebarOpen(false)}
+									onJumpToVerse={handleJumpFromFootnote}
 								/>
-							))}
-						</section>
-					)}
-
-					<div className="chapter-nav-footer">
-						<button
-							type="button"
-							className="nav-chapter-btn"
-							disabled={!prevChapterTarget}
-							onClick={() =>
-								prevChapterTarget &&
-								navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-							}
-						>
-							<ChevronLeft size={16} />
-							<span>Previous Chapter</span>
-						</button>
-
-						<button
-							type="button"
-							className="nav-chapter-btn"
-							disabled={!nextChapterTarget}
-							onClick={() =>
-								nextChapterTarget &&
-								navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-							}
-						>
-							<span>Next Chapter</span>
-							<ChevronRight size={16} />
-						</button>
+							</div>
+						)}
 					</div>
 
-					<footer className="copyright-footer">
-						Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
-						{selectedEn.nativeName} · Hover any Korean word for instant translation.
-					</footer>
-				</main>
-
-				{showDictionary && isDesktop && sidebarOpen && (
-					<div className="dict-sidebar-wrap">
-						<FootnotesGuide
-							bookEn={currentBook.en}
-							bookKo={currentBook.ko}
-							chapter={chapter}
-							footnotes={analysis.footnotes}
-							grammarNotes={analysis.grammarNotes}
-							highlightedFootnoteId={highlightedFootnoteId}
-							variant="sidebar"
-							onClose={() => setSidebarOpen(false)}
-							onJumpToVerse={handleJumpFromFootnote}
-						/>
-					</div>
-				)}
-			</div>
-
-			<FloatingBottomBar
-				bookEn={currentBook.en}
-				bookKo={currentBook.ko}
-				chapter={chapter}
-				hasPrev={Boolean(prevChapterTarget)}
-				hasNext={Boolean(nextChapterTarget)}
-				onPrevChapter={() =>
-					prevChapterTarget && navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-				}
-				onNextChapter={() =>
-					nextChapterTarget && navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-				}
-				onOpenPicker={() => setPickerOpen(true)}
-				tracks={audioTracks}
-				preferredLang={audio.preferredLang}
-				activeTrack={audio.activeTrack}
-				isPlaying={audio.isPlaying}
-				isLoading={audio.isLoading}
-				currentTime={audio.currentTime}
-				duration={audio.duration}
-				playbackRate={audio.playbackRate}
-				errorMessage={audio.errorMessage}
-				activeEnCode={selectedEn.code}
-				activeKoCode={selectedKo.code}
-				dictionaryOpen={dictionaryOpen}
-				dictionarySheet={
-					showDictionary && !isDesktop && sheetOpen ? (
-						<div className="dict-sheet-wrap">
-							<FootnotesGuide
-								bookEn={currentBook.en}
-								bookKo={currentBook.ko}
-								chapter={chapter}
-								footnotes={analysis.footnotes}
-								grammarNotes={analysis.grammarNotes}
-								highlightedFootnoteId={highlightedFootnoteId}
-								variant="sheet"
-								onClose={() => setSheetOpen(false)}
-								onJumpToVerse={handleJumpFromFootnote}
-							/>
-						</div>
-					) : undefined
-				}
-				onToggleDictionary={handleToggleDictionary}
-				onTogglePlay={audio.togglePlay}
-				onSeek={audio.seekTo}
-				onSkipBy={audio.skipBy}
-				onSelectTrack={audio.selectTrack}
-				onSelectLanguage={audio.selectLanguage}
-				onCycleSpeed={audio.cyclePlaybackRate}
-			/>
+					<FloatingBottomBar
+						bookEn={currentBook.en}
+						bookKo={currentBook.ko}
+						chapter={chapter}
+						hasPrev={Boolean(prevChapterTarget)}
+						hasNext={Boolean(nextChapterTarget)}
+						onPrevChapter={() =>
+							prevChapterTarget &&
+							navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
+						}
+						onNextChapter={() =>
+							nextChapterTarget &&
+							navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
+						}
+						onOpenPicker={() => setPickerOpen(true)}
+						tracks={audioTracks}
+						preferredLang={audio.preferredLang}
+						activeTrack={audio.activeTrack}
+						isPlaying={audio.isPlaying}
+						isLoading={audio.isLoading}
+						currentTime={audio.currentTime}
+						duration={audio.duration}
+						playbackRate={audio.playbackRate}
+						errorMessage={audio.errorMessage}
+						activeEnCode={selectedEn.code}
+						activeKoCode={selectedKo.code}
+						dictionaryOpen={dictionaryOpen}
+						dictionarySheet={
+							showDictionary && !isDesktop && sheetOpen ? (
+								<div className="dict-sheet-wrap">
+									<FootnotesGuide
+										bookEn={currentBook.en}
+										bookKo={currentBook.ko}
+										chapter={chapter}
+										footnotes={analysis.footnotes}
+										grammarNotes={analysis.grammarNotes}
+										highlightedFootnoteId={highlightedFootnoteId}
+										variant="sheet"
+										onClose={() => setSheetOpen(false)}
+										onJumpToVerse={handleJumpFromFootnote}
+									/>
+								</div>
+							) : undefined
+						}
+						onToggleDictionary={handleToggleDictionary}
+						onTogglePlay={audio.togglePlay}
+						onSeek={audio.seekTo}
+						onSkipBy={audio.skipBy}
+						onSelectTrack={audio.selectTrack}
+						onSelectLanguage={audio.selectLanguage}
+						onCycleSpeed={audio.cyclePlaybackRate}
+					/>
+				</>
+			)}
 
 			<PassagePicker
 				isOpen={pickerOpen}

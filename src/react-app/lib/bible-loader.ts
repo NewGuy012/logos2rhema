@@ -17,10 +17,12 @@ let lexiconPromise: Promise<LexiconMap> | null = null;
 
 export async function loadLexicon(): Promise<LexiconMap> {
 	if (!lexiconPromise) {
-		lexiconPromise = fetch("/data/lexicon.json").then(async (res) => {
-			if (!res.ok) return {};
-			return (await res.json()) as LexiconMap;
-		});
+		lexiconPromise = fetch("/data/lexicon.json")
+			.then(async (res) => {
+				if (!res.ok) return {};
+				return (await res.json()) as LexiconMap;
+			})
+			.catch(() => ({}));
 	}
 	return lexiconPromise;
 }
@@ -91,16 +93,20 @@ export async function loadSyncedChapterAudio(options: {
 	usfm: string;
 	chapter: number;
 }): Promise<ChapterAudioResponse> {
-	const res = await fetch(`/api/audio/${options.usfm}/${options.chapter}`);
-	if (!res.ok) {
-		return {
-			bookUsfm: options.usfm,
-			chapter: options.chapter,
-			tracks: [],
-			unavailableReason: "Audio lookup failed for this chapter.",
-		};
+	try {
+		const res = await fetch(`/api/audio/${options.usfm}/${options.chapter}`);
+		if (res.ok) {
+			return (await res.json()) as ChapterAudioResponse;
+		}
+	} catch {
+		// Fallback gracefully when running offline or in isolated DOM tests
 	}
-	return (await res.json()) as ChapterAudioResponse;
+	return {
+		bookUsfm: options.usfm,
+		chapter: options.chapter,
+		tracks: [],
+		unavailableReason: "Audio lookup failed for this chapter.",
+	};
 }
 
 export function alignChapterVerses(
