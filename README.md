@@ -1,90 +1,32 @@
-# React + Vite + Hono + Cloudflare Workers
+# Logos — Bilingual Bible Reader (English ESV · 한국어 개역한글)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/vite-react-template)
+A minimal, distraction-free bilingual Bible web app for reading Scripture side-by-side in stacked verse pairs while learning Korean.
 
-This template provides a minimal setup for building a React application with TypeScript and Vite, designed to run on Cloudflare Workers. It features hot module replacement, ESLint integration, and the flexibility of Workers deployments.
+## Features
 
-![React + TypeScript + Vite + Cloudflare Workers](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/fc7b4b62-442b-4769-641b-ad4422d74300/public)
+- **Stacked Bilingual Reading**: Displays **English (ESV)** above **Korean (개역한글 KRV 1961)** by default, with a **1-click `EN / 한` flip button** in the top bar.
+- **Selectable Translations + Synced Human Audio**: Switch between English (`ESV`, `BSB`, `KJV`, `WEB`, `ASV`) and Korean (`개역한글 KRV`, `한글1910`), or connect a free [Bible Brain API](https://4.dbt.io/api_key/request) key in `.dev.vars` to unlock additional translations and verse-level timestamps. Audio playback uses real human recordings (never synthetic TTS) and automatically syncs when translations change.
+- **Korean Hover Tooltips**: Hover (or tap on mobile) any Korean word to view its English translation, dictionary root (`lemma`), Hanja (when applicable), and particle/ending breakdown.
+- **Chapter Footnotes Vocabulary & Grammar Guide**: Every chapter includes a deduplicated Korean-to-English word list ordered by appearance plus an explanatory guide to 1961 개역한글 archaic endings (`~하시니라`, `가라사대`, `~하매`, `~할지니라`).
+- **Editorial Reader Controls**: Paper, Sepia, and Dark themes; text scaling; Serif (명조) vs. Sans (고딕) Korean typefaces; and blur-to-study self-test mode.
 
-<!-- dash-content-start -->
-
-🚀 Supercharge your web development with this powerful stack:
-
-- [**React**](https://react.dev/) - A modern UI library for building interactive interfaces
-- [**Vite**](https://vite.dev/) - Lightning-fast build tooling and development server
-- [**Hono**](https://hono.dev/) - Ultralight, modern backend framework
-- [**Cloudflare Workers**](https://developers.cloudflare.com/workers/) - Edge computing platform for global deployment
-
-### ✨ Key Features
-
-- 🔥 Hot Module Replacement (HMR) for rapid development
-- 📦 TypeScript support out of the box
-- 🛠️ ESLint configuration included
-- ⚡ Zero-config deployment to Cloudflare's global network
-- 🎯 API routes with Hono's elegant routing
-- 🔄 Full-stack development setup
-- 🔎 Built-in Observability to monitor your Worker
-
-Get started in minutes with local development or deploy directly via the Cloudflare dashboard. Perfect for building modern, performant web applications at the edge.
-
-<!-- dash-content-end -->
-
-## Getting Started
-
-To start a new project with this template, run:
+## Commands (Bun + Biome)
 
 ```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/vite-react-template
+bun install          # Install dependencies
+bun run dev          # Start Vite + Cloudflare Worker dev server
+bun run check        # Run Biome lint/format check + TypeScript typecheck
+bun run format       # Format codebase with Biome
+bun test             # Run unit, API, and component tests via Bun
+bun run build        # Typecheck and build Worker + client bundle
+bun run data:build   # Rebuild bundled ESV/KRV chapters and compact Korean lexicon
 ```
 
-A live deployment of this template is available at:
-[https://react-vite-template.templates.workers.dev](https://react-vite-template.templates.workers.dev)
+## Optional Audio Configuration
 
-## Development
+Copy `.dev.vars.example` to `.dev.vars` if you want to enable Bible Brain translations/timestamps or point `개역한글` to your own hosted/R2 MP3 files:
 
-Install dependencies:
-
-```bash
-npm install
+```env
+BIBLE_BRAIN_API_KEY=your_free_key
+AUDIO_BASE_URL=https://cdn.example.com/audio/krv
 ```
-
-Start the development server with:
-
-```bash
-npm run dev
-```
-
-Your application will be available at [http://localhost:5173](http://localhost:5173).
-
-## Production
-
-Build your project for production:
-
-```bash
-npm run build
-```
-
-Preview your build locally:
-
-```bash
-npm run preview
-```
-
-Deploy your project to Cloudflare Workers:
-
-```bash
-npm run build && npm run deploy
-```
-
-Monitor your workers:
-
-```bash
-npx wrangler tail
-```
-
-## Additional Resources
-
-- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [Vite Documentation](https://vitejs.dev/guide/)
-- [React Documentation](https://reactjs.org/)
-- [Hono Documentation](https://hono.dev/)
