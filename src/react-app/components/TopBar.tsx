@@ -105,7 +105,7 @@ export function TopBar({
 					<div className="popover-anchor">
 						<button
 							type="button"
-							className={`icon-btn ${openPopover === "display" ? "active" : ""}`}
+							className={`icon-btn appearance-btn ${openPopover === "display" ? "active" : ""}`}
 							onClick={() => setOpenPopover((prev) => (prev === "display" ? null : "display"))}
 							aria-expanded={openPopover === "display"}
 							aria-label="Reader appearance settings"

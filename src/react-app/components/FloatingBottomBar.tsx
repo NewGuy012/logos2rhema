@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 
 import type { AudioTrackOption } from "../../shared/types";
-import { AudioFallbackAction, AudioLanguageToggle, AudioScrubber, formatTime } from "./AudioShared";
+import {
+	AudioFallbackAction,
+	AudioLanguageToggle,
+	AudioScrubber,
+	AudioSpeedSelect,
+	formatTime,
+} from "./AudioShared";
 import {
 	BookOpen,
 	ChevronLeft,
@@ -41,7 +47,7 @@ interface FloatingBottomBarProps {
 	onSkipBy: (delta: number) => void;
 	onSelectTrack: (track: AudioTrackOption) => void;
 	onSelectLanguage: (lang: string) => void;
-	onCycleSpeed: () => void;
+	onChangeSpeed: (rate: number) => void;
 }
 
 export function FloatingBottomBar({
@@ -72,7 +78,7 @@ export function FloatingBottomBar({
 	onSkipBy,
 	onSelectTrack,
 	onSelectLanguage,
-	onCycleSpeed,
+	onChangeSpeed,
 }: FloatingBottomBarProps) {
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
@@ -154,15 +160,7 @@ export function FloatingBottomBar({
 					/>
 
 					{activeTrack && (
-						<button
-							type="button"
-							className="speed-pill"
-							onClick={onCycleSpeed}
-							title="Change reading speed"
-							aria-label={`Playback speed ${playbackRate}x`}
-						>
-							{playbackRate}x
-						</button>
+						<AudioSpeedSelect playbackRate={playbackRate} onChangeSpeed={onChangeSpeed} />
 					)}
 
 					<button

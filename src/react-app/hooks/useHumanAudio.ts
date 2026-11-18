@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AudioTrackOption } from "../../shared/types";
 
-export const PLAYBACK_SPEEDS = [0.75, 0.9, 1.0, 1.25] as const;
+export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2] as const;
 
 export function resolveVerseAtTime(
 	timings: Record<number, number> | undefined,
@@ -330,11 +330,10 @@ export function useHumanAudio({
 		[activeTrack, isPlaying, seekTo],
 	);
 
-	const cyclePlaybackRate = useCallback(() => {
-		setPlaybackRate((prev) => {
-			const idx = PLAYBACK_SPEEDS.indexOf(prev as (typeof PLAYBACK_SPEEDS)[number]);
-			return PLAYBACK_SPEEDS[(idx + 1) % PLAYBACK_SPEEDS.length];
-		});
+	const selectPlaybackRate = useCallback((rate: number) => {
+		if ((PLAYBACK_SPEEDS as readonly number[]).includes(rate)) {
+			setPlaybackRate(rate);
+		}
 	}, []);
 
 	return {
@@ -357,6 +356,6 @@ export function useHumanAudio({
 		selectLanguage,
 		prepareAutoAdvancePlay,
 		jumpToVerse,
-		cyclePlaybackRate,
+		setPlaybackRate: selectPlaybackRate,
 	};
 }

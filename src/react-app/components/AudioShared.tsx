@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 
 import type { AudioTrackOption } from "../../shared/types";
+import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
+import { ChevronDown } from "./Icons";
 
 export function formatTime(totalSeconds: number): string {
 	if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
@@ -67,6 +69,33 @@ export function AudioScrubber({
 			onChange={(e) => onSeek(Number.parseFloat(e.target.value))}
 			aria-label="Audio playback progress"
 		/>
+	);
+}
+
+export function AudioSpeedSelect({
+	playbackRate,
+	onChangeSpeed,
+}: {
+	playbackRate: number;
+	onChangeSpeed: (rate: number) => void;
+}) {
+	return (
+		<div className="speed-select-wrap">
+			<select
+				className="speed-pill speed-select"
+				value={playbackRate}
+				onChange={(e) => onChangeSpeed(Number.parseFloat(e.target.value))}
+				aria-label="Playback speed"
+				title="Change playback speed"
+			>
+				{PLAYBACK_SPEEDS.map((speed) => (
+					<option key={speed} value={speed}>
+						{speed}x
+					</option>
+				))}
+			</select>
+			<ChevronDown size={10} className="speed-select-caret" />
+		</div>
 	);
 }
 

@@ -57,7 +57,7 @@ function baseBarProps() {
 		onSkipBy: noop,
 		onSelectTrack: noop,
 		onSelectLanguage: noop,
-		onCycleSpeed: noop,
+		onChangeSpeed: noop,
 	};
 }
 
@@ -110,10 +110,22 @@ describe("Reader UI & audio hooks", () => {
 		expect(koFirst[0]?.className).toContain("verse-ko");
 
 		const wordBtn = getButton(container, "창조하시니라");
+		const origGetRect = wordBtn.getBoundingClientRect.bind(wordBtn);
+		wordBtn.getBoundingClientRect = () => ({
+			...origGetRect(),
+			top: 260,
+			bottom: 288,
+			left: 200,
+			right: 260,
+			width: 60,
+			height: 28,
+		});
 		fireHover(wordBtn, true);
-		const tooltip = document.body.querySelector('[role="tooltip"]');
+		const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
 		expect(tooltip?.textContent).toContain("to create");
 		expect(tooltip?.textContent).toContain("Root: 창조하다");
+		expect(tooltip?.style.transform).toBe("translate(-50%, 0)");
+		expect(tooltip?.style.top).toBe("296px");
 
 		fireHover(wordBtn, false);
 		expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
@@ -130,7 +142,7 @@ describe("Reader UI & audio hooks", () => {
 
 	it("renders FootnotesGuide with Words above Grammar and all entries by default", () => {
 		const onJump = mock(() => {});
-		const onClose = mock(() => {});
+		const onMinimize = mock(() => {});
 		const footnotes = [
 			...analysis.footnotes,
 			{
@@ -152,7 +164,7 @@ describe("Reader UI & audio hooks", () => {
 				grammarNotes={analysis.grammarNotes}
 				highlightedFootnoteId={null}
 				variant="sidebar"
-				onClose={onClose}
+				onMinimize={onMinimize}
 				onJumpToVerse={onJump}
 			/>,
 		);
@@ -214,7 +226,7 @@ describe("Reader UI & audio hooks", () => {
 					highlightedFootnoteId="vocab-창조하다"
 					highlightSeq={1}
 					variant="sidebar"
-					onClose={onClose}
+					onMinimize={onMinimize}
 					onJumpToVerse={onJump}
 				/>,
 			);
@@ -233,7 +245,7 @@ describe("Reader UI & audio hooks", () => {
 					highlightedFootnoteId="vocab-그"
 					highlightSeq={2}
 					variant="sidebar"
-					onClose={onClose}
+					onMinimize={onMinimize}
 					onJumpToVerse={onJump}
 				/>,
 			);
@@ -244,8 +256,11 @@ describe("Reader UI & audio hooks", () => {
 			window.HTMLElement.prototype.scrollIntoView = origScrollIntoView;
 		}
 
-		fireClick(getButton(container, "Close dictionary panel"));
-		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(container.querySelector(".dict-close-btn")).toBeNull();
+		const minimizeBtn = getButton(container, "Minimize dictionary");
+		expect(minimizeBtn.getAttribute("aria-expanded")).toBe("true");
+		fireClick(minimizeBtn);
+		expect(onMinimize).toHaveBeenCalledTimes(1);
 	});
 
 	it("renders TopBar, HomePage, and PassagePicker navigation flows", () => {
@@ -273,6 +288,10 @@ describe("Reader UI & audio hooks", () => {
 		expect(getByText(topBar.container, "Logos2Rhema")).toBeDefined();
 		expect(topBar.container.querySelector(".brand-icon")).not.toBeNull();
 		expect(getByText(topBar.container, "ESV / 개역한글")).toBeDefined();
+		expect(topBar.container.querySelector(".translation-badge")?.tagName).toBe("SPAN");
+		expect(getButton(topBar.container, "Reader appearance settings").className).toContain(
+			"appearance-btn",
+		);
 		expect(topBar.container.querySelector(".flip-btn")).toBeNull();
 		fireClick(topBar.container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 		expect(onGoHome).toHaveBeenCalledTimes(1);
@@ -295,16 +314,23 @@ describe("Reader UI & audio hooks", () => {
 				onOpenPassage={onOpenPassage}
 			/>,
 		);
-		expect(getByText(home.container, /Logos2Rhema/)).toBeDefined();
+		expect(getByText(home.container, "Logos2Rhema")).toBeDefined();
+		expect(home.container.querySelector(".home-title")?.textContent).toBe("Logos2Rhema");
+		expect(home.container.querySelector(".home-title-ko")).toBeNull();
+		expect(home.container.textContent).not.toContain("말씀");
 		const heroOrder = Array.from(home.container.querySelectorAll(".home-hero > *")).map(
 			(el) => el.className,
 		);
 		expect(heroOrder.indexOf("home-kicker")).toBeGreaterThan(heroOrder.indexOf("home-title"));
+		expect(home.container.querySelector(".home-kicker")?.textContent).not.toContain(
+			"ESV · 개역한글",
+		);
 		expect(getByText(home.container, "Bible Brain Verse-Synced Audio")).toBeDefined();
 		home.rerender(
 			<HomePage
 				lastBookNumber={8}
 				lastChapter={4}
+				lastVerse={12}
 				selectedEn={CANONICAL_BIBLES.en}
 				selectedKo={CANONICAL_BIBLES.ko}
 				bibleBrainEnabled={false}
@@ -313,18 +339,39 @@ describe("Reader UI & audio hooks", () => {
 		);
 		expect(getByText(home.container, "Audio Available")).toBeDefined();
 		expect(home.container.textContent).not.toContain("Human Audio Ready");
-		fireClick(getButton(home.container, "Open Chapter"));
-		expect(onOpenPassage).toHaveBeenCalledWith(8, 4);
+		expect(home.container.querySelector(".home-continue-label")).toBeNull();
+		expect(home.container.querySelector(".home-continue-ref")?.textContent).toContain("Ruth 4:12");
+		expect(home.container.querySelector(".home-continue-ref")?.textContent).toContain(
+			"룻기 4장 12절",
+		);
+		fireClick(getButton(home.container, "Continue Reading"));
+		expect(onOpenPassage).toHaveBeenCalledWith(8, 4, 12);
 
 		const genreSection = home.container.querySelector('section[aria-label="Bible Genres"]');
 		expect(genreSection).not.toBeNull();
 		expect(home.container.querySelector('section[aria-label="Featured Passages"]')).toBeNull();
+		const genresToggle = getButton(genreSection as ParentNode, "Browse Genres");
+		expect(genresToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(genreSection?.querySelectorAll(".home-genre-card")).toHaveLength(0);
+		expect(genreSection?.querySelectorAll(".home-genre-chip")).toHaveLength(0);
+
+		fireClick(genresToggle);
+		expect(genresToggle.getAttribute("aria-expanded")).toBe("true");
 		expect(genreSection?.querySelectorAll(".home-genre-card")).toHaveLength(10);
 		expect(genreSection?.querySelectorAll(".home-genre-chip")).toHaveLength(66);
 		fireClick(getButton(genreSection as ParentNode, /Psalms/));
 		expect(getByText(genreSection as ParentNode, "Psalms · 시편")).toBeDefined();
 		fireClick(getButton(genreSection as ParentNode, "23"));
 		expect(onOpenPassage).toHaveBeenCalledWith(19, 23);
+
+		fireClick(getButton(genreSection as ParentNode, "All Genres"));
+		expect(genreSection?.querySelectorAll(".home-genre-card")).toHaveLength(10);
+		fireClick(getButton(genreSection as ParentNode, /Psalms/));
+		fireClick(genresToggle);
+		expect(genresToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(genreSection?.querySelectorAll(".home-genre-card")).toHaveLength(0);
+		fireClick(genresToggle);
+		expect(genreSection?.querySelectorAll(".home-genre-card")).toHaveLength(10);
 
 		const browseSection = home.container.querySelector('section[aria-label="Browse All Books"]');
 		expect(browseSection?.querySelector('[role="tablist"]')).toBeNull();
@@ -342,10 +389,17 @@ describe("Reader UI & audio hooks", () => {
 		expect(getByText(browseSection as ParentNode, "Genesis")).toBeDefined();
 		expect(getByText(browseSection as ParentNode, "Matthew")).toBeDefined();
 
+		expect(getButton(browseSection as ParentNode, "Go to").textContent).toBe("Go to");
 		const homeInput = browseSection?.querySelector("input[type='search']") as HTMLInputElement;
 		setInputValue(homeInput, "시 23");
 		submitForm(homeInput.closest("form") as HTMLFormElement);
 		expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
+
+		const aboutSection = home.container.querySelector('section[aria-label="About Logos2Rhema"]');
+		expect(aboutSection).not.toBeNull();
+		expect(getByText(aboutSection as ParentNode, "About")).toBeDefined();
+		expect(aboutSection?.textContent).toContain("glory to God");
+		expect(aboutSection?.textContent).toContain("head to the heart");
 
 		const onNavigate = mock(() => {});
 		const onClosePicker = mock(() => {});
@@ -359,6 +413,9 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 		const pickerInput = picker.container.querySelector("input[type='search']") as HTMLInputElement;
+		expect(pickerInput.placeholder).toBe(
+			"Go to passage (e.g. John 3:16, 요 3:16, 시 23, Rom 8)...",
+		);
 		setInputValue(pickerInput, "요 3:16");
 		submitForm(pickerInput.closest("form") as HTMLFormElement);
 		expect(onNavigate).toHaveBeenCalledWith(43, 3, 16);
@@ -367,6 +424,7 @@ describe("Reader UI & audio hooks", () => {
 
 	it("opens App on HomePage, loads 3-column desktop reader, and returns Home", async () => {
 		window.location.hash = "";
+		localStorage.clear();
 		const originalFetch = globalThis.fetch;
 		const originalMatchMedia = window.matchMedia;
 		window.matchMedia = ((query: string) => ({
@@ -397,7 +455,13 @@ describe("Reader UI & audio hooks", () => {
 					translationId: "krv",
 					bookNumber: 1,
 					usfm: "GEN",
-					chapters: { "1": [{ verse: 1, text: "보아스가 성문에 올라가서 거기 앉았더니" }] },
+					chapters: {
+						"1": [
+							{ verse: 1, text: "보아스가 성문에 올라가서 거기 앉았더니" },
+							{ verse: 2, text: "장로 십 인을 청하여 가로되" },
+						],
+						"2": [{ verse: 1, text: "천지와 만물이 다 이루니라" }],
+					},
 				});
 			}
 			if (url.includes("/data/bibles/")) {
@@ -405,7 +469,13 @@ describe("Reader UI & audio hooks", () => {
 					translationId: "esv",
 					bookNumber: 1,
 					usfm: "GEN",
-					chapters: { "1": [{ verse: 1, text: "In the beginning..." }] },
+					chapters: {
+						"1": [
+							{ verse: 1, text: "In the beginning..." },
+							{ verse: 2, text: "The earth was without form..." },
+						],
+						"2": [{ verse: 1, text: "Thus the heavens and the earth were finished..." }],
+					},
 				});
 			}
 			if (url.includes("/api/audio/")) {
@@ -421,7 +491,7 @@ describe("Reader UI & audio hooks", () => {
 				expect(getByText(container, "Continue Reading")).toBeDefined();
 			});
 
-			fireClick(getButton(container, "Open Chapter"));
+			fireClick(getButton(container, "Continue Reading"));
 
 			await waitUntil(() => {
 				expect(audioLoaded).toBe(true);
@@ -447,9 +517,79 @@ describe("Reader UI & audio hooks", () => {
 			expect(dictEntry?.className).toContain("highlighted");
 			expect(dictEntry?.textContent).toContain("to go up");
 
+			// Minimize dictionary to move the right rail out of the way, then restore via the toggle pill
+			const workspace = container.querySelector(".reader-workspace");
+			expect(workspace?.className).toContain("with-right-rail");
+			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("expanded");
+			fireClick(getButton(container, "Minimize dictionary"));
+			expect(workspace?.className).not.toContain("with-right-rail");
+			expect(workspace?.className).toContain("with-minimized-rail");
+			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("minimized");
+			expect(
+				container.querySelector('aside[aria-label="Korean Dictionary & Grammar Guide"]'),
+			).toBeNull();
+			const expandBtn = getButton(container, "Expand dictionary");
+			expect(expandBtn.closest(".dict-sidebar-wrap")).not.toBeNull();
+			expect(expandBtn.getAttribute("aria-expanded")).toBe("false");
+			fireClick(expandBtn);
+			expect(workspace?.className).toContain("with-right-rail");
+			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("expanded");
+			expect(
+				container.querySelector('aside[aria-label="Korean Dictionary & Grammar Guide"]'),
+			).not.toBeNull();
+
+			// Minimize audio rail to move the left rail out of the way, then restore via the toggle pill
+			expect(workspace?.className).toContain("with-left-rail");
+			expect(container.querySelector(".audio-rail-wrap")?.className).toContain("expanded");
+			fireClick(getButton(container, "Minimize audio"));
+			expect(workspace?.className).not.toContain("with-left-rail");
+			expect(workspace?.className).toContain("with-minimized-left-rail");
+			expect(container.querySelector(".audio-rail-wrap")?.className).toContain("minimized");
+			expect(
+				container.querySelector('aside[aria-label="Audio Playback and Verse Sync"]'),
+			).toBeNull();
+			const expandAudioBtn = getButton(container, "Expand audio");
+			expect(expandAudioBtn.closest(".audio-rail-wrap")).not.toBeNull();
+			expect(expandAudioBtn.getAttribute("aria-expanded")).toBe("false");
+			fireClick(expandAudioBtn);
+			expect(workspace?.className).toContain("with-left-rail");
+			expect(container.querySelector(".audio-rail-wrap")?.className).toContain("expanded");
+			expect(
+				container.querySelector('aside[aria-label="Audio Playback and Verse Sync"]'),
+			).not.toBeNull();
+
+			// Header chapter navigation below titles navigates between chapters
+			const headerNav = container.querySelector(".chapter-header .chapter-nav-header");
+			expect(headerNav).not.toBeNull();
+			expect(getButton(headerNav as ParentNode, "Previous Chapter").disabled).toBe(true);
+			fireClick(getButton(headerNav as ParentNode, "Next Chapter"));
+			await waitUntil(() => {
+				expect(window.location.hash).toBe("#/GEN/2");
+				expect(
+					getByText(container, "Thus the heavens and the earth were finished..."),
+				).toBeDefined();
+			});
+			expect(getButton(headerNav as ParentNode, "Previous Chapter").disabled).toBe(false);
+			fireClick(getButton(headerNav as ParentNode, "Previous Chapter"));
+			await waitUntil(() => {
+				expect(window.location.hash).toBe("#/GEN/1");
+				expect(getByText(container, "The earth was without form...")).toBeDefined();
+			});
+
+			// Selecting verse 2 updates last-read verse shown in Continue Reading on Home
+			fireClick(getButton(container, "Verse 2"));
 			fireClick(container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 			expect(getByText(container, "Continue Reading")).toBeDefined();
 			expect(window.location.hash).toBe("#/");
+			expect(container.querySelector(".home-continue-ref")?.textContent).toContain("Genesis 1:2");
+			expect(container.querySelector(".home-continue-ref")?.textContent).toContain(
+				"창세기 1장 2절",
+			);
+			fireClick(getButton(container, "Continue Reading"));
+			await waitUntil(() => {
+				expect(window.location.hash).toBe("#/GEN/1/2");
+				expect(getByText(container, "The earth was without form...")).toBeDefined();
+			});
 		} finally {
 			globalThis.fetch = originalFetch;
 			window.matchMedia = originalMatchMedia;
@@ -533,14 +673,16 @@ describe("Reader UI & audio hooks", () => {
 
 		const onSyncToVisible = mock(() => {});
 		const onSelectTrack = mock(() => {});
+		const onRailSelectLanguage = mock((_lang: string) => {});
 		const onRailSkip = mock((_delta: number) => {});
+		const onRailChangeSpeed = mock((_rate: number) => {});
+		const onRailMinimize = mock(() => {});
 		const rail = render(
 			<AudioControlRail
 				{...baseBarProps()}
 				bookEn="John"
 				bookKo="요한복음"
 				chapter={3}
-				hasPrev={true}
 				tracks={[standardTrack, dramaTrack]}
 				preferredLang="en"
 				activeTrack={standardTrack}
@@ -551,18 +693,46 @@ describe("Reader UI & audio hooks", () => {
 				autoSync={true}
 				isFollowingAudio={false}
 				onSelectTrack={onSelectTrack}
+				onSelectLanguage={onRailSelectLanguage}
+				onChangeSpeed={onRailChangeSpeed}
 				onSkipBy={onRailSkip}
 				onToggleAutoSync={noop}
 				onSyncToVisibleVerse={onSyncToVisible}
 				onFollowActiveVerse={noop}
+				onMinimize={onRailMinimize}
 			/>,
 		);
 		fireClick(getButton(rail.container, "Drama"));
 		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
-		expect(rail.container.querySelector(".panel-title")?.textContent).toBe("Audio");
+		expect(rail.container.querySelector(".rail-header-top .panel-title")?.textContent).toBe(
+			"Audio",
+		);
+		const audioMinimizeBtn = getButton(rail.container, "Minimize audio");
+		expect(audioMinimizeBtn.getAttribute("aria-expanded")).toBe("true");
+		fireClick(audioMinimizeBtn);
+		expect(onRailMinimize).toHaveBeenCalledTimes(1);
+		expect(rail.container.querySelector(".rail-panel-header .quick-lang-toggle")).toBeNull();
+		const langToggle = rail.container.querySelector(
+			".rail-player .rail-lang-row .quick-lang-toggle",
+		);
+		expect(langToggle).not.toBeNull();
+		const playerChildren = Array.from(rail.container.querySelectorAll(".rail-player > div")).map(
+			(el) => el.className,
+		);
+		expect(playerChildren.indexOf("rail-lang-row")).toBeLessThan(
+			playerChildren.indexOf("rail-scrubber"),
+		);
+		expect(rail.container.querySelector('button[aria-label="Previous chapter"]')).toBeNull();
+		expect(rail.container.querySelector('button[aria-label="Next chapter"]')).toBeNull();
+		fireClick(getButton(langToggle as ParentNode, "한"));
+		expect(onRailSelectLanguage).toHaveBeenCalledWith("ko");
 		expect(rail.container.querySelector(".panel-subtitle")?.textContent).toBe(
 			"John 3 · 요한복음 3장",
 		);
+		expect(rail.container.querySelector(".rail-chapter-btn")).toBeNull();
+		expect(
+			rail.container.querySelector(".rail-panel-header button[title='Choose book or chapter']"),
+		).toBeNull();
 
 		const transportLabels = Array.from(
 			rail.container.querySelectorAll(".rail-transport-row button"),
@@ -577,6 +747,21 @@ describe("Reader UI & audio hooks", () => {
 		const timeRow = rail.container.querySelector(".rail-time-row");
 		expect(timeRow?.textContent).toContain("0:35");
 		expect(timeRow?.textContent).toContain("2:00");
+		const speedSelect = timeRow?.querySelector(
+			'select[aria-label="Playback speed"]',
+		) as HTMLSelectElement;
+		expect(speedSelect).not.toBeNull();
+		expect(Array.from(speedSelect.options).map((o) => o.textContent)).toEqual([
+			"0.5x",
+			"1x",
+			"1.5x",
+			"2x",
+		]);
+		act(() => {
+			speedSelect.value = "1.5";
+			speedSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+		});
+		expect(onRailChangeSpeed).toHaveBeenCalledWith(1.5);
 
 		// Settings section (Verse Sync, toggle button, and info) is collapsed by default
 		const settingsToggle = getButton(rail.container, "Settings");
@@ -586,6 +771,12 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(settingsToggle);
 		expect(settingsToggle.getAttribute("aria-expanded")).toBe("true");
 		expect(rail.container.querySelector(".rail-sync-box")).not.toBeNull();
+		const syncSwitch = rail.container.querySelector('button[role="switch"]') as HTMLButtonElement;
+		expect(syncSwitch.textContent).toBe("On");
+		expect(syncSwitch.getAttribute("aria-checked")).toBe("true");
+		expect(syncSwitch.disabled).toBe(false);
+		expect(getByText(rail.container, "Reading v.16")).toBeDefined();
+		expect(getByText(rail.container, "Playing v.12")).toBeDefined();
 		fireClick(getButton(rail.container, "Play from v.16"));
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
 		fireClick(getButton(rail.container, "Rewind 10 seconds"));
@@ -596,10 +787,33 @@ describe("Reader UI & audio hooks", () => {
 		rail.rerender(
 			<AudioControlRail
 				{...baseBarProps()}
+				bookEn="John"
+				bookKo="요한복음"
+				chapter={3}
+				tracks={[standardTrack, dramaTrack]}
+				preferredLang="en"
+				activeTrack={standardTrack}
+				isPlaying={true}
+				currentTime={35}
+				visibleVerse={16}
+				activeVerse={12}
+				autoSync={false}
+				isFollowingAudio={false}
+				onToggleAutoSync={noop}
+				onSyncToVisibleVerse={noop}
+				onFollowActiveVerse={noop}
+			/>,
+		);
+		expect(syncSwitch.textContent).toBe("Off");
+		expect(syncSwitch.getAttribute("aria-checked")).toBe("false");
+		expect(syncSwitch.disabled).toBe(false);
+
+		rail.rerender(
+			<AudioControlRail
+				{...baseBarProps()}
 				bookEn="Ruth"
 				bookKo="룻기"
 				chapter={4}
-				hasPrev={true}
 				tracks={[koTrack]}
 				preferredLang="ko"
 				activeTrack={koTrack}
@@ -615,7 +829,11 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 		expect(getButton(rail.container, "Play audio").textContent).toBe("Play");
-		expect(getByText(rail.container, "Chapter audio")).toBeDefined();
+		expect(syncSwitch.textContent).toBe("Off");
+		expect(syncSwitch.getAttribute("aria-checked")).toBe("false");
+		expect(syncSwitch.disabled).toBe(true);
+		expect(rail.container.querySelector(".rail-sync-status")).toBeNull();
+		expect(getByText(rail.container, "Verse sync unavailable for this audio")).toBeDefined();
 
 		fireClick(settingsToggle);
 		expect(settingsToggle.getAttribute("aria-expanded")).toBe("false");
@@ -681,6 +899,11 @@ describe("Reader UI & audio hooks", () => {
 
 			expect(mockCurrentTime).toBe(48.2);
 			expect(result.current.activeVerse).toBe(16);
+
+			act(() => {
+				result.current.setPlaybackRate(1.5);
+			});
+			expect(result.current.playbackRate).toBe(1.5);
 		} finally {
 			globalThis.Audio = originalAudio;
 		}

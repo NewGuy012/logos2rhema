@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useState } from "react";
 
 import {
 	BIBLE_BOOKS,
@@ -9,11 +9,20 @@ import {
 } from "../../shared/books";
 import type { BookMeta, TranslationMeta } from "../../shared/types";
 import { BookChapterGrid } from "./BookChapterBrowser";
-import { ArrowLeft, ArrowRight, BookOpen, Headphones, Search } from "./Icons";
+import {
+	ArrowLeft,
+	ArrowRight,
+	BookOpen,
+	ChevronDown,
+	ChevronRight,
+	Headphones,
+	Search,
+} from "./Icons";
 
 interface HomePageProps {
 	lastBookNumber: number;
 	lastChapter: number;
+	lastVerse?: number;
 	selectedEn: TranslationMeta;
 	selectedKo: TranslationMeta;
 	bibleBrainEnabled: boolean;
@@ -23,6 +32,7 @@ interface HomePageProps {
 export function HomePage({
 	lastBookNumber,
 	lastChapter,
+	lastVerse = 1,
 	selectedEn,
 	selectedKo,
 	bibleBrainEnabled,
@@ -30,7 +40,9 @@ export function HomePage({
 }: HomePageProps) {
 	const [query, setQuery] = useState("");
 	const [selectedBook, setSelectedBook] = useState<BookMeta | null>(null);
+	const [genresOpen, setGenresOpen] = useState(false);
 	const [selectedGenreBook, setSelectedGenreBook] = useState<BookMeta | null>(null);
+	const genresPanelId = useId();
 
 	const lastBook = useMemo(
 		() => getBookByNumber(lastBookNumber) ?? BIBLE_BOOKS[0],
@@ -64,17 +76,9 @@ export function HomePage({
 	return (
 		<main className="home-container">
 			<section className="home-hero">
-				<h1 className="home-title">
-					Logos2Rhema{" "}
-					<span className="home-title-ko" lang="ko">
-						말씀
-					</span>
-				</h1>
+				<h1 className="home-title">Logos2Rhema</h1>
 
 				<div className="home-kicker">
-					<span>
-						{selectedEn.code} · {selectedKo.code}
-					</span>
 					<span className="home-sync-pill">
 						<Headphones size={12} />
 						<span>{bibleBrainEnabled ? "Bible Brain Verse-Synced Audio" : "Audio Available"}</span>
@@ -86,101 +90,126 @@ export function HomePage({
 				</p>
 
 				<div className="home-continue-card">
-					<div>
-						<div className="home-continue-label">Continue Reading</div>
-						<div className="home-continue-ref">
-							{lastBook.en} {lastChapter}{" "}
-							<span className="home-continue-ko" lang="ko">
-								· {lastBook.ko} {lastChapter}장
-							</span>
-						</div>
+					<div className="home-continue-ref">
+						{lastBook.en} {lastChapter}:{lastVerse}{" "}
+						<span className="home-continue-ko" lang="ko">
+							· {lastBook.ko} {lastChapter}장 {lastVerse}절
+						</span>
 					</div>
 					<button
 						type="button"
 						className="home-continue-btn"
-						onClick={() => onOpenPassage(lastBook.number, lastChapter)}
+						onClick={() =>
+							lastVerse > 1
+								? onOpenPassage(lastBook.number, lastChapter, lastVerse)
+								: onOpenPassage(lastBook.number, lastChapter)
+						}
 					>
 						<BookOpen size={15} />
-						<span>Open Chapter</span>
+						<span>Continue Reading</span>
 						<ArrowRight size={15} />
 					</button>
 				</div>
 			</section>
 
-			<section className="home-section" aria-label="Bible Genres">
-				<div className="home-browser-header">
-					<h2 className="home-section-title">
-						{selectedGenreBook ? `${selectedGenreBook.en} · ${selectedGenreBook.ko}` : "Genres"}
-					</h2>
+			<section className="home-section home-genres-section" aria-label="Bible Genres">
+				<h2 className="home-section-title">
+					<button
+						type="button"
+						className="home-disclosure-btn"
+						aria-expanded={genresOpen}
+						aria-controls={genresOpen ? genresPanelId : undefined}
+						onClick={() => {
+							if (genresOpen) {
+								setSelectedGenreBook(null);
+								setGenresOpen(false);
+							} else {
+								setGenresOpen(true);
+							}
+						}}
+					>
+						<span>Browse Genres</span>
+						<span className="home-disclosure-icon" aria-hidden="true">
+							{genresOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+						</span>
+					</button>
+				</h2>
 
-					{selectedGenreBook && (
-						<button
-							type="button"
-							className="icon-btn"
-							onClick={() => setSelectedGenreBook(null)}
-							aria-label="Back to all genres"
-						>
-							<ArrowLeft size={14} />
-							<span>All Genres</span>
-						</button>
-					)}
-				</div>
-
-				{selectedGenreBook ? (
-					<BookChapterGrid
-						books={[]}
-						selectedBook={selectedGenreBook}
-						currentBookNumber={lastBook.number}
-						currentChapter={lastChapter}
-						showChapterCount={true}
-						classPrefix="home"
-						onSelectBook={setSelectedGenreBook}
-						onSelectChapter={onOpenPassage}
-					/>
-				) : (
-					<div className="home-genres-list">
-						{BIBLE_GENRES.map((genre) => {
-							const books = genre.bookNumbers
-								.map((num) => getBookByNumber(num))
-								.filter((b): b is BookMeta => Boolean(b));
-							return (
-								<div key={genre.id} className="home-genre-card">
-									<div className="home-genre-head">
-										<div className="home-genre-title">
-											<span className="home-genre-name">{genre.nameEn}</span>
-											<span className="home-genre-ko" lang="ko">
-												{genre.nameKo}
-											</span>
-										</div>
-										<span className="home-genre-meta">
-											{genre.testament} · {books.length}
-										</span>
-									</div>
-									<div className="home-genre-books">
-										{books.map((book) => (
-											<button
-												key={book.usfm}
-												type="button"
-												className={`home-genre-chip ${book.number === lastBook.number ? "current" : ""}`}
-												onClick={() => {
-													if (book.chapters === 1) {
-														onOpenPassage(book.number, 1);
-													} else {
-														setSelectedGenreBook(book);
-													}
-												}}
-												title={`${book.en} · ${book.ko} (${book.chapters}ch)`}
-											>
-												<span>{book.en}</span>
-												<span className="home-genre-chip-ko" lang="ko">
-													{book.ko}
-												</span>
-											</button>
-										))}
-									</div>
+				{genresOpen && (
+					<div id={genresPanelId}>
+						{selectedGenreBook ? (
+							<div className="home-genre-detail">
+								<div className="home-browser-header">
+									<h3 className="home-genre-book-title">
+										{selectedGenreBook.en} · {selectedGenreBook.ko}
+									</h3>
+									<button
+										type="button"
+										className="icon-btn"
+										onClick={() => setSelectedGenreBook(null)}
+										aria-label="Back to all genres"
+									>
+										<ArrowLeft size={14} />
+										<span>All Genres</span>
+									</button>
 								</div>
-							);
-						})}
+								<BookChapterGrid
+									books={[]}
+									selectedBook={selectedGenreBook}
+									currentBookNumber={lastBook.number}
+									currentChapter={lastChapter}
+									showChapterCount={true}
+									classPrefix="home"
+									onSelectBook={setSelectedGenreBook}
+									onSelectChapter={onOpenPassage}
+								/>
+							</div>
+						) : (
+							<div className="home-genres-list">
+								{BIBLE_GENRES.map((genre) => {
+									const books = genre.bookNumbers
+										.map((num) => getBookByNumber(num))
+										.filter((b): b is BookMeta => Boolean(b));
+									return (
+										<div key={genre.id} className="home-genre-card">
+											<div className="home-genre-head">
+												<div className="home-genre-title">
+													<span className="home-genre-name">{genre.nameEn}</span>
+													<span className="home-genre-ko" lang="ko">
+														{genre.nameKo}
+													</span>
+												</div>
+												<span className="home-genre-meta">
+													{genre.testament} · {books.length}
+												</span>
+											</div>
+											<div className="home-genre-books">
+												{books.map((book) => (
+													<button
+														key={book.usfm}
+														type="button"
+														className={`home-genre-chip ${book.number === lastBook.number ? "current" : ""}`}
+														onClick={() => {
+															if (book.chapters === 1) {
+																onOpenPassage(book.number, 1);
+															} else {
+																setSelectedGenreBook(book);
+															}
+														}}
+														title={`${book.en} · ${book.ko} (${book.chapters}ch)`}
+													>
+														<span>{book.en}</span>
+														<span className="home-genre-chip-ko" lang="ko">
+															{book.ko}
+														</span>
+													</button>
+												))}
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						)}
 					</div>
 				)}
 			</section>
@@ -218,7 +247,7 @@ export function HomePage({
 						aria-label="Go to Bible passage"
 					/>
 					<button type="submit" className="home-search-submit">
-						Go
+						Go to
 					</button>
 				</form>
 
@@ -268,6 +297,14 @@ export function HomePage({
 						))}
 					</div>
 				)}
+			</section>
+
+			<section className="home-section home-about-section" aria-label="About Logos2Rhema">
+				<h2 className="home-section-title">About</h2>
+				<p className="home-about-copy">
+					Logos2Rhema was built first to give glory to God, strengthen Bible and language literacy,
+					and bring the Word from the head to the heart—from <em>Logos</em> to <em>Rhema</em>.
+				</p>
 			</section>
 		</main>
 	);

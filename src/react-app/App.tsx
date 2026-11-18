@@ -7,7 +7,7 @@ import { AudioControlRail } from "./components/AudioControlRail";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { FootnotesGuide } from "./components/FootnotesGuide";
 import { HomePage } from "./components/HomePage";
-import { BookOpen, ChevronLeft, ChevronRight } from "./components/Icons";
+import { BookOpen, ChevronLeft, ChevronRight, Headphones } from "./components/Icons";
 import { PassagePicker } from "./components/PassagePicker";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
@@ -26,6 +26,7 @@ const STORAGE_KEY = "logos.reader.preferences.v1";
 interface StoredPrefs {
 	bookNumber: number;
 	chapter: number;
+	verse: number;
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
@@ -37,6 +38,7 @@ interface StoredPrefs {
 const DEFAULT_PREFS: StoredPrefs = {
 	bookNumber: 1,
 	chapter: 1,
+	verse: 1,
 	stackOrder: "en-first",
 	theme: "paper",
 	fontScale: 1,
@@ -82,9 +84,14 @@ function readStoredPrefs(): StoredPrefs {
 			book && typeof parsed.chapter === "number" && Number.isInteger(parsed.chapter)
 				? Math.max(1, Math.min(book.chapters, parsed.chapter))
 				: DEFAULT_PREFS.chapter;
+		const verse =
+			typeof parsed.verse === "number" && Number.isInteger(parsed.verse) && parsed.verse >= 1
+				? parsed.verse
+				: DEFAULT_PREFS.verse;
 		return {
 			bookNumber: book ? book.number : DEFAULT_PREFS.bookNumber,
 			chapter,
+			verse,
 			stackOrder: isOneOf(parsed.stackOrder, ["en-first", "ko-first"])
 				? parsed.stackOrder
 				: DEFAULT_PREFS.stackOrder,
@@ -112,7 +119,9 @@ function readStoredPrefs(): StoredPrefs {
 function scrollToVerse(verseNum: number): boolean {
 	const el = document.getElementById(`verse-${verseNum}`);
 	if (!el) return false;
-	el.scrollIntoView({ behavior: "smooth", block: "center" });
+	if (typeof el.scrollIntoView === "function") {
+		el.scrollIntoView({ behavior: "smooth", block: "center" });
+	}
 	return true;
 }
 
@@ -147,6 +156,9 @@ export default function App() {
 	const [chapter, setChapter] = useState(
 		initialRoute.view === "reader" ? initialRoute.chapter : initialPrefs.chapter,
 	);
+	const [lastVerse, setLastVerse] = useState<number>(() =>
+		initialRoute.view === "reader" ? (initialRoute.verse ?? 1) : initialPrefs.verse,
+	);
 	const [selectedEn, setSelectedEn] = useState<TranslationMeta>(CANONICAL_BIBLES.en);
 	const [selectedKo, setSelectedKo] = useState<TranslationMeta>(CANONICAL_BIBLES.ko);
 	const [bibleBrainEnabled, setBibleBrainEnabled] = useState(false);
@@ -164,6 +176,7 @@ export default function App() {
 	const [chapterError, setChapterError] = useState<string | null>(null);
 
 	const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
+	const [audioRailOpen, setAudioRailOpen] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -201,11 +214,26 @@ export default function App() {
 		resetKey: `${currentBook.usfm}:${chapter}`,
 	});
 
+	const prevVisibleVerseRef = useRef(visibleVerse);
+	useEffect(() => {
+		if (view !== "reader" || loadingChapter || verseNumbers.length === 0) {
+			prevVisibleVerseRef.current = visibleVerse;
+			return;
+		}
+		if (visibleVerse !== prevVisibleVerseRef.current) {
+			prevVisibleVerseRef.current = visibleVerse;
+			if (pendingScrollVerse === null) {
+				setLastVerse(visibleVerse);
+			}
+		}
+	}, [view, loadingChapter, verseNumbers.length, visibleVerse, pendingScrollVerse]);
+
 	useEffect(() => {
 		try {
 			const prefs: StoredPrefs = {
 				bookNumber,
 				chapter,
+				verse: lastVerse,
 				stackOrder,
 				theme,
 				fontScale,
@@ -217,7 +245,17 @@ export default function App() {
 		} catch {
 			// Ignore storage quota errors
 		}
-	}, [bookNumber, chapter, stackOrder, theme, fontScale, koFontStyle, studyMask, autoSync]);
+	}, [
+		bookNumber,
+		chapter,
+		lastVerse,
+		stackOrder,
+		theme,
+		fontScale,
+		koFontStyle,
+		studyMask,
+		autoSync,
+	]);
 
 	useEffect(() => {
 		document.documentElement.setAttribute("data-theme", theme);
@@ -233,6 +271,7 @@ export default function App() {
 			setView("reader");
 			setBookNumber(route.bookNumber);
 			setChapter(route.chapter);
+			setLastVerse(route.verse ?? 1);
 			setSelectedVerse(route.verse ?? null);
 			setPendingScrollVerse(route.verse ?? null);
 		};
@@ -313,6 +352,7 @@ export default function App() {
 		setView("reader");
 		setBookNumber(book.number);
 		setChapter(clampedChapter);
+		setLastVerse(verse ?? 1);
 		setSelectedVerse(verse ?? null);
 		setHighlightedFootnoteId(null);
 		setPendingScrollVerse(verse ?? null);
@@ -366,6 +406,12 @@ export default function App() {
 	}, [audio, autoSync]);
 
 	useEffect(() => {
+		if (audio.activeVerse) {
+			setLastVerse(audio.activeVerse);
+		}
+	}, [audio.activeVerse]);
+
+	useEffect(() => {
 		if (!audio.activeVerse || !autoSync || !audio.isFollowingAudio) return;
 		scrollToVerse(audio.activeVerse);
 	}, [audio.activeVerse, autoSync, audio.isFollowingAudio]);
@@ -410,12 +456,17 @@ export default function App() {
 	const handleSelectVerse = useCallback(
 		(verseNum: number) => {
 			setSelectedVerse((prev) => (prev === verseNum ? null : verseNum));
+			setLastVerse(verseNum);
 			if (audio.isPlaying) {
 				audio.jumpToVerse(verseNum);
 			}
 		},
 		[audio],
 	);
+
+	const handleToggleAudioRail = useCallback(() => {
+		setAudioRailOpen((prev) => !prev);
+	}, []);
 
 	const handleToggleDictionary = useCallback(() => {
 		if (isDesktop) {
@@ -455,6 +506,7 @@ export default function App() {
 
 	const handleJumpFromFootnote = useCallback((verseNum: number) => {
 		setSelectedVerse(verseNum);
+		setLastVerse(verseNum);
 		scrollToVerse(verseNum);
 	}, []);
 
@@ -476,12 +528,37 @@ export default function App() {
 	const openNextChapter = () =>
 		nextChapterTarget && navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
 
+	const renderChapterNav = (placement: "header" | "footer") => (
+		<nav
+			className={placement === "header" ? "chapter-nav-header" : "chapter-nav-footer"}
+			aria-label={placement === "header" ? "Top chapter navigation" : "Bottom chapter navigation"}
+		>
+			<button
+				type="button"
+				className={`nav-chapter-btn ${placement === "header" ? "nav-chapter-btn-compact" : ""}`.trim()}
+				disabled={!prevChapterTarget}
+				onClick={openPrevChapter}
+			>
+				<ChevronLeft size={placement === "header" ? 15 : 16} />
+				<span>Previous Chapter</span>
+			</button>
+
+			<button
+				type="button"
+				className={`nav-chapter-btn ${placement === "header" ? "nav-chapter-btn-compact" : ""}`.trim()}
+				disabled={!nextChapterTarget}
+				onClick={openNextChapter}
+			>
+				<span>Next Chapter</span>
+				<ChevronRight size={placement === "header" ? 15 : 16} />
+			</button>
+		</nav>
+	);
+
 	const sharedAudioControls = {
 		bookEn: currentBook.en,
 		bookKo: currentBook.ko,
 		chapter,
-		hasPrev: Boolean(prevChapterTarget),
-		hasNext: Boolean(nextChapterTarget),
 		tracks: audioTracks,
 		preferredLang: audio.preferredLang,
 		activeTrack: audio.activeTrack,
@@ -493,18 +570,15 @@ export default function App() {
 		errorMessage: audio.errorMessage,
 		activeEnCode: selectedEn.code,
 		activeKoCode: selectedKo.code,
-		onPrevChapter: openPrevChapter,
-		onNextChapter: openNextChapter,
-		onOpenPicker: () => setPickerOpen(true),
 		onTogglePlay: audio.togglePlay,
 		onSeek: audio.seekTo,
 		onSkipBy: audio.skipBy,
 		onSelectTrack: audio.selectTrack,
 		onSelectLanguage: audio.selectLanguage,
-		onCycleSpeed: audio.cyclePlaybackRate,
+		onChangeSpeed: audio.setPlaybackRate,
 	};
 
-	const renderDictionary = (variant: "sidebar" | "sheet", onClose: () => void) => (
+	const renderDictionary = (variant: "sidebar" | "sheet", onMinimize: () => void) => (
 		<FootnotesGuide
 			bookEn={currentBook.en}
 			bookKo={currentBook.ko}
@@ -514,7 +588,7 @@ export default function App() {
 			highlightedFootnoteId={highlightedFootnoteId}
 			highlightSeq={highlightSeq}
 			variant={variant}
-			onClose={onClose}
+			onMinimize={onMinimize}
 			onJumpToVerse={handleJumpFromFootnote}
 		/>
 	);
@@ -545,6 +619,7 @@ export default function App() {
 				<HomePage
 					lastBookNumber={bookNumber}
 					lastChapter={chapter}
+					lastVerse={lastVerse}
 					selectedEn={selectedEn}
 					selectedKo={selectedKo}
 					bibleBrainEnabled={bibleBrainEnabled}
@@ -553,20 +628,35 @@ export default function App() {
 			) : (
 				<>
 					<div
-						className={`reader-workspace ${isDesktop ? "desktop-layout" : ""} ${isDesktop && sidebarOpen ? "with-right-rail" : ""}`}
+						className={`reader-workspace ${isDesktop ? "desktop-layout" : ""} ${isDesktop && audioRailOpen ? "with-left-rail" : ""} ${isDesktop && !audioRailOpen ? "with-minimized-left-rail" : ""} ${isDesktop && sidebarOpen ? "with-right-rail" : ""} ${isDesktop && showDictionary && !sidebarOpen ? "with-minimized-rail" : ""}`}
 					>
 						{isDesktop && (
-							<div className="audio-rail-wrap">
-								<AudioControlRail
-									{...sharedAudioControls}
-									visibleVerse={visibleVerse}
-									activeVerse={audio.activeVerse}
-									autoSync={autoSync}
-									isFollowingAudio={audio.isFollowingAudio}
-									onToggleAutoSync={() => setAutoSync((prev) => !prev)}
-									onSyncToVisibleVerse={() => audio.jumpToVerse(visibleVerse)}
-									onFollowActiveVerse={handleFollowActiveVerse}
-								/>
+							<div className={`audio-rail-wrap ${audioRailOpen ? "expanded" : "minimized"}`}>
+								{audioRailOpen ? (
+									<AudioControlRail
+										{...sharedAudioControls}
+										visibleVerse={visibleVerse}
+										activeVerse={audio.activeVerse}
+										autoSync={autoSync}
+										isFollowingAudio={audio.isFollowingAudio}
+										onToggleAutoSync={() => setAutoSync((prev) => !prev)}
+										onSyncToVisibleVerse={() => audio.jumpToVerse(visibleVerse)}
+										onFollowActiveVerse={handleFollowActiveVerse}
+										onMinimize={handleToggleAudioRail}
+									/>
+								) : (
+									<button
+										type="button"
+										className={`rail-minimized-pill audio-minimized-pill ${audio.isPlaying ? "playing" : ""}`.trim()}
+										onClick={handleToggleAudioRail}
+										aria-expanded={false}
+										aria-label="Expand audio"
+										title="Show audio player"
+									>
+										<Headphones size={14} />
+										<ChevronRight size={13} />
+									</button>
+								)}
 							</div>
 						)}
 
@@ -591,7 +681,9 @@ export default function App() {
 									</p>
 								</div>
 
-								{(!isDesktop || !sidebarOpen) && (
+								{renderChapterNav("header")}
+
+								{!isDesktop && (
 									<div className="chapter-subbar">
 										<button
 											type="button"
@@ -632,27 +724,7 @@ export default function App() {
 								</section>
 							)}
 
-							<div className="chapter-nav-footer">
-								<button
-									type="button"
-									className="nav-chapter-btn"
-									disabled={!prevChapterTarget}
-									onClick={openPrevChapter}
-								>
-									<ChevronLeft size={16} />
-									<span>Previous Chapter</span>
-								</button>
-
-								<button
-									type="button"
-									className="nav-chapter-btn"
-									disabled={!nextChapterTarget}
-									onClick={openNextChapter}
-								>
-									<span>Next Chapter</span>
-									<ChevronRight size={16} />
-								</button>
-							</div>
+							{renderChapterNav("footer")}
 
 							<footer className="copyright-footer">
 								Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
@@ -660,9 +732,23 @@ export default function App() {
 							</footer>
 						</main>
 
-						{showDictionary && isDesktop && sidebarOpen && (
-							<div className="dict-sidebar-wrap">
-								{renderDictionary("sidebar", () => setSidebarOpen(false))}
+						{showDictionary && isDesktop && (
+							<div className={`dict-sidebar-wrap ${sidebarOpen ? "expanded" : "minimized"}`}>
+								{sidebarOpen ? (
+									renderDictionary("sidebar", handleToggleDictionary)
+								) : (
+									<button
+										type="button"
+										className="rail-minimized-pill dict-minimized-pill"
+										onClick={handleToggleDictionary}
+										aria-expanded={false}
+										aria-label="Expand dictionary"
+										title="Show Korean dictionary"
+									>
+										<ChevronLeft size={13} />
+										<BookOpen size={14} />
+									</button>
+								)}
 							</div>
 						)}
 					</div>
@@ -670,6 +756,11 @@ export default function App() {
 					{!isDesktop && (
 						<FloatingBottomBar
 							{...sharedAudioControls}
+							hasPrev={Boolean(prevChapterTarget)}
+							hasNext={Boolean(nextChapterTarget)}
+							onPrevChapter={openPrevChapter}
+							onNextChapter={openNextChapter}
+							onOpenPicker={() => setPickerOpen(true)}
 							dictionaryOpen={dictionaryOpen}
 							dictionarySheet={
 								showDictionary && sheetOpen ? (

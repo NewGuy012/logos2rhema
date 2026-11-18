@@ -97,7 +97,7 @@ export function PassagePicker({
 							ref={inputRef}
 							type="search"
 							className="modal-search-input"
-							placeholder="Jump to passage (e.g. John 3:16, 요 3:16, 시 23, Rom 8)..."
+							placeholder="Go to passage (e.g. John 3:16, 요 3:16, 시 23, Rom 8)..."
 							value={query}
 							onChange={(e) => {
 								setQuery(e.target.value);

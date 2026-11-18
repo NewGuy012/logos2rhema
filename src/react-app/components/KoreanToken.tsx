@@ -24,7 +24,8 @@ export function KoreanToken({ token, onSelectFootnote }: KoreanTokenProps) {
 		const el = buttonRef.current;
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
-		const placeBelow = rect.top < 120;
+		const spaceBelow = window.innerHeight - rect.bottom;
+		const placeBelow = spaceBelow >= 140 || spaceBelow >= rect.top;
 		const centerX = rect.left + rect.width / 2;
 		const clampedLeft = Math.max(140, Math.min(window.innerWidth - 140, centerX));
 		setPos({

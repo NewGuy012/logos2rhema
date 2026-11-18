@@ -12,7 +12,7 @@ interface FootnotesGuideProps {
 	highlightedFootnoteId: string | null;
 	highlightSeq?: number;
 	variant?: "sidebar" | "sheet";
-	onClose?: () => void;
+	onMinimize?: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
 }
 
@@ -25,7 +25,7 @@ export function FootnotesGuide({
 	highlightedFootnoteId,
 	highlightSeq = 0,
 	variant = "sidebar",
-	onClose,
+	onMinimize,
 	onJumpToVerse,
 }: FootnotesGuideProps) {
 	const [query, setQuery] = useState("");
@@ -83,7 +83,8 @@ export function FootnotesGuide({
 			aria-label="Korean Dictionary & Grammar Guide"
 		>
 			<div className="dict-panel-header">
-				<div className="dict-header-text">
+				<span aria-hidden="true" />
+				<div className="panel-header-text dict-header-text">
 					<h2 className="panel-title">Dictionary</h2>
 					<p className="panel-subtitle">
 						{bookEn} {chapter} ·{" "}
@@ -92,15 +93,16 @@ export function FootnotesGuide({
 						</span>
 					</p>
 				</div>
-				{onClose && (
+				{onMinimize && (
 					<button
 						type="button"
-						className="pill-nav-btn dict-close-btn"
-						onClick={onClose}
-						aria-label="Close dictionary panel"
-						title="Close dictionary"
+						className="pill-nav-btn dict-minimize-btn"
+						onClick={onMinimize}
+						aria-expanded={true}
+						aria-label="Minimize dictionary"
+						title="Minimize dictionary"
 					>
-						<X size={15} />
+						{variant === "sheet" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
 					</button>
 				)}
 			</div>
@@ -176,7 +178,7 @@ export function FootnotesGuide({
 															type="button"
 															className="verse-ref-chip"
 															onClick={() => onJumpToVerse(v)}
-															title={`Jump to verse ${v}`}
+															title={`Go to verse ${v}`}
 														>
 															v.{v}
 														</button>

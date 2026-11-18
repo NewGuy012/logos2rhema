@@ -1,7 +1,13 @@
 import { useState } from "react";
 
 import type { AudioTrackOption } from "../../shared/types";
-import { AudioFallbackAction, AudioLanguageToggle, AudioScrubber, formatTime } from "./AudioShared";
+import {
+	AudioFallbackAction,
+	AudioLanguageToggle,
+	AudioScrubber,
+	AudioSpeedSelect,
+	formatTime,
+} from "./AudioShared";
 import {
 	ChevronDown,
 	ChevronLeft,
@@ -19,8 +25,6 @@ interface AudioControlRailProps {
 	bookEn: string;
 	bookKo: string;
 	chapter: number;
-	hasPrev: boolean;
-	hasNext: boolean;
 	tracks: AudioTrackOption[];
 	preferredLang: string;
 	activeTrack: AudioTrackOption | null;
@@ -36,26 +40,22 @@ interface AudioControlRailProps {
 	activeVerse: number | null;
 	autoSync: boolean;
 	isFollowingAudio: boolean;
-	onPrevChapter: () => void;
-	onNextChapter: () => void;
-	onOpenPicker: () => void;
 	onTogglePlay: () => void;
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
 	onSelectTrack: (track: AudioTrackOption) => void;
 	onSelectLanguage: (lang: string) => void;
-	onCycleSpeed: () => void;
+	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync: () => void;
 	onSyncToVisibleVerse: () => void;
 	onFollowActiveVerse: () => void;
+	onMinimize?: () => void;
 }
 
 export function AudioControlRail({
 	bookEn,
 	bookKo,
 	chapter,
-	hasPrev,
-	hasNext,
 	tracks,
 	preferredLang,
 	activeTrack,
@@ -71,30 +71,55 @@ export function AudioControlRail({
 	activeVerse,
 	autoSync,
 	isFollowingAudio,
-	onPrevChapter,
-	onNextChapter,
-	onOpenPicker,
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
 	onSelectTrack,
 	onSelectLanguage,
-	onCycleSpeed,
+	onChangeSpeed,
 	onToggleAutoSync,
 	onSyncToVisibleVerse,
 	onFollowActiveVerse,
+	onMinimize,
 }: AudioControlRailProps) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
 	const hasTimestamps = Boolean(activeTrack?.verseTimings);
+	const syncActive = hasTimestamps && autoSync;
 
 	return (
 		<aside className="audio-rail" aria-label="Audio Playback and Verse Sync">
 			<div className="rail-card">
 				<div className="rail-panel-header">
-					<div className="rail-header-top">
+					{onMinimize ? (
+						<button
+							type="button"
+							className="pill-nav-btn rail-minimize-btn"
+							onClick={onMinimize}
+							aria-expanded={true}
+							aria-label="Minimize audio"
+							title="Minimize audio"
+						>
+							<ChevronLeft size={15} />
+						</button>
+					) : (
+						<span aria-hidden="true" />
+					)}
+					<div className="panel-header-text rail-header-top">
 						<h2 className="panel-title">Audio</h2>
+						<p className="panel-subtitle">
+							{bookEn} {chapter} ·{" "}
+							<span lang="ko">
+								{bookKo} {chapter}장
+							</span>
+						</p>
+					</div>
+					<span aria-hidden="true" />
+				</div>
+
+				<div className="rail-player">
+					<div className="rail-lang-row">
 						<AudioLanguageToggle
 							preferredLang={preferredLang}
 							activeKoCode={activeKoCode}
@@ -103,47 +128,6 @@ export function AudioControlRail({
 						/>
 					</div>
 
-					<div className="rail-header-sub">
-						<button
-							type="button"
-							className="rail-chapter-btn"
-							onClick={onOpenPicker}
-							title="Choose book or chapter"
-						>
-							<span className="panel-subtitle">
-								{bookEn} {chapter} ·{" "}
-								<span lang="ko">
-									{bookKo} {chapter}장
-								</span>
-							</span>
-						</button>
-
-						<div className="rail-chapter-arrows">
-							<button
-								type="button"
-								className="rail-nav-icon-btn"
-								disabled={!hasPrev}
-								onClick={onPrevChapter}
-								aria-label="Previous chapter"
-								title="Previous chapter"
-							>
-								<ChevronLeft size={14} />
-							</button>
-							<button
-								type="button"
-								className="rail-nav-icon-btn"
-								disabled={!hasNext}
-								onClick={onNextChapter}
-								aria-label="Next chapter"
-								title="Next chapter"
-							>
-								<ChevronRight size={14} />
-							</button>
-						</div>
-					</div>
-				</div>
-
-				<div className="rail-player">
 					{activeTrack && !errorMessage && (
 						<div className="rail-scrubber">
 							<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
@@ -214,15 +198,7 @@ export function AudioControlRail({
 						<>
 							<div className="rail-time-row">
 								<span className="quick-time">{formatTime(currentTime)}</span>
-								<button
-									type="button"
-									className="speed-pill"
-									onClick={onCycleSpeed}
-									title="Change playback speed"
-									aria-label={`Playback speed ${playbackRate}x`}
-								>
-									{playbackRate}x
-								</button>
+								<AudioSpeedSelect playbackRate={playbackRate} onChangeSpeed={onChangeSpeed} />
 								<span className="quick-time rail-duration">
 									{duration > 0 ? formatTime(duration) : "--:--"}
 								</span>
@@ -275,47 +251,51 @@ export function AudioControlRail({
 								<button
 									type="button"
 									role="switch"
-									aria-checked={autoSync}
-									className={`rail-sync-toggle ${autoSync ? "active" : ""}`}
+									aria-checked={syncActive}
+									disabled={!hasTimestamps}
+									className={`rail-sync-toggle ${syncActive ? "active" : ""}`}
 									onClick={onToggleAutoSync}
+									title={
+										hasTimestamps
+											? "Toggle automatic verse sync"
+											: "Verse sync unavailable for this audio"
+									}
 								>
 									<RefreshCw size={10} />
-									<span>{autoSync ? "Auto On" : "Auto Off"}</span>
+									<span>{syncActive ? "On" : "Off"}</span>
 								</button>
 							</div>
 
-							<div className="rail-sync-status">
-								<span>Visible v.{visibleVerse}</span>
-								{isPlaying && activeVerse ? (
-									<span>Audio v.{activeVerse}</span>
-								) : (
-									!hasTimestamps &&
-									activeTrack && (
-										<span
-											className="rail-sync-hint"
-											title="Chapter MP3 active. Verse-level sync activates with Bible Brain timestamps."
-										>
-											Chapter audio
-										</span>
-									)
-								)}
-							</div>
+							{hasTimestamps ? (
+								<>
+									<div className="rail-sync-status">
+										<span>Reading v.{visibleVerse}</span>
+										{isPlaying && activeVerse && <span>Playing v.{activeVerse}</span>}
+									</div>
 
-							{hasTimestamps && (
-								<div className="rail-sync-actions">
-									{(!isPlaying || (activeVerse !== null && activeVerse !== visibleVerse)) && (
-										<button type="button" className="rail-sync-btn" onClick={onSyncToVisibleVerse}>
-											<Crosshair size={12} />
-											<span>Play from v.{visibleVerse}</span>
-										</button>
-									)}
-									{isPlaying && !isFollowingAudio && activeVerse && (
-										<button type="button" className="rail-sync-btn" onClick={onFollowActiveVerse}>
-											<RefreshCw size={12} />
-											<span>Follow Audio (v.{activeVerse})</span>
-										</button>
-									)}
-								</div>
+									<div className="rail-sync-actions">
+										{(!isPlaying || (activeVerse !== null && activeVerse !== visibleVerse)) && (
+											<button
+												type="button"
+												className="rail-sync-btn"
+												onClick={onSyncToVisibleVerse}
+											>
+												<Crosshair size={12} />
+												<span>Play from v.{visibleVerse}</span>
+											</button>
+										)}
+										{isPlaying && !isFollowingAudio && activeVerse && (
+											<button type="button" className="rail-sync-btn" onClick={onFollowActiveVerse}>
+												<RefreshCw size={12} />
+												<span>Follow Audio (v.{activeVerse})</span>
+											</button>
+										)}
+									</div>
+								</>
+							) : (
+								activeTrack && (
+									<p className="rail-sync-hint">Verse sync unavailable for this audio</p>
+								)
 							)}
 						</div>
 					)}
