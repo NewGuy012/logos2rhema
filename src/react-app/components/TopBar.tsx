@@ -86,10 +86,10 @@ export function TopBar({
 						type="button"
 						className="icon-btn"
 						onClick={onOpenSearch}
-						title="Jump to book or chapter (Cmd/Ctrl+K)"
+						title="Go to book or chapter (Cmd/Ctrl+K)"
 					>
 						<Search size={15} />
-						<span>Jump</span>
+						<span>Go to</span>
 					</button>
 				</div>
 

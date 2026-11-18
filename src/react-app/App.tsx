@@ -172,6 +172,7 @@ export default function App() {
 		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
 	);
 	const [highlightedFootnoteId, setHighlightedFootnoteId] = useState<string | null>(null);
+	const [highlightSeq, setHighlightSeq] = useState(0);
 	const highlightTimerRef = useRef<number | null>(null);
 	const [pendingScrollVerse, setPendingScrollVerse] = useState<number | null>(
 		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
@@ -313,6 +314,7 @@ export default function App() {
 		setBookNumber(book.number);
 		setChapter(clampedChapter);
 		setSelectedVerse(verse ?? null);
+		setHighlightedFootnoteId(null);
 		setPendingScrollVerse(verse ?? null);
 		if (!verse) {
 			window.scrollTo({ top: 0, behavior: "smooth" });
@@ -434,6 +436,7 @@ export default function App() {
 	const handleSelectFootnote = useCallback(
 		(footnoteId: string) => {
 			setHighlightedFootnoteId(footnoteId);
+			setHighlightSeq((seq) => seq + 1);
 			if (isDesktop) {
 				setSidebarOpen(true);
 			} else {
@@ -445,7 +448,7 @@ export default function App() {
 			highlightTimerRef.current = window.setTimeout(() => {
 				highlightTimerRef.current = null;
 				setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
-			}, 2600);
+			}, 3200);
 		},
 		[isDesktop],
 	);
@@ -509,6 +512,7 @@ export default function App() {
 			footnotes={analysis.footnotes}
 			grammarNotes={analysis.grammarNotes}
 			highlightedFootnoteId={highlightedFootnoteId}
+			highlightSeq={highlightSeq}
 			variant={variant}
 			onClose={onClose}
 			onJumpToVerse={handleJumpFromFootnote}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
-import { X } from "./Icons";
+import { ChevronDown, ChevronRight, Search, X } from "./Icons";
 
 interface FootnotesGuideProps {
 	bookEn: string;
@@ -10,6 +10,7 @@ interface FootnotesGuideProps {
 	footnotes: FootnoteVocabEntry[];
 	grammarNotes: KrvGrammarNote[];
 	highlightedFootnoteId: string | null;
+	highlightSeq?: number;
 	variant?: "sidebar" | "sheet";
 	onClose?: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
@@ -24,36 +25,50 @@ export function FootnotesGuide({
 	footnotes,
 	grammarNotes,
 	highlightedFootnoteId,
+	highlightSeq = 0,
 	variant = "sidebar",
 	onClose,
 	onJumpToVerse,
 }: FootnotesGuideProps) {
 	const [filterMode, setFilterMode] = useState<VocabFilter>("key");
 	const [query, setQuery] = useState("");
+	const [grammarOpen, setGrammarOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-	// Automatically switch to "All Words" if a highlighted word is a particle/pronoun hidden by "Key Vocab"
+	// Automatically switch to "All" if a clicked word is a pronoun/particle, and clear search filter
 	useEffect(() => {
 		if (!highlightedFootnoteId) return;
 		const target = footnotes.find((f) => f.id === highlightedFootnoteId);
 		if (target && (target.pos === "pronoun" || target.pos === "particle")) {
 			setFilterMode("all");
 		}
-		if (query) setQuery("");
-	}, [highlightedFootnoteId, footnotes, query]);
+		setQuery((prev) => (prev ? "" : prev));
+	}, [highlightedFootnoteId, highlightSeq, footnotes]);
 
 	// Scroll only inside the dictionary container so the Scripture column stays on the active verse
 	useEffect(() => {
 		if (!highlightedFootnoteId) return;
 		const container = scrollContainerRef.current;
 		if (!container) return;
-		const targetEl = container.querySelector<HTMLElement>(
-			`[data-footnote-id="${highlightedFootnoteId}"]`,
+		const targetEl = Array.from(container.querySelectorAll<HTMLElement>("[data-footnote-id]")).find(
+			(el) => el.dataset.footnoteId === highlightedFootnoteId,
 		);
-		if (targetEl && typeof targetEl.scrollIntoView === "function") {
+		if (!targetEl) return;
+
+		const containerRect = container.getBoundingClientRect();
+		const targetRect = targetEl.getBoundingClientRect();
+		if (containerRect.height > 0) {
+			const topOffset = Math.max(12, Math.round(containerRect.height * 0.2));
+			const nextTop = container.scrollTop + (targetRect.top - containerRect.top) - topOffset;
+			if (typeof container.scrollTo === "function") {
+				container.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+			} else {
+				container.scrollTop = Math.max(0, nextTop);
+			}
+		} else if (typeof targetEl.scrollIntoView === "function") {
 			targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
 		}
-	}, [highlightedFootnoteId, filterMode]);
+	}, [highlightedFootnoteId, highlightSeq, filterMode, query, footnotes]);
 
 	const visibleEntries = useMemo(() => {
 		const trimmed = query.trim().toLowerCase();
@@ -81,23 +96,24 @@ export function FootnotesGuide({
 			aria-label="Korean Dictionary & Grammar Guide"
 		>
 			<div className="dict-panel-header">
-				<div>
-					<h2 className="dict-panel-title">
-						Korean Dictionary · {bookEn} {chapter}
-					</h2>
-					<p className="dict-panel-subtitle" lang="ko">
-						{bookKo} {chapter}장 어휘 · 개역한글 가이드
+				<div className="dict-header-text">
+					<h2 className="dict-panel-title">Korean Dictionary</h2>
+					<p className="dict-panel-subtitle">
+						{bookEn} {chapter} ·{" "}
+						<span lang="ko">
+							{bookKo} {chapter}장
+						</span>
 					</p>
 				</div>
 				{onClose && (
 					<button
 						type="button"
-						className="pill-nav-btn"
+						className="pill-nav-btn dict-close-btn"
 						onClick={onClose}
 						aria-label="Close dictionary panel"
 						title="Close dictionary"
 					>
-						<X size={16} />
+						<X size={15} />
 					</button>
 				)}
 			</div>
@@ -124,28 +140,55 @@ export function FootnotesGuide({
 					</button>
 				</div>
 
-				<input
-					type="search"
-					className="footnote-search"
-					placeholder="Search Korean or English..."
-					value={query}
-					onChange={(e) => setQuery(e.target.value)}
-					aria-label="Filter vocabulary footnotes"
-				/>
+				<div className="dict-search-wrap">
+					<Search size={13} className="dict-search-icon" />
+					<input
+						type="search"
+						className="footnote-search"
+						placeholder="Search Korean or English..."
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+						aria-label="Filter vocabulary footnotes"
+					/>
+					{query && (
+						<button
+							type="button"
+							className="dict-search-clear"
+							onClick={() => setQuery("")}
+							aria-label="Clear search"
+							title="Clear search"
+						>
+							<X size={12} />
+						</button>
+					)}
+				</div>
 			</div>
 
 			<div className="dict-panel-scroll" ref={scrollContainerRef}>
 				{grammarNotes.length > 0 && !query.trim() && (
-					<section className="grammar-cards" aria-label="KRV Grammar Notes">
-						{grammarNotes.map((note) => (
-							<div key={note.id} className="grammar-card">
-								<div className="grammar-pattern">{note.pattern}</div>
-								<div className="grammar-modern">
-									Modern: {note.modern} · e.g. {note.examples.join(", ")}
-								</div>
-								<p className="grammar-desc">{note.explanation}</p>
+					<section className="grammar-disclosure" aria-label="KRV Grammar Notes">
+						<button
+							type="button"
+							className="grammar-toggle-btn"
+							aria-expanded={grammarOpen}
+							onClick={() => setGrammarOpen((prev) => !prev)}
+						>
+							<span>KRV Grammar ({grammarNotes.length})</span>
+							{grammarOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+						</button>
+						{grammarOpen && (
+							<div className="grammar-cards">
+								{grammarNotes.map((note) => (
+									<div key={note.id} className="grammar-card">
+										<div className="grammar-pattern">{note.pattern}</div>
+										<div className="grammar-modern">
+											Modern: {note.modern} · e.g. {note.examples.join(", ")}
+										</div>
+										<p className="grammar-desc">{note.explanation}</p>
+									</div>
+								))}
 							</div>
-						))}
+						)}
 					</section>
 				)}
 

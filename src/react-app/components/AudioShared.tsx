@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import type { AudioTrackOption } from "../../shared/types";
 
 export function formatTime(totalSeconds: number): string {
@@ -49,14 +51,19 @@ export function AudioScrubber({
 	duration: number;
 	onSeek: (sec: number) => void;
 }) {
+	const safeMax = duration > 0 ? duration : 100;
+	const safeValue = duration > 0 ? Math.min(currentTime, duration) : 0;
+	const progressPct = duration > 0 ? Math.min(100, Math.max(0, (safeValue / duration) * 100)) : 0;
+
 	return (
 		<input
 			type="range"
 			className="audio-range"
+			style={{ "--range-progress": `${progressPct}%` } as CSSProperties}
 			min={0}
-			max={duration > 0 ? duration : 100}
+			max={safeMax}
 			step={0.5}
-			value={duration > 0 ? Math.min(currentTime, duration) : 0}
+			value={safeValue}
 			onChange={(e) => onSeek(Number.parseFloat(e.target.value))}
 			aria-label="Audio playback progress"
 		/>

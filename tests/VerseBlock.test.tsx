@@ -161,21 +161,65 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(container, "v.1"));
 		expect(onJump).toHaveBeenCalledWith(1);
 
-		rerender(
-			<FootnotesGuide
-				bookEn="Genesis"
-				bookKo="창세기"
-				chapter={1}
-				footnotes={footnotes}
-				grammarNotes={analysis.grammarNotes}
-				highlightedFootnoteId="vocab-그"
-				variant="sidebar"
-				onClose={onClose}
-				onJumpToVerse={onJump}
-			/>,
-		);
+		// Grammar notes are collapsed by default to keep the dictionary minimal and expand on click
+		expect(container.querySelector(".grammar-cards")).toBeNull();
+		fireClick(getButton(container, /KRV Grammar/));
+		expect(container.querySelector(".grammar-cards")).not.toBeNull();
 
-		expect(getByText(container, "he / that / the")).toBeDefined();
+		// Filtering via search and clicking a word clears the filter and scrolls to its translation
+		const dictSearch = container.querySelector("input[type='search']") as HTMLInputElement;
+		setInputValue(dictSearch, "태초");
+		expect(container.querySelector('[data-footnote-id="vocab-창조하다"]')).toBeNull();
+
+		const scrolledIds: string[] = [];
+		const origScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+		window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+			if (this.dataset.footnoteId) {
+				scrolledIds.push(this.dataset.footnoteId);
+			}
+		};
+
+		try {
+			rerender(
+				<FootnotesGuide
+					bookEn="Genesis"
+					bookKo="창세기"
+					chapter={1}
+					footnotes={footnotes}
+					grammarNotes={analysis.grammarNotes}
+					highlightedFootnoteId="vocab-창조하다"
+					highlightSeq={1}
+					variant="sidebar"
+					onClose={onClose}
+					onJumpToVerse={onJump}
+				/>,
+			);
+
+			expect(dictSearch.value).toBe("");
+			expect(getByText(container, "to create")).toBeDefined();
+			expect(scrolledIds.at(-1)).toBe("vocab-창조하다");
+
+			rerender(
+				<FootnotesGuide
+					bookEn="Genesis"
+					bookKo="창세기"
+					chapter={1}
+					footnotes={footnotes}
+					grammarNotes={analysis.grammarNotes}
+					highlightedFootnoteId="vocab-그"
+					highlightSeq={2}
+					variant="sidebar"
+					onClose={onClose}
+					onJumpToVerse={onJump}
+				/>,
+			);
+
+			expect(getByText(container, "he / that / the")).toBeDefined();
+			expect(scrolledIds.at(-1)).toBe("vocab-그");
+		} finally {
+			window.HTMLElement.prototype.scrollIntoView = origScrollIntoView;
+		}
+
 		fireClick(getButton(container, "Close dictionary panel"));
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
@@ -183,6 +227,7 @@ describe("Reader UI & audio hooks", () => {
 	it("renders TopBar, HomePage, and PassagePicker navigation flows", () => {
 		const onGoHome = mock(() => {});
 		const onFlip = mock(() => {});
+		const onOpenSearch = mock(() => {});
 		const topBar = render(
 			<TopBar
 				selectedEn={CANONICAL_BIBLES.en}
@@ -194,7 +239,7 @@ describe("Reader UI & audio hooks", () => {
 				studyMask="none"
 				onGoHome={onGoHome}
 				onFlipStackOrder={onFlip}
-				onOpenSearch={noop}
+				onOpenSearch={onOpenSearch}
 				onChangeTheme={noop}
 				onChangeFontScale={noop}
 				onChangeKoFontStyle={noop}
@@ -205,6 +250,8 @@ describe("Reader UI & audio hooks", () => {
 		expect(onGoHome).toHaveBeenCalledTimes(1);
 		fireClick(getButton(topBar.container, "Flip language stack order"));
 		expect(onFlip).toHaveBeenCalledTimes(1);
+		fireClick(getButton(topBar.container, "Go to"));
+		expect(onOpenSearch).toHaveBeenCalledTimes(1);
 
 		const onOpenPassage = mock(() => {});
 		const home = render(
@@ -218,6 +265,18 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 		expect(getByText(home.container, "Bible Brain Verse-Synced Audio")).toBeDefined();
+		home.rerender(
+			<HomePage
+				lastBookNumber={8}
+				lastChapter={4}
+				selectedEn={CANONICAL_BIBLES.en}
+				selectedKo={CANONICAL_BIBLES.ko}
+				bibleBrainEnabled={false}
+				onOpenPassage={onOpenPassage}
+			/>,
+		);
+		expect(getByText(home.container, "Audio Available")).toBeDefined();
+		expect(home.container.textContent).not.toContain("Human Audio Ready");
 		fireClick(getButton(home.container, "Open Chapter"));
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4);
 
@@ -271,6 +330,14 @@ describe("Reader UI & audio hooks", () => {
 				});
 			}
 			if (url.includes("/data/lexicon.json")) return Response.json({});
+			if (url.includes("/data/bibles/krv/")) {
+				return Response.json({
+					translationId: "krv",
+					bookNumber: 1,
+					usfm: "GEN",
+					chapters: { "1": [{ verse: 1, text: "보아스가 성문에 올라가서 거기 앉았더니" }] },
+				});
+			}
 			if (url.includes("/data/bibles/")) {
 				return Response.json({
 					translationId: "esv",
@@ -305,6 +372,13 @@ describe("Reader UI & audio hooks", () => {
 					container.querySelector('aside[aria-label="Korean Dictionary & Grammar Guide"]'),
 				).not.toBeNull();
 			});
+
+			// Clicking a word ("View in Dictionary") highlights & reveals its translation
+			fireClick(getButton(container, "올라가서"));
+			const dictEntry = container.querySelector('[data-footnote-id="vocab-올라가다"]');
+			expect(dictEntry).not.toBeNull();
+			expect(dictEntry?.className).toContain("highlighted");
+			expect(dictEntry?.textContent).toContain("to go up");
 
 			fireClick(container.querySelector('a[aria-label="Logos Home"]') as Element);
 			expect(getByText(container, "Continue Reading")).toBeDefined();
@@ -392,6 +466,7 @@ describe("Reader UI & audio hooks", () => {
 
 		const onSyncToVisible = mock(() => {});
 		const onSelectTrack = mock(() => {});
+		const onRailSkip = mock((_delta: number) => {});
 		const rail = render(
 			<AudioControlRail
 				{...baseBarProps()}
@@ -409,6 +484,7 @@ describe("Reader UI & audio hooks", () => {
 				autoSync={true}
 				isFollowingAudio={false}
 				onSelectTrack={onSelectTrack}
+				onSkipBy={onRailSkip}
 				onToggleAutoSync={noop}
 				onSyncToVisibleVerse={onSyncToVisible}
 				onFollowActiveVerse={noop}
@@ -418,6 +494,34 @@ describe("Reader UI & audio hooks", () => {
 		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
 		fireClick(getButton(rail.container, "Play from v.16"));
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
+		fireClick(getButton(rail.container, "Rewind 10 seconds"));
+		fireClick(getButton(rail.container, "Forward 10 seconds"));
+		expect(onRailSkip).toHaveBeenNthCalledWith(1, -10);
+		expect(onRailSkip).toHaveBeenNthCalledWith(2, 10);
+
+		rail.rerender(
+			<AudioControlRail
+				{...baseBarProps()}
+				bookEn="Ruth"
+				bookKo="룻기"
+				chapter={4}
+				hasPrev={true}
+				tracks={[koTrack]}
+				preferredLang="ko"
+				activeTrack={koTrack}
+				isPlaying={false}
+				currentTime={0}
+				visibleVerse={1}
+				activeVerse={null}
+				autoSync={true}
+				isFollowingAudio={true}
+				onToggleAutoSync={noop}
+				onSyncToVisibleVerse={noop}
+				onFollowActiveVerse={noop}
+			/>,
+		);
+		expect(getButton(rail.container, "Play audio").textContent).toBe("Listen");
+		expect(getByText(rail.container, "Chapter audio")).toBeDefined();
 	});
 
 	it("auto-syncs playback start to the currently visible verse", async () => {

@@ -140,15 +140,20 @@ export function AudioControlRail({
 						disabled={!activeTrack && !isPlaying}
 						onClick={onTogglePlay}
 						aria-label={isPlaying ? "Pause audio" : "Play audio"}
+						title={
+							activeTrack
+								? `${activeTrack.label} (${activeLangCode})`
+								: `No audio available for ${activeLangCode}`
+						}
 					>
 						{isLoading ? (
-							<Loader2 size={15} className="spin" />
+							<Loader2 size={14} className="spin" />
 						) : isPlaying ? (
-							<Pause size={15} />
+							<Pause size={14} />
 						) : (
-							<Headphones size={15} />
+							<Headphones size={14} />
 						)}
-						<span>{isPlaying ? "Pause" : `Listen (${activeLangCode})`}</span>
+						<span>{isPlaying ? "Pause" : "Listen"}</span>
 					</button>
 
 					{activeTrack && (
@@ -168,9 +173,7 @@ export function AudioControlRail({
 					<p className="rail-note">{errorMessage}</p>
 				) : !activeTrack ? (
 					<div className="rail-unavailable">
-						<p className="rail-note">
-							No audio linked to <strong>{activeLangCode}</strong> for this chapter.
-						</p>
+						<p className="rail-note">No {activeLangCode} audio for this chapter.</p>
 						<AudioFallbackAction
 							preferredLang={preferredLang}
 							tracks={tracks}
@@ -182,31 +185,32 @@ export function AudioControlRail({
 					<>
 						<div className="rail-scrubber">
 							<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
-							<div className="rail-time-row">
+							<div className="rail-transport-meta">
 								<span className="quick-time">{formatTime(currentTime)}</span>
+								<div className="rail-skip-group">
+									<button
+										type="button"
+										className="rail-skip-btn"
+										onClick={() => onSkipBy(-10)}
+										aria-label="Rewind 10 seconds"
+										title="Rewind 10 seconds"
+									>
+										<RotateCcw size={12} />
+										<span>10s</span>
+									</button>
+									<button
+										type="button"
+										className="rail-skip-btn"
+										onClick={() => onSkipBy(10)}
+										aria-label="Forward 10 seconds"
+										title="Forward 10 seconds"
+									>
+										<span>10s</span>
+										<RotateCw size={12} />
+									</button>
+								</div>
 								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>
 							</div>
-						</div>
-
-						<div className="rail-skip-row">
-							<button
-								type="button"
-								className="rail-mini-btn"
-								onClick={() => onSkipBy(-10)}
-								aria-label="Rewind 10 seconds"
-							>
-								<RotateCcw size={13} />
-								<span>10s</span>
-							</button>
-							<button
-								type="button"
-								className="rail-mini-btn"
-								onClick={() => onSkipBy(10)}
-								aria-label="Forward 10 seconds"
-							>
-								<span>10s</span>
-								<RotateCw size={13} />
-							</button>
 						</div>
 
 						{langTracks.length > 1 && (
@@ -247,37 +251,43 @@ export function AudioControlRail({
 							className={`rail-sync-toggle ${autoSync ? "active" : ""}`}
 							onClick={onToggleAutoSync}
 						>
-							<RefreshCw size={11} />
+							<RefreshCw size={10} />
 							<span>{autoSync ? "Auto On" : "Auto Off"}</span>
 						</button>
 					</div>
 
 					<div className="rail-sync-status">
-						<span>Visible: v.{visibleVerse}</span>
-						{isPlaying && activeVerse && <span>Audio: v.{activeVerse}</span>}
+						<span>Visible v.{visibleVerse}</span>
+						{isPlaying && activeVerse ? (
+							<span>Audio v.{activeVerse}</span>
+						) : (
+							!hasTimestamps &&
+							activeTrack && (
+								<span
+									className="rail-sync-hint"
+									title="Chapter MP3 active. Verse-level sync activates with Bible Brain timestamps."
+								>
+									Chapter audio
+								</span>
+							)
+						)}
 					</div>
 
-					{hasTimestamps ? (
+					{hasTimestamps && (
 						<div className="rail-sync-actions">
 							{(!isPlaying || (activeVerse !== null && activeVerse !== visibleVerse)) && (
 								<button type="button" className="rail-sync-btn" onClick={onSyncToVisibleVerse}>
-									<Crosshair size={13} />
+									<Crosshair size={12} />
 									<span>Play from v.{visibleVerse}</span>
 								</button>
 							)}
 							{isPlaying && !isFollowingAudio && activeVerse && (
 								<button type="button" className="rail-sync-btn" onClick={onFollowActiveVerse}>
-									<RefreshCw size={13} />
+									<RefreshCw size={12} />
 									<span>Follow Audio (v.{activeVerse})</span>
 								</button>
 							)}
 						</div>
-					) : (
-						activeTrack && (
-							<p className="rail-note">
-								Chapter MP3 active. Verse-level sync activates with Bible Brain timestamps.
-							</p>
-						)
 					)}
 				</div>
 			</div>

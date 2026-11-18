@@ -56,6 +56,7 @@ export const BookOpen = makeIcon(
 	</>,
 );
 
+export const ChevronDown = makeIcon(<path d="m6 9 6 6 6-6" />);
 export const ChevronLeft = makeIcon(<path d="m15 18-6-6 6-6" />);
 export const ChevronRight = makeIcon(<path d="m9 18 6-6-6-6" />);
 

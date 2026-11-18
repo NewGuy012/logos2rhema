@@ -79,9 +79,7 @@ export function HomePage({
 					</span>
 					<span className="home-sync-pill">
 						<Headphones size={12} />
-						<span>
-							{bibleBrainEnabled ? "Bible Brain Verse-Synced Audio" : "Human Audio Ready"}
-						</span>
+						<span>{bibleBrainEnabled ? "Bible Brain Verse-Synced Audio" : "Audio Available"}</span>
 					</span>
 				</div>
 
