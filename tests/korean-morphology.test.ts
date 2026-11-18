@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { romanizeHangul } from "../src/shared/hangul";
 import { analyzeKoreanChapter, analyzeKoreanWord } from "../src/shared/korean-morphology";
 import type { LexiconMap } from "../src/shared/types";
 
@@ -101,5 +102,16 @@ describe("korean-morphology", () => {
 		expect(grammarIds).toContain("krv-sinira");
 		expect(grammarIds).toContain("krv-garasadae");
 		expect(grammarIds).toContain("krv-mae");
+	});
+
+	it("romanizes Korean words with liaison, nasalization, and aspiration", () => {
+		expect(romanizeHangul("여자에게")).toBe("yeo-ja-e-ge");
+		expect(romanizeHangul("여자")).toBe("yeo-ja");
+		expect(romanizeHangul("하나님이")).toBe("ha-na-ni-mi");
+		expect(romanizeHangul("창조하시니라")).toBe("chang-jo-ha-si-ni-ra");
+		expect(romanizeHangul("있으라")).toBe("i-sseu-ra");
+		expect(romanizeHangul("없는")).toBe("eom-neun");
+		expect(romanizeHangul("성령")).toBe("seong-nyeong");
+		expect(romanizeHangul("좋다")).toBe("jo-ta");
 	});
 });

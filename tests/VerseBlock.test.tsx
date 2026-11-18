@@ -15,6 +15,19 @@ import {
 	resolveVerseAtTime,
 	useHumanAudio,
 } from "../src/react-app/hooks/useHumanAudio";
+import {
+	FAVORITES_STORAGE_KEY,
+	formatFavoriteLabel,
+	readStoredFavorites,
+	toggleFavoriteItem,
+} from "../src/react-app/lib/favorites";
+import {
+	formatHighlightLabel,
+	HIGHLIGHTS_STORAGE_KEY,
+	readStoredHighlights,
+	splitTextByHighlights,
+	toggleHighlightSpans,
+} from "../src/react-app/lib/highlights";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 import {
@@ -72,7 +85,8 @@ describe("Reader UI & audio hooks", () => {
 		tokens: analysis.tokensByVerse.get(1) ?? [],
 	};
 
-	it("flips English/Korean verse order in VerseBlock and opens tooltip on hover or unmatched tap", () => {
+	it("flips English/Korean verse order in VerseBlock and opens tooltip on hover or unmatched tap", async () => {
+		const onToggleFavorite = mock(() => {});
 		const verseProps = {
 			verse: {
 				...sampleVerse,
@@ -92,14 +106,26 @@ describe("Reader UI & audio hooks", () => {
 			studyMask: "none" as const,
 			isSelected: false,
 			isAudioActive: false,
+			isFavorited: false,
 			enCode: "ESV",
 			koCode: "개역한글",
 			hasVerseTimestamps: false,
 			onSelectVerse: noop,
+			onToggleFavorite,
 			onSelectFootnote: noop,
 		};
 
 		const { container, rerender } = render(<VerseBlock {...verseProps} stackOrder="en-first" />);
+
+		const favBtn = getButton(container, "Bookmark verse 1");
+		expect(favBtn.getAttribute("aria-pressed")).toBe("false");
+		fireClick(favBtn);
+		expect(onToggleFavorite).toHaveBeenCalledTimes(1);
+
+		rerender(<VerseBlock {...verseProps} stackOrder="en-first" isFavorited={true} />);
+		const removeFavBtn = getButton(container, "Remove verse 1 from favorites");
+		expect(removeFavBtn.getAttribute("aria-pressed")).toBe("true");
+		expect(removeFavBtn.className).toContain("active");
 
 		const enFirst = container.querySelectorAll(".verse-lines > p");
 		expect(enFirst[0]?.className).toContain("verse-en");
@@ -120,15 +146,81 @@ describe("Reader UI & audio hooks", () => {
 			width: 60,
 			height: 28,
 		});
-		fireHover(wordBtn, true);
-		const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
-		expect(tooltip?.textContent).toContain("to create");
-		expect(tooltip?.textContent).toContain("Root: 창조하다");
-		expect(tooltip?.style.transform).toBe("translate(-50%, 0)");
-		expect(tooltip?.style.top).toBe("296px");
+		const spokenUtterances: Array<{ text: string; lang: string; rate: number; voice?: unknown }> =
+			[];
+		const cancelMock = mock(() => {});
+		const koVoice = { lang: "ko-KR", localService: true, name: "Yuna" };
+		const origSpeechSynth = Object.getOwnPropertyDescriptor(window, "speechSynthesis");
+		const origUtterance = Object.getOwnPropertyDescriptor(window, "SpeechSynthesisUtterance");
 
-		fireHover(wordBtn, false);
-		expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+		class MockUtterance {
+			text: string;
+			lang = "";
+			rate = 1;
+			voice: unknown = null;
+			onstart: (() => void) | null = null;
+			onend: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			constructor(text: string) {
+				this.text = text;
+			}
+		}
+		Object.defineProperty(window, "SpeechSynthesisUtterance", {
+			configurable: true,
+			value: MockUtterance,
+		});
+		Object.defineProperty(window, "speechSynthesis", {
+			configurable: true,
+			value: {
+				cancel: cancelMock,
+				getVoices: () => [koVoice],
+				speak: (u: MockUtterance) => {
+					spokenUtterances.push({ text: u.text, lang: u.lang, rate: u.rate, voice: u.voice });
+					u.onstart?.();
+					u.onend?.();
+				},
+			},
+		});
+
+		try {
+			fireHover(wordBtn, true);
+			const tooltip = document.body.querySelector('[role="tooltip"]') as HTMLElement | null;
+			expect(tooltip?.textContent).toContain("to create");
+			expect(tooltip?.textContent).toContain("[chang-jo-ha-si-ni-ra]");
+			expect(tooltip?.textContent).toContain("Root: 창조하다");
+			expect(tooltip?.textContent).toContain("[chang-jo-ha-da]");
+			expect(tooltip?.style.transform).toBe("translate(-50%, 0)");
+			expect(tooltip?.style.top).toBe("296px");
+
+			// Hovering onto the tooltip keeps it open, and both exact inflected & root speech buttons speak ko-KR
+			fireHover(wordBtn, false);
+			fireHover(tooltip as HTMLElement, true);
+			expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+
+			fireClick(getButton(tooltip as ParentNode, "Pronounce 창조하시니라"));
+			fireClick(getButton(tooltip as ParentNode, "Pronounce root 창조하다"));
+			expect(cancelMock).toHaveBeenCalledTimes(2);
+			expect(spokenUtterances).toEqual([
+				{ text: "창조하시니라", lang: "ko-KR", rate: 0.92, voice: koVoice },
+				{ text: "창조하다", lang: "ko-KR", rate: 0.92, voice: koVoice },
+			]);
+
+			fireHover(tooltip as HTMLElement, false);
+			await waitUntil(() => {
+				expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
+			});
+		} finally {
+			if (origSpeechSynth) {
+				Object.defineProperty(window, "speechSynthesis", origSpeechSynth);
+			} else {
+				delete (window as { speechSynthesis?: unknown }).speechSynthesis;
+			}
+			if (origUtterance) {
+				Object.defineProperty(window, "SpeechSynthesisUtterance", origUtterance);
+			} else {
+				delete (window as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
+			}
+		}
 
 		// Clicking an unmatched word toggles its tooltip cleanly without focus-click double-flipping
 		const unknownBtn = getButton(container, "낯선말");
@@ -265,10 +357,26 @@ describe("Reader UI & audio hooks", () => {
 
 	it("renders TopBar, HomePage, and PassagePicker navigation flows", () => {
 		const onGoHome = mock(() => {});
+		const onContinueReading = mock(() => {});
+		const onTopOpenPassage = mock(() => {});
+		const onTopRemoveFavorite = mock(() => {});
 		const onFlip = mock(() => {});
 		const onOpenSearch = mock(() => {});
 		const topBar = render(
 			<TopBar
+				lastBookNumber={8}
+				lastChapter={4}
+				lastVerse={12}
+				favorites={[
+					{
+						id: "43:3:16",
+						bookNumber: 43,
+						chapter: 3,
+						verse: 16,
+						enText: "For God so loved the world...",
+						createdAt: 100,
+					},
+				]}
 				selectedEn={CANONICAL_BIBLES.en}
 				selectedKo={CANONICAL_BIBLES.ko}
 				stackOrder="en-first"
@@ -277,6 +385,9 @@ describe("Reader UI & audio hooks", () => {
 				koFontStyle="serif"
 				studyMask="none"
 				onGoHome={onGoHome}
+				onContinueReading={onContinueReading}
+				onOpenPassage={onTopOpenPassage}
+				onRemoveFavorite={onTopRemoveFavorite}
 				onFlipStackOrder={onFlip}
 				onOpenSearch={onOpenSearch}
 				onChangeTheme={noop}
@@ -289,19 +400,54 @@ describe("Reader UI & audio hooks", () => {
 		expect(topBar.container.querySelector(".brand-icon")).not.toBeNull();
 		expect(getByText(topBar.container, "ESV / 개역한글")).toBeDefined();
 		expect(topBar.container.querySelector(".translation-badge")?.tagName).toBe("SPAN");
-		expect(getButton(topBar.container, "Reader appearance settings").className).toContain(
-			"appearance-btn",
-		);
+		const appearanceBtn = getButton(topBar.container, "Reader appearance settings");
+		expect(appearanceBtn.className).toContain("appearance-btn");
+		expect(appearanceBtn.textContent).toBe("");
+		expect(appearanceBtn.querySelector("svg") !== null).toBe(true);
 		expect(topBar.container.querySelector(".flip-btn")).toBeNull();
 		fireClick(topBar.container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 		expect(onGoHome).toHaveBeenCalledTimes(1);
-		fireClick(getButton(topBar.container, "Reader appearance settings"));
+		fireClick(getButton(topBar.container, "Home"));
+		expect(onGoHome).toHaveBeenCalledTimes(2);
+		fireClick(appearanceBtn);
 		fireClick(getButton(topBar.container, "EN / 한"));
 		expect(onFlip).not.toHaveBeenCalled();
 		fireClick(getButton(topBar.container, "한 / EN"));
 		expect(onFlip).toHaveBeenCalledTimes(1);
 		fireClick(getButton(topBar.container, "Go to"));
 		expect(onOpenSearch).toHaveBeenCalledTimes(1);
+		fireClick(getButton(topBar.container, "Continue"));
+		expect(onContinueReading).toHaveBeenCalledTimes(1);
+
+		const topFavoritesBtn = getButton(topBar.container, /Favorites/);
+		expect(topFavoritesBtn.getAttribute("aria-expanded")).toBe("false");
+		fireClick(topFavoritesBtn);
+		expect(topFavoritesBtn.getAttribute("aria-expanded")).toBe("true");
+		const favPopover = topBar.container.querySelector(".top-favorites-popover") as ParentNode;
+		expect(favPopover).not.toBeNull();
+		fireClick(getButton(favPopover, "Remove John 3:16 from favorites"));
+		expect(onTopRemoveFavorite).toHaveBeenCalledWith("43:3:16");
+		fireClick(getButton(favPopover, /John 3:16/));
+		expect(onTopOpenPassage).toHaveBeenCalledWith(43, 3, 16);
+		expect(topBar.container.querySelector(".top-favorites-popover")).toBeNull();
+
+		const topGenresBtn = getButton(topBar.container, "Genres");
+		expect(topGenresBtn.getAttribute("aria-expanded")).toBe("false");
+		fireClick(topGenresBtn);
+		expect(topGenresBtn.getAttribute("aria-expanded")).toBe("true");
+		const genresPopover = topBar.container.querySelector(".top-genres-popover") as ParentNode;
+		expect(genresPopover.querySelectorAll(".home-genre-card")).toHaveLength(10);
+		fireClick(getButton(genresPopover, /Obadiah/));
+		expect(onTopOpenPassage).toHaveBeenCalledWith(31, 1);
+		expect(topBar.container.querySelector(".top-genres-popover")).toBeNull();
+
+		fireClick(topGenresBtn);
+		const genresPopover2 = topBar.container.querySelector(".top-genres-popover") as ParentNode;
+		fireClick(getButton(genresPopover2, /Psalms/));
+		expect(getByText(genresPopover2, "Psalms · 시편")).toBeDefined();
+		fireClick(getButton(genresPopover2, "23"));
+		expect(onTopOpenPassage).toHaveBeenCalledWith(19, 23);
+		expect(topBar.container.querySelector(".top-genres-popover")).toBeNull();
 
 		const onOpenPassage = mock(() => {});
 		const home = render(
@@ -339,13 +485,93 @@ describe("Reader UI & audio hooks", () => {
 		);
 		expect(getByText(home.container, "Audio Available")).toBeDefined();
 		expect(home.container.textContent).not.toContain("Human Audio Ready");
-		expect(home.container.querySelector(".home-continue-label")).toBeNull();
-		expect(home.container.querySelector(".home-continue-ref")?.textContent).toContain("Ruth 4:12");
-		expect(home.container.querySelector(".home-continue-ref")?.textContent).toContain(
+		const continueSection = home.container.querySelector(
+			'section[aria-label="Continue Where You Left Off"]',
+		);
+		expect(continueSection).not.toBeNull();
+		expect(getByText(continueSection as ParentNode, "Continue Where You Left Off")).toBeDefined();
+		expect(continueSection?.querySelector(".home-continue-label")).toBeNull();
+		expect(continueSection?.querySelector(".home-continue-ref")?.textContent).toContain(
+			"Ruth 4:12",
+		);
+		expect(continueSection?.querySelector(".home-continue-ref")?.textContent).toContain(
 			"룻기 4장 12절",
 		);
-		fireClick(getButton(home.container, "Continue Reading"));
+		const continueBtn = getButton(continueSection as ParentNode, "Continue");
+		expect(continueBtn.textContent).toBe("Continue");
+		fireClick(continueBtn);
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4, 12);
+
+		const favoritesSection = home.container.querySelector('section[aria-label="Favorites"]');
+		expect(favoritesSection).not.toBeNull();
+		const favoritesToggle = getButton(favoritesSection as ParentNode, "Favorites");
+		expect(favoritesToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(favoritesSection?.querySelector(".home-favorites-panel")).toBeNull();
+		fireClick(favoritesToggle);
+		expect(favoritesToggle.getAttribute("aria-expanded")).toBe("true");
+		expect(getByText(favoritesSection as ParentNode, /No favorites yet/)).toBeDefined();
+
+		const onRemoveFavorite = mock(() => {});
+		const onRemoveHighlight = mock(() => {});
+		home.rerender(
+			<HomePage
+				lastBookNumber={8}
+				lastChapter={4}
+				lastVerse={12}
+				selectedEn={CANONICAL_BIBLES.en}
+				selectedKo={CANONICAL_BIBLES.ko}
+				bibleBrainEnabled={false}
+				favorites={[
+					{
+						id: "43:3:16",
+						bookNumber: 43,
+						chapter: 3,
+						verse: 16,
+						enText: "For God so loved the world...",
+						koText: "하나님이 세상을 이처럼 사랑하사...",
+						createdAt: 200,
+					},
+					{
+						id: "2:2",
+						bookNumber: 2,
+						chapter: 2,
+						createdAt: 100,
+					},
+				]}
+				highlights={[
+					{
+						id: "1:1:1:en:7-16",
+						bookNumber: 1,
+						chapter: 1,
+						verse: 1,
+						lang: "en",
+						start: 7,
+						end: 16,
+						text: "beginning",
+						createdAt: 300,
+					},
+				]}
+				onOpenPassage={onOpenPassage}
+				onRemoveFavorite={onRemoveFavorite}
+				onRemoveHighlight={onRemoveHighlight}
+			/>,
+		);
+		expect(favoritesSection?.querySelector(".home-disclosure-count")?.textContent).toBe("3");
+		expect(favoritesSection?.querySelectorAll(".home-favorite-card")).toHaveLength(3);
+		expect(favoritesSection?.querySelector("mark.verse-highlight")?.textContent).toBe("beginning");
+		fireClick(getButton(favoritesSection as ParentNode, /John 3:16/));
+		expect(onOpenPassage).toHaveBeenCalledWith(43, 3, 16);
+		fireClick(getButton(favoritesSection as ParentNode, /Exodus 2/));
+		expect(onOpenPassage).toHaveBeenCalledWith(2, 2, undefined);
+		fireClick(getButton(favoritesSection as ParentNode, /Genesis 1:1/));
+		expect(onOpenPassage).toHaveBeenCalledWith(1, 1, 1);
+		fireClick(getButton(favoritesSection as ParentNode, "Remove John 3:16 from favorites"));
+		expect(onRemoveFavorite).toHaveBeenCalledWith("43:3:16");
+		fireClick(getButton(favoritesSection as ParentNode, "Remove highlight from Genesis 1:1"));
+		expect(onRemoveHighlight).toHaveBeenCalledWith("1:1:1:en:7-16");
+		fireClick(favoritesToggle);
+		expect(favoritesToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(favoritesSection?.querySelector(".home-favorites-panel")).toBeNull();
 
 		const genreSection = home.container.querySelector('section[aria-label="Bible Genres"]');
 		expect(genreSection).not.toBeNull();
@@ -398,8 +624,9 @@ describe("Reader UI & audio hooks", () => {
 		const aboutSection = home.container.querySelector('section[aria-label="About Logos2Rhema"]');
 		expect(aboutSection).not.toBeNull();
 		expect(getByText(aboutSection as ParentNode, "About")).toBeDefined();
-		expect(aboutSection?.textContent).toContain("glory to God");
-		expect(aboutSection?.textContent).toContain("head to the heart");
+		expect(aboutSection?.querySelector(".home-about-copy")?.textContent).toBe(
+			"Logos2Rhema was built first and foremost to give glory to God, strengthen Bible and language literacy, and bring the Word from the head to the heart, hence Logos to Rhema.",
+		);
 
 		const onNavigate = mock(() => {});
 		const onClosePicker = mock(() => {});
@@ -488,10 +715,12 @@ describe("Reader UI & audio hooks", () => {
 		try {
 			const { container } = render(<App />);
 			await waitUntil(() => {
-				expect(getByText(container, "Continue Reading")).toBeDefined();
+				expect(getByText(container, "Continue Where You Left Off")).toBeDefined();
 			});
 
-			fireClick(getButton(container, "Continue Reading"));
+			fireClick(
+				getButton(container.querySelector(".home-continue-section") as ParentNode, "Continue"),
+			);
 
 			await waitUntil(() => {
 				expect(audioLoaded).toBe(true);
@@ -576,20 +805,154 @@ describe("Reader UI & audio hooks", () => {
 				expect(getByText(container, "The earth was without form...")).toBeDefined();
 			});
 
-			// Selecting verse 2 updates last-read verse shown in Continue Reading on Home
+			// Bookmark chapter and verse, return Home, verify Favorites is collapsed by default, then open a favorited verse
+			const chapterFavBtn = getButton(container, "Bookmark Genesis 1");
+			expect(chapterFavBtn.getAttribute("aria-pressed")).toBe("false");
+			fireClick(chapterFavBtn);
+			expect(
+				getButton(container, "Remove Genesis 1 from favorites").getAttribute("aria-pressed"),
+			).toBe("true");
+
+			const verse1FavBtn = getButton(container, "Bookmark verse 1");
+			fireClick(verse1FavBtn);
+			expect(
+				getButton(container, "Remove verse 1 from favorites").getAttribute("aria-pressed"),
+			).toBe("true");
+
+			const storedFavs = JSON.parse(localStorage.getItem("logos.reader.favorites.v1") ?? "[]");
+			expect(storedFavs).toHaveLength(2);
+
+			// Selecting verse 2 updates last-read verse shown in Continue Where You Left Off on Home
 			fireClick(getButton(container, "Verse 2"));
 			fireClick(container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
-			expect(getByText(container, "Continue Reading")).toBeDefined();
+			expect(getByText(container, "Continue Where You Left Off")).toBeDefined();
 			expect(window.location.hash).toBe("#/");
+
+			const appFavoritesSection = container.querySelector('section[aria-label="Favorites"]');
+			const appFavoritesToggle = getButton(appFavoritesSection as ParentNode, "Favorites");
+			expect(appFavoritesToggle.getAttribute("aria-expanded")).toBe("false");
+			expect(appFavoritesSection?.querySelector(".home-favorites-panel")).toBeNull();
+			fireClick(appFavoritesToggle);
+			expect(appFavoritesToggle.getAttribute("aria-expanded")).toBe("true");
+			expect(appFavoritesSection?.querySelectorAll(".home-favorite-card")).toHaveLength(2);
+			expect(appFavoritesSection?.textContent).toContain("In the beginning...");
+			expect(appFavoritesSection?.textContent).toContain("Genesis 1");
+
+			fireClick(getButton(appFavoritesSection as ParentNode, /Genesis 1:1/));
+			await waitUntil(() => {
+				expect(window.location.hash).toBe("#/GEN/1/1");
+				expect(getByText(container, "In the beginning...")).toBeDefined();
+			});
+
+			// Unbookmark verse 1, select verse 2 to update last-read verse, and return home
+			fireClick(getButton(container, "Remove verse 1 from favorites"));
+			expect(getButton(container, "Bookmark verse 1").getAttribute("aria-pressed")).toBe("false");
+			fireClick(getButton(container, "Verse 2"));
+			fireClick(container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 			expect(container.querySelector(".home-continue-ref")?.textContent).toContain("Genesis 1:2");
 			expect(container.querySelector(".home-continue-ref")?.textContent).toContain(
 				"창세기 1장 2절",
 			);
-			fireClick(getButton(container, "Continue Reading"));
+			// TopBar Continue shortcut resumes Genesis 1:2 directly from Home
+			fireClick(getButton(container.querySelector(".top-nav") as ParentNode, "Continue"));
 			await waitUntil(() => {
 				expect(window.location.hash).toBe("#/GEN/1/2");
 				expect(getByText(container, "The earth was without form...")).toBeDefined();
 			});
+
+			// TopBar Favorites dropdown is also accessible directly from the reader
+			const topNav = container.querySelector(".top-nav") as ParentNode;
+			fireClick(getButton(topNav, /Favorites/));
+			const readerFavPopover = container.querySelector(".top-favorites-popover") as ParentNode;
+			expect(readerFavPopover?.textContent).toContain("Genesis 1");
+			fireClick(getButton(readerFavPopover, /Genesis 1/));
+			await waitUntil(() => {
+				expect(window.location.hash).toBe("#/GEN/1");
+			});
+
+			// Select English text and trigger Cmd+H highlight + verify yellow mark, Favorites grouping, and Cmd+H toggle off
+			const enLine = container.querySelector('.verse-en[data-verse="1"]') as HTMLElement;
+			const enTextNode = enLine.firstChild as Text;
+			const enRange = document.createRange();
+			enRange.setStart(enTextNode, 7);
+			enRange.setEnd(enTextNode, 16); // "beginning"
+			const sel = window.getSelection();
+			sel?.removeAllRanges();
+			sel?.addRange(enRange);
+			act(() => {
+				document.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+			});
+			expect(container.querySelector(".selection-highlight-bar")).not.toBeNull();
+			expect(getByText(container, "Highlight")).toBeDefined();
+
+			act(() => {
+				window.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "h", metaKey: true, bubbles: true }),
+				);
+			});
+			expect(container.querySelector(".selection-highlight-bar")).toBeNull();
+			expect(enLine.querySelector("mark.verse-highlight")?.textContent).toBe("beginning");
+			const storedHighlights = JSON.parse(localStorage.getItem(HIGHLIGHTS_STORAGE_KEY) ?? "[]");
+			expect(storedHighlights).toHaveLength(1);
+			expect(storedHighlights[0].text).toBe("beginning");
+
+			// Also highlight across Korean tokens via the floating Highlight button
+			const koLine = container.querySelector('.verse-ko[data-verse="1"]') as HTMLElement;
+			const koFirstText = koLine.querySelector("button")?.firstChild as Text;
+			const koRange = document.createRange();
+			koRange.setStart(koFirstText, 0);
+			koRange.setEnd(koFirstText, koFirstText.length);
+			sel?.removeAllRanges();
+			sel?.addRange(koRange);
+			act(() => {
+				document.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+			});
+			fireClick(
+				getButton(container.querySelector(".selection-highlight-bar") as ParentNode, "Highlight"),
+			);
+			expect(koLine.querySelector("mark.verse-highlight")?.textContent).toBe("보아스가");
+
+			// Check Highlights group inside Home Favorites section
+			fireClick(container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
+			const homeFavSection = container.querySelector(
+				'section[aria-label="Favorites"]',
+			) as ParentNode;
+			fireClick(getButton(homeFavSection, "Favorites"));
+			expect(getByText(homeFavSection, /Bookmarks \(1\)/)).toBeDefined();
+			expect(getByText(homeFavSection, /Highlights \(2\)/)).toBeDefined();
+			expect(homeFavSection.querySelectorAll("mark.verse-highlight")).toHaveLength(2);
+			fireClick(getButton(homeFavSection, /Remove highlight from Genesis 1:1/));
+			expect(homeFavSection.querySelectorAll("mark.verse-highlight")).toHaveLength(1);
+
+			// Click remaining highlight to jump back to Genesis 1:1, then toggle it off with Cmd+H
+			fireClick(getButton(homeFavSection, /Genesis 1:1/));
+			await waitUntil(() => {
+				expect(window.location.hash).toBe("#/GEN/1/1");
+				expect(
+					container.querySelector('.verse-en[data-verse="1"] mark.verse-highlight'),
+				).not.toBeNull();
+			});
+			const hlMark = container.querySelector(
+				'.verse-en[data-verse="1"] mark.verse-highlight',
+			) as HTMLElement;
+			const rmRange = document.createRange();
+			rmRange.selectNodeContents(hlMark);
+			sel?.removeAllRanges();
+			sel?.addRange(rmRange);
+			act(() => {
+				window.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "h", metaKey: true, bubbles: true }),
+				);
+			});
+			expect(container.querySelector('.verse-en[data-verse="1"] mark.verse-highlight')).toBeNull();
+			fireClick(getButton(container.querySelector(".top-nav") as ParentNode, "Home"));
+			expect(window.location.hash).toBe("#/");
+			expect(getByText(container, "Continue Where You Left Off")).toBeDefined();
+			expect(
+				getButton(container.querySelector(".top-nav") as ParentNode, "Home").getAttribute(
+					"aria-current",
+				),
+			).toBe("page");
 		} finally {
 			globalThis.fetch = originalFetch;
 			window.matchMedia = originalMatchMedia;
@@ -907,5 +1270,121 @@ describe("Reader UI & audio hooks", () => {
 		} finally {
 			globalThis.Audio = originalAudio;
 		}
+	});
+
+	it("validates, deduplicates, and formats stored favorites", () => {
+		localStorage.clear();
+		expect(readStoredFavorites()).toEqual([]);
+
+		localStorage.setItem(FAVORITES_STORAGE_KEY, "not-json");
+		expect(readStoredFavorites()).toEqual([]);
+
+		localStorage.setItem(
+			FAVORITES_STORAGE_KEY,
+			JSON.stringify([
+				{ bookNumber: 999, chapter: 1 },
+				{ bookNumber: 2, chapter: 99 },
+				{ bookNumber: 2, chapter: 2, createdAt: 10 },
+				{ bookNumber: 2, chapter: 2, createdAt: 20 },
+				{ bookNumber: 43, chapter: 3, verse: 16, enText: "For God so loved the world" },
+			]),
+		);
+
+		const loaded = readStoredFavorites();
+		expect(loaded).toHaveLength(2);
+		expect(formatFavoriteLabel(loaded[0])).toEqual({
+			refEn: "Exodus 2",
+			refKo: "출애굽기 2장",
+			kind: "chapter",
+		});
+		expect(formatFavoriteLabel(loaded[1])).toEqual({
+			refEn: "John 3:16",
+			refKo: "요한복음 3장 16절",
+			kind: "verse",
+		});
+
+		const toggledOff = toggleFavoriteItem(loaded, { bookNumber: 2, chapter: 2 });
+		expect(toggledOff).toHaveLength(1);
+		expect(toggledOff[0]?.id).toBe("43:3:16");
+
+		const toggledOn = toggleFavoriteItem(toggledOff, {
+			bookNumber: 19,
+			chapter: 23,
+			verse: 1,
+			enText: "The LORD is my shepherd; I shall not want.",
+		});
+		expect(toggledOn).toHaveLength(2);
+		expect(toggledOn[0]?.id).toBe("19:23:1");
+		expect(toggledOn[0]?.enText).toBe("The LORD is my shepherd; I shall not want.");
+	});
+
+	it("validates, merges, splits, and formats stored text highlights", () => {
+		localStorage.clear();
+		expect(readStoredHighlights()).toEqual([]);
+
+		localStorage.setItem(HIGHLIGHTS_STORAGE_KEY, "bad-json");
+		expect(readStoredHighlights()).toEqual([]);
+
+		localStorage.setItem(
+			HIGHLIGHTS_STORAGE_KEY,
+			JSON.stringify([
+				{ bookNumber: 999, chapter: 1, verse: 1, lang: "en", start: 0, end: 4, text: "Test" },
+				{ bookNumber: 1, chapter: 1, verse: 1, lang: "fr", start: 0, end: 4, text: "Test" },
+				{ bookNumber: 1, chapter: 1, verse: 1, lang: "en", start: 5, end: 3, text: "Bad" },
+				{
+					bookNumber: 1,
+					chapter: 1,
+					verse: 1,
+					lang: "en",
+					start: 0,
+					end: 16,
+					text: "In the beginning",
+					createdAt: 10,
+				},
+			]),
+		);
+
+		const loaded = readStoredHighlights();
+		expect(loaded).toHaveLength(1);
+		expect(formatHighlightLabel(loaded[0])).toEqual({
+			refEn: "Genesis 1:1",
+			refKo: "창세기 1장 1절",
+			langLabel: "EN",
+		});
+
+		const verseText = "In the beginning, God created the heavens and the earth.";
+		const merged = toggleHighlightSpans(
+			loaded,
+			1,
+			1,
+			[{ verse: 1, lang: "en", start: 10, end: 21, text: "inning, God" }],
+			() => verseText,
+		);
+		expect(merged.action).toBe("added");
+		expect(merged.next).toHaveLength(1);
+		expect(merged.next[0]?.start).toBe(0);
+		expect(merged.next[0]?.end).toBe(21);
+		expect(merged.next[0]?.text).toBe("In the beginning, God");
+
+		const split = toggleHighlightSpans(
+			merged.next,
+			1,
+			1,
+			[{ verse: 1, lang: "en", start: 7, end: 16, text: "beginning" }],
+			() => verseText,
+		);
+		expect(split.action).toBe("removed");
+		expect(split.next).toHaveLength(2);
+		expect(split.next.map((h) => [h.start, h.end])).toEqual([
+			[0, 7],
+			[16, 21],
+		]);
+
+		const segments = splitTextByHighlights(verseText.slice(0, 21), 0, split.next);
+		expect(segments).toEqual([
+			{ text: "In the ", highlightId: split.next[0]?.id },
+			{ text: "beginning" },
+			{ text: ", God", highlightId: split.next[1]?.id },
+		]);
 	});
 });

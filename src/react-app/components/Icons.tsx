@@ -51,6 +51,29 @@ export const Bible = makeIcon(
 	</>,
 );
 
+export function Bookmark({
+	size = 16,
+	className,
+	filled = false,
+}: IconProps & { filled?: boolean }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			fill={filled ? "currentColor" : "none"}
+			stroke="currentColor"
+			strokeWidth={2}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+			className={className}
+		>
+			<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+		</svg>
+	);
+}
+
 export const BookOpen = makeIcon(
 	<>
 		<path d="M12 7v14" />
@@ -74,6 +97,29 @@ export const Crosshair = makeIcon(
 
 export const Headphones = makeIcon(
 	<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />,
+);
+
+export const Highlighter = makeIcon(
+	<>
+		<path d="m9 11-6 6v3h9l3-3" />
+		<path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+	</>,
+);
+
+export const Home = makeIcon(
+	<>
+		<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+		<path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+	</>,
+);
+
+export const LayoutGrid = makeIcon(
+	<>
+		<rect width="7" height="7" x="3" y="3" rx="1" />
+		<rect width="7" height="7" x="14" y="3" rx="1" />
+		<rect width="7" height="7" x="14" y="14" rx="1" />
+		<rect width="7" height="7" x="3" y="14" rx="1" />
+	</>,
 );
 
 export const Loader2 = makeIcon(<path d="M21 12a9 9 0 1 1-6.219-8.56" />);
@@ -117,11 +163,18 @@ export const Search = makeIcon(
 	</>,
 );
 
-export const Type = makeIcon(
+export const Settings = makeIcon(
 	<>
-		<path d="M12 4v16" />
-		<path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" />
-		<path d="M9 20h6" />
+		<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+		<circle cx="12" cy="12" r="3" />
+	</>,
+);
+
+export const Volume2 = makeIcon(
+	<>
+		<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
+		<path d="M16 9a5 5 0 0 1 0 6" />
+		<path d="M19.364 18.364a9 9 0 0 0 0-12.728" />
 	</>,
 );
 

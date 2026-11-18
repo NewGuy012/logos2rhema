@@ -137,3 +137,27 @@ export interface ParsedReference {
 	chapter: number;
 	verse?: number;
 }
+
+export interface FavoriteItem {
+	id: string;
+	bookNumber: number;
+	chapter: number;
+	verse?: number;
+	enText?: string;
+	koText?: string;
+	createdAt: number;
+}
+
+export type HighlightLanguage = "en" | "ko";
+
+export interface HighlightItem {
+	id: string;
+	bookNumber: number;
+	chapter: number;
+	verse: number;
+	lang: HighlightLanguage;
+	start: number;
+	end: number;
+	text: string;
+	createdAt: number;
+}

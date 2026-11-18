@@ -2,12 +2,27 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
 import { CANONICAL_BIBLES } from "../shared/translations";
-import type { AudioTrackOption, LexiconMap, TranslationMeta, VerseEntry } from "../shared/types";
+import type {
+	AlignedVerse,
+	AudioTrackOption,
+	FavoriteItem,
+	HighlightItem,
+	LexiconMap,
+	TranslationMeta,
+	VerseEntry,
+} from "../shared/types";
 import { AudioControlRail } from "./components/AudioControlRail";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { FootnotesGuide } from "./components/FootnotesGuide";
 import { HomePage } from "./components/HomePage";
-import { BookOpen, ChevronLeft, ChevronRight, Headphones } from "./components/Icons";
+import {
+	Bookmark,
+	BookOpen,
+	ChevronLeft,
+	ChevronRight,
+	Headphones,
+	Highlighter,
+} from "./components/Icons";
 import { PassagePicker } from "./components/PassagePicker";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
@@ -20,6 +35,20 @@ import {
 	loadSyncedChapterAudio,
 	loadTranslationChapter,
 } from "./lib/bible-loader";
+import {
+	makeFavoriteId,
+	readStoredFavorites,
+	toggleFavoriteItem,
+	writeStoredFavorites,
+} from "./lib/favorites";
+import {
+	areSpansHighlighted,
+	extractVerseSelectionSpans,
+	getVerseTextForLang,
+	readStoredHighlights,
+	toggleHighlightSpans,
+	writeStoredHighlights,
+} from "./lib/highlights";
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
 
@@ -184,6 +213,15 @@ export default function App() {
 	const [selectedVerse, setSelectedVerse] = useState<number | null>(
 		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
 	);
+	const [favorites, setFavorites] = useState<FavoriteItem[]>(() => readStoredFavorites());
+	const [highlights, setHighlights] = useState<HighlightItem[]>(() => readStoredHighlights());
+	const versesListRef = useRef<HTMLElement | null>(null);
+	const [selectionToolbar, setSelectionToolbar] = useState<{
+		left: number;
+		top: number;
+		placeBelow: boolean;
+		alreadyHighlighted: boolean;
+	} | null>(null);
 	const [highlightedFootnoteId, setHighlightedFootnoteId] = useState<string | null>(null);
 	const [highlightSeq, setHighlightSeq] = useState(0);
 	const highlightTimerRef = useRef<number | null>(null);
@@ -256,6 +294,143 @@ export default function App() {
 		studyMask,
 		autoSync,
 	]);
+
+	useEffect(() => {
+		writeStoredFavorites(favorites);
+	}, [favorites]);
+
+	const favoriteIds = useMemo(() => new Set(favorites.map((item) => item.id)), [favorites]);
+	const isChapterFavorited = favoriteIds.has(makeFavoriteId(bookNumber, chapter));
+
+	const handleToggleChapterFavorite = useCallback(() => {
+		setFavorites((prev) => toggleFavoriteItem(prev, { bookNumber, chapter }));
+	}, [bookNumber, chapter]);
+
+	const handleToggleVerseFavorite = useCallback(
+		(verse: AlignedVerse) => {
+			setFavorites((prev) =>
+				toggleFavoriteItem(prev, {
+					bookNumber,
+					chapter,
+					verse: verse.verse,
+					enText: verse.enText,
+					koText: verse.koText,
+				}),
+			);
+		},
+		[bookNumber, chapter],
+	);
+
+	const handleRemoveFavorite = useCallback((id: string) => {
+		setFavorites((prev) => prev.filter((item) => item.id !== id));
+	}, []);
+
+	useEffect(() => {
+		writeStoredHighlights(highlights);
+	}, [highlights]);
+
+	const handleRemoveHighlight = useCallback((id: string) => {
+		setHighlights((prev) => prev.filter((item) => item.id !== id));
+	}, []);
+
+	const alignedVerseMap = useMemo(
+		() => new Map(alignedVerses.map((v) => [v.verse, v])),
+		[alignedVerses],
+	);
+
+	const chapterHighlightsByVerse = useMemo(() => {
+		const map = new Map<number, { en: HighlightItem[]; ko: HighlightItem[] }>();
+		for (const item of highlights) {
+			if (item.bookNumber !== bookNumber || item.chapter !== chapter) continue;
+			let bucket = map.get(item.verse);
+			if (!bucket) {
+				bucket = { en: [], ko: [] };
+				map.set(item.verse, bucket);
+			}
+			bucket[item.lang].push(item);
+		}
+		for (const bucket of map.values()) {
+			bucket.en.sort((a, b) => a.start - b.start);
+			bucket.ko.sort((a, b) => a.start - b.start);
+		}
+		return map;
+	}, [highlights, bookNumber, chapter]);
+
+	const applySelectionHighlight = useCallback((): boolean => {
+		if (view !== "reader" || loadingChapter || !versesListRef.current) return false;
+		const selection = typeof window !== "undefined" ? window.getSelection() : null;
+		const spans = extractVerseSelectionSpans(selection, versesListRef.current);
+		if (spans.length === 0) return false;
+
+		setHighlights((prev) => {
+			const { next } = toggleHighlightSpans(prev, bookNumber, chapter, spans, (v, lang) => {
+				const verse = alignedVerseMap.get(v);
+				return verse ? getVerseTextForLang(verse, lang) : "";
+			});
+			return next;
+		});
+		selection?.removeAllRanges?.();
+		setSelectionToolbar(null);
+		return true;
+	}, [view, loadingChapter, bookNumber, chapter, alignedVerseMap]);
+
+	const syncSelectionToolbar = useCallback(() => {
+		if (view !== "reader" || loadingChapter || !versesListRef.current) {
+			setSelectionToolbar(null);
+			return;
+		}
+		const selection = typeof window !== "undefined" ? window.getSelection() : null;
+		const spans = extractVerseSelectionSpans(selection, versesListRef.current);
+		if (spans.length === 0 || !selection || selection.rangeCount === 0) {
+			setSelectionToolbar(null);
+			return;
+		}
+		const rect = selection.getRangeAt(0).getBoundingClientRect();
+		const centerX = rect.left + rect.width / 2;
+		const left = Math.max(95, Math.min(window.innerWidth - 95, centerX));
+		const placeBelow = rect.top < 110;
+		const top = placeBelow ? rect.bottom + 8 : rect.top - 8;
+		setSelectionToolbar({
+			left,
+			top,
+			placeBelow,
+			alreadyHighlighted: areSpansHighlighted(highlights, bookNumber, chapter, spans),
+		});
+	}, [view, loadingChapter, highlights, bookNumber, chapter]);
+
+	useEffect(() => {
+		if (view !== "reader") {
+			setSelectionToolbar(null);
+			return;
+		}
+		const handlePointerStart = (e: MouseEvent) => {
+			const target = e.target as HTMLElement | null;
+			if (target?.closest(".selection-highlight-bar")) return;
+			setSelectionToolbar(null);
+		};
+		const handleSelectionChange = () => {
+			const selection = typeof window !== "undefined" ? window.getSelection() : null;
+			if (!selection || selection.isCollapsed) {
+				setSelectionToolbar(null);
+			}
+		};
+		const handleScroll = () => setSelectionToolbar(null);
+
+		document.addEventListener("mousedown", handlePointerStart);
+		document.addEventListener("mouseup", syncSelectionToolbar);
+		document.addEventListener("touchend", syncSelectionToolbar);
+		document.addEventListener("keyup", syncSelectionToolbar);
+		document.addEventListener("selectionchange", handleSelectionChange);
+		window.addEventListener("scroll", handleScroll, { passive: true });
+		return () => {
+			document.removeEventListener("mousedown", handlePointerStart);
+			document.removeEventListener("mouseup", syncSelectionToolbar);
+			document.removeEventListener("touchend", syncSelectionToolbar);
+			document.removeEventListener("keyup", syncSelectionToolbar);
+			document.removeEventListener("selectionchange", handleSelectionChange);
+			window.removeEventListener("scroll", handleScroll);
+		};
+	}, [view, syncSelectionToolbar]);
 
 	useEffect(() => {
 		document.documentElement.setAttribute("data-theme", theme);
@@ -340,26 +515,35 @@ export default function App() {
 		};
 	}, [view, currentBook.usfm, chapter]);
 
-	const navigateTo = useCallback((targetBook: number, targetChapter: number, verse?: number) => {
-		const book = getBookByNumber(targetBook) ?? BIBLE_BOOKS[0];
-		const clampedChapter = Math.max(1, Math.min(book.chapters, targetChapter));
-		const targetHash = verse
-			? `#/${book.usfm}/${clampedChapter}/${verse}`
-			: `#/${book.usfm}/${clampedChapter}`;
-		if (window.location.hash !== targetHash) {
-			window.history.pushState(null, "", targetHash);
-		}
-		setView("reader");
-		setBookNumber(book.number);
-		setChapter(clampedChapter);
-		setLastVerse(verse ?? 1);
-		setSelectedVerse(verse ?? null);
-		setHighlightedFootnoteId(null);
-		setPendingScrollVerse(verse ?? null);
-		if (!verse) {
-			window.scrollTo({ top: 0, behavior: "smooth" });
-		}
-	}, []);
+	const navigateTo = useCallback(
+		(targetBook: number, targetChapter: number, verse?: number) => {
+			const book = getBookByNumber(targetBook) ?? BIBLE_BOOKS[0];
+			const clampedChapter = Math.max(1, Math.min(book.chapters, targetChapter));
+			const targetHash = verse
+				? `#/${book.usfm}/${clampedChapter}/${verse}`
+				: `#/${book.usfm}/${clampedChapter}`;
+			if (window.location.hash !== targetHash) {
+				window.history.pushState(null, "", targetHash);
+			}
+			if (book.number !== bookNumber || clampedChapter !== chapter) {
+				setRawEnVerses([]);
+				setRawKoVerses([]);
+				setLoadingChapter(true);
+				setChapterError(null);
+			}
+			setView("reader");
+			setBookNumber(book.number);
+			setChapter(clampedChapter);
+			setLastVerse(verse ?? 1);
+			setSelectedVerse(verse ?? null);
+			setHighlightedFootnoteId(null);
+			setPendingScrollVerse(verse ?? null);
+			if (!verse) {
+				window.scrollTo({ top: 0, behavior: "smooth" });
+			}
+		},
+		[bookNumber, chapter],
+	);
 
 	useEffect(() => {
 		if (!pendingScrollVerse || loadingChapter) return;
@@ -393,6 +577,14 @@ export default function App() {
 		window.scrollTo({ top: 0, behavior: "smooth" });
 	}, [audio]);
 
+	const handleContinueReading = useCallback(() => {
+		if (lastVerse > 1) {
+			navigateTo(bookNumber, chapter, lastVerse);
+		} else {
+			navigateTo(bookNumber, chapter);
+		}
+	}, [bookNumber, chapter, lastVerse, navigateTo]);
+
 	// Pause auto-scroll follow when user manually scrolls via wheel/touch while audio plays
 	useEffect(() => {
 		if (!audio.isPlaying || !autoSync) return;
@@ -423,13 +615,20 @@ export default function App() {
 		}
 	}, [audio]);
 
-	// Keyboard shortcuts: Cmd/Ctrl+K to jump, ArrowLeft/ArrowRight skip 10s while playing or turn chapters otherwise
+	// Keyboard shortcuts: Cmd/Ctrl+K to jump, Cmd/Ctrl+H to highlight selection, ArrowLeft/ArrowRight skip 10s while playing or turn chapters otherwise
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			const tag = (e.target as HTMLElement | null)?.tagName;
 			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
 				e.preventDefault();
 				setPickerOpen((prev) => !prev);
+				return;
+			}
+			if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "h") {
+				if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
+				if (applySelectionHighlight()) {
+					e.preventDefault();
+				}
 				return;
 			}
 			if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
@@ -451,7 +650,15 @@ export default function App() {
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [pickerOpen, view, prevChapterTarget, nextChapterTarget, navigateTo, audio]);
+	}, [
+		pickerOpen,
+		view,
+		prevChapterTarget,
+		nextChapterTarget,
+		navigateTo,
+		audio,
+		applySelectionHighlight,
+	]);
 
 	const handleSelectVerse = useCallback(
 		(verseNum: number) => {
@@ -597,6 +804,11 @@ export default function App() {
 		<div id="top" className="app-shell" style={readerStyle}>
 			<TopBar
 				isHome={view === "home"}
+				lastBookNumber={bookNumber}
+				lastChapter={chapter}
+				lastVerse={lastVerse}
+				favorites={favorites}
+				highlights={highlights}
 				selectedEn={selectedEn}
 				selectedKo={selectedKo}
 				stackOrder={stackOrder}
@@ -605,6 +817,10 @@ export default function App() {
 				koFontStyle={koFontStyle}
 				studyMask={studyMask}
 				onGoHome={goHome}
+				onContinueReading={handleContinueReading}
+				onOpenPassage={navigateTo}
+				onRemoveFavorite={handleRemoveFavorite}
+				onRemoveHighlight={handleRemoveHighlight}
 				onFlipStackOrder={() =>
 					setStackOrder((prev) => (prev === "en-first" ? "ko-first" : "en-first"))
 				}
@@ -623,7 +839,11 @@ export default function App() {
 					selectedEn={selectedEn}
 					selectedKo={selectedKo}
 					bibleBrainEnabled={bibleBrainEnabled}
+					favorites={favorites}
+					highlights={highlights}
 					onOpenPassage={navigateTo}
+					onRemoveFavorite={handleRemoveFavorite}
+					onRemoveHighlight={handleRemoveHighlight}
 				/>
 			) : (
 				<>
@@ -673,9 +893,29 @@ export default function App() {
 								</div>
 
 								<div className="chapter-title-row">
-									<h1 className="chapter-title-en">
-										{currentBook.en} {chapter}
-									</h1>
+									<div className="chapter-title-main">
+										<h1 className="chapter-title-en">
+											{currentBook.en} {chapter}
+										</h1>
+										<button
+											type="button"
+											className={`chapter-favorite-btn ${isChapterFavorited ? "active" : ""}`.trim()}
+											onClick={handleToggleChapterFavorite}
+											aria-pressed={isChapterFavorited}
+											aria-label={
+												isChapterFavorited
+													? `Remove ${currentBook.en} ${chapter} from favorites`
+													: `Bookmark ${currentBook.en} ${chapter}`
+											}
+											title={
+												isChapterFavorited
+													? "Remove chapter from favorites"
+													: "Bookmark chapter to favorites"
+											}
+										>
+											<Bookmark size={15} filled={isChapterFavorited} />
+										</button>
+									</div>
 									<p className="chapter-title-ko" lang="ko">
 										{currentBook.ko} {chapter}장
 									</p>
@@ -705,22 +945,35 @@ export default function App() {
 									<p className="grammar-desc">{chapterError}</p>
 								</div>
 							) : (
-								<section className="verses-list" aria-label="Bilingual Scripture">
-									{alignedVerses.map((verse) => (
-										<VerseBlock
-											key={verse.verse}
-											verse={verse}
-											stackOrder={stackOrder}
-											studyMask={studyMask}
-											isSelected={selectedVerse === verse.verse}
-											isAudioActive={audio.activeVerse === verse.verse}
-											enCode={selectedEn.code}
-											koCode={selectedKo.code}
-											hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
-											onSelectVerse={handleSelectVerse}
-											onSelectFootnote={handleSelectFootnote}
-										/>
-									))}
+								<section
+									ref={versesListRef}
+									className="verses-list"
+									aria-label="Bilingual Scripture"
+								>
+									{alignedVerses.map((verse) => {
+										const verseHighlights = chapterHighlightsByVerse.get(verse.verse);
+										return (
+											<VerseBlock
+												key={verse.verse}
+												verse={verse}
+												stackOrder={stackOrder}
+												studyMask={studyMask}
+												isSelected={selectedVerse === verse.verse}
+												isAudioActive={audio.activeVerse === verse.verse}
+												isFavorited={favoriteIds.has(
+													makeFavoriteId(bookNumber, chapter, verse.verse),
+												)}
+												enHighlights={verseHighlights?.en}
+												koHighlights={verseHighlights?.ko}
+												enCode={selectedEn.code}
+												koCode={selectedKo.code}
+												hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
+												onSelectVerse={handleSelectVerse}
+												onToggleFavorite={handleToggleVerseFavorite}
+												onSelectFootnote={handleSelectFootnote}
+											/>
+										);
+									})}
 								</section>
 							)}
 
@@ -773,6 +1026,32 @@ export default function App() {
 						/>
 					)}
 				</>
+			)}
+
+			{selectionToolbar && view === "reader" && (
+				<div
+					className="selection-highlight-bar"
+					role="toolbar"
+					aria-label="Text highlight actions"
+					style={{
+						left: `${selectionToolbar.left}px`,
+						top: `${selectionToolbar.top}px`,
+						transform: selectionToolbar.placeBelow
+							? "translate(-50%, 0)"
+							: "translate(-50%, -100%)",
+					}}
+				>
+					<button
+						type="button"
+						className="selection-highlight-btn"
+						onMouseDown={(e) => e.preventDefault()}
+						onClick={() => applySelectionHighlight()}
+					>
+						<Highlighter size={13} />
+						<span>{selectionToolbar.alreadyHighlighted ? "Remove Highlight" : "Highlight"}</span>
+						<kbd className="selection-highlight-kbd">⌘H</kbd>
+					</button>
+				</div>
 			)}
 
 			<PassagePicker
