@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 
 export const PLAYBACK_SPEEDS = [0.75, 0.9, 1.0, 1.25] as const;

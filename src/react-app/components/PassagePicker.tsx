@@ -1,5 +1,6 @@
 import { ArrowLeft, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
 import { BIBLE_BOOKS, parsePassageReference } from "../../shared/books";
 import type { BookMeta, Testament } from "../../shared/types";
 

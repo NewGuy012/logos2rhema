@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
 import type { GlossToken } from "../../shared/types";
 
 interface KoreanTokenProps {

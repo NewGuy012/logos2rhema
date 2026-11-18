@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+
 import { findBookByQuery, getAdjacentChapter, parsePassageReference } from "../src/shared/books";
 import {
 	extractPsalmSuperscription,

@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+
 import { BIBLICAL_GLOSSARY } from "../src/shared/biblical-glossary";
 import { BIBLE_BOOKS, getBookByNumber, KRV_BOOK_NAME_TO_NUMBER } from "../src/shared/books";
 import {

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+
 import { getBookByUsfm } from "../shared/books";
 import {
 	BUILTIN_ENGLISH_TRANSLATIONS,
@@ -13,8 +14,8 @@ import {
 } from "./bible-brain";
 import {
 	extractHelloAoAudioTracks,
-	type FetchLike,
 	fetchHelloAoChapter,
+	type FetchLike,
 	parseHelloAoVerses,
 } from "./helloao";
 

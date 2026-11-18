@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+
 import { analyzeKoreanChapter, analyzeKoreanWord } from "../src/shared/korean-morphology";
 import type { LexiconMap } from "../src/shared/types";
 

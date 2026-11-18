@@ -1,5 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
+
 import { fireEvent, render, screen } from "@testing-library/react";
+
 import { FloatingBottomBar } from "../src/react-app/components/FloatingBottomBar";
 import { FootnotesGuide } from "../src/react-app/components/FootnotesGuide";
 import { PassagePicker } from "../src/react-app/components/PassagePicker";

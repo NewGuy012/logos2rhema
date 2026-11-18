@@ -10,15 +10,15 @@ A minimal, distraction-free bilingual Bible web app for reading Scripture side-b
 - **Chapter Footnotes Vocabulary & Grammar Guide**: Every chapter includes a deduplicated Korean-to-English word list ordered by appearance plus an explanatory guide to 1961 개역한글 archaic endings (`~하시니라`, `가라사대`, `~하매`, `~할지니라`).
 - **Editorial Reader Controls**: Paper, Sepia, and Dark themes; text scaling; Serif (명조) vs. Sans (고딕) Korean typefaces; and blur-to-study self-test mode.
 
-## Commands (Bun + Biome)
+## Commands (Pure Bun)
 
 ```bash
 bun install          # Install dependencies
 bun run dev          # Start Vite + Cloudflare Worker dev server
-bun run check        # Run Biome lint/format check + TypeScript typecheck
-bun run format       # Format codebase with Biome
+bun run check        # Run Bun formatter check + native Bun TypeScript check
+bun run format       # Format codebase with bun fmt
 bun test             # Run unit, API, and component tests via Bun
-bun run build        # Typecheck and build Worker + client bundle
+bun run build        # Typecheck with bun check and build Worker + client bundle
 bun run data:build   # Rebuild bundled ESV/KRV chapters and compact Korean lexicon
 ```
 

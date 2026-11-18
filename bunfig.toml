@@ -1,2 +1,7 @@
 [test]
 preload = ["./tests/happydom.ts", "./tests/setup.ts"]
+
+[fmt]
+printWidth = 100
+useTabs = true
+sortImports = true

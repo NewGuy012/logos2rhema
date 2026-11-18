@@ -9,6 +9,7 @@ import {
 	RotateCw,
 	X,
 } from "lucide-react";
+
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 
 interface FloatingBottomBarProps {

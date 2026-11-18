@@ -1,0 +1,5 @@
+public/data/
+data-sources/
+dist/
+worker-configuration.d.ts
+bun.lock

@@ -29,15 +29,7 @@ export interface TranslationMeta {
 }
 
 export type WordPos =
-	| "noun"
-	| "verb"
-	| "adj"
-	| "adv"
-	| "pronoun"
-	| "particle"
-	| "name"
-	| "numeral"
-	| "interj";
+	"noun" | "verb" | "adj" | "adv" | "pronoun" | "particle" | "name" | "numeral" | "interj";
 
 export interface LexiconEntry {
 	gloss: string;

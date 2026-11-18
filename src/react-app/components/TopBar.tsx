@@ -1,5 +1,6 @@
 import { ArrowUpDown, Check, ChevronDown, Headphones, Search, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+
 import type { TranslationMeta } from "../../shared/types";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
 
 interface FootnotesGuideProps {

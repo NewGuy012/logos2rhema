@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Headphones } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
 import { BUILTIN_ENGLISH_TRANSLATIONS, BUILTIN_KOREAN_TRANSLATIONS } from "../shared/translations";
 import type { AudioTrackOption, LexiconMap, TranslationMeta, VerseEntry } from "../shared/types";
