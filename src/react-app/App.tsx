@@ -574,12 +574,11 @@ export default function App() {
 							<header className="chapter-header">
 								<div className="chapter-kicker">
 									<span>
-										{currentBook.testament === "OT"
-											? "Old Testament · 구약"
-											: "New Testament · 신약"}
+										{currentBook.testament === "OT" ? "Old Testament" : "New Testament"} ·{" "}
+										{selectedEn.code}
 									</span>
-									<span>
-										{selectedEn.code} · {selectedKo.code}
+									<span lang="ko">
+										{currentBook.testament === "OT" ? "구약" : "신약"} · {selectedKo.code}
 									</span>
 								</div>
 

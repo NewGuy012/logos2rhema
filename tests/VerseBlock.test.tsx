@@ -128,7 +128,7 @@ describe("Reader UI & audio hooks", () => {
 		);
 	});
 
-	it("renders FootnotesGuide with KRV Words above Grammar and all entries by default", () => {
+	it("renders FootnotesGuide with Words above Grammar and all entries by default", () => {
 		const onJump = mock(() => {});
 		const onClose = mock(() => {});
 		const footnotes = [
@@ -157,17 +157,19 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 
-		// Key Vocab / All toggle is removed; all entries are shown under KRV Words above KRV Grammar
+		// Key Vocab / All toggle is removed; all entries are shown under Words above Grammar
 		expect(container.querySelector('[role="tablist"]')).toBeNull();
 		const sections = Array.from(container.querySelectorAll(".dict-disclosure")).map((el) =>
 			el.getAttribute("aria-label"),
 		);
-		expect(sections).toEqual(["KRV Words", "KRV Grammar Notes"]);
+		expect(sections).toEqual(["Words", "Grammar Notes"]);
 
-		// Both KRV Words and KRV Grammar start collapsed to keep the dictionary minimal
+		// Both Words and Grammar start collapsed to keep the dictionary minimal
 		expect(container.querySelector(".vocab-list")).toBeNull();
 		expect(container.querySelector(".grammar-cards")).toBeNull();
-		const wordsToggle = getButton(container, `KRV Words (${footnotes.length})`);
+		const wordsToggle = getButton(container, `Words (${footnotes.length})`);
+		expect(container.querySelector(".panel-title")?.textContent).toBe("Dictionary");
+		expect(container.querySelector(".panel-subtitle")?.textContent).toBe("Genesis 1 · 창세기 1장");
 		expect(wordsToggle.getAttribute("aria-expanded")).toBe("false");
 
 		fireClick(wordsToggle);
@@ -177,10 +179,10 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(container, "v.1"));
 		expect(onJump).toHaveBeenCalledWith(1);
 
-		fireClick(getButton(container, /KRV Grammar/));
+		fireClick(getButton(container, /Grammar/));
 		expect(container.querySelector(".grammar-cards")).not.toBeNull();
 
-		// Collapsing KRV Words again, searching auto-expands it, and clicking a word clears the filter and scrolls to its translation
+		// Collapsing Words again, searching auto-expands it, and clicking a word clears the filter and scrolls to its translation
 		fireClick(wordsToggle);
 		expect(container.querySelector(".vocab-list")).toBeNull();
 
@@ -294,6 +296,10 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 		expect(getByText(home.container, /Logos2Rhema/)).toBeDefined();
+		const heroOrder = Array.from(home.container.querySelectorAll(".home-hero > *")).map(
+			(el) => el.className,
+		);
+		expect(heroOrder.indexOf("home-kicker")).toBeGreaterThan(heroOrder.indexOf("home-title"));
 		expect(getByText(home.container, "Bible Brain Verse-Synced Audio")).toBeDefined();
 		home.rerender(
 			<HomePage
@@ -310,9 +316,31 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(home.container, "Open Chapter"));
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4);
 
+		const genreSection = home.container.querySelector('section[aria-label="Bible Genres"]');
+		expect(genreSection).not.toBeNull();
+		expect(home.container.querySelector('section[aria-label="Featured Passages"]')).toBeNull();
+		expect(genreSection?.querySelectorAll(".home-genre-card")).toHaveLength(10);
+		expect(genreSection?.querySelectorAll(".home-genre-chip")).toHaveLength(66);
+		fireClick(getButton(genreSection as ParentNode, /Psalms/));
+		expect(getByText(genreSection as ParentNode, "Psalms · 시편")).toBeDefined();
+		fireClick(getButton(genreSection as ParentNode, "23"));
+		expect(onOpenPassage).toHaveBeenCalledWith(19, 23);
+
 		const browseSection = home.container.querySelector('section[aria-label="Browse All Books"]');
+		expect(browseSection?.querySelector('[role="tablist"]')).toBeNull();
 		expect(browseSection?.querySelector(".home-search-form")).not.toBeNull();
 		expect(home.container.querySelector(".home-hero .home-search-form")).toBeNull();
+		expect(browseSection?.querySelector(".home-testament-divider")).not.toBeNull();
+		const grids = Array.from(
+			browseSection?.querySelectorAll<HTMLElement>(".books-grid-vertical") ?? [],
+		);
+		expect(grids).toHaveLength(2);
+		expect(grids[0]?.style.getPropertyValue("--book-cols")).toBe("2");
+		expect(grids[0]?.style.getPropertyValue("--book-rows")).toBe("20");
+		expect(grids[1]?.style.getPropertyValue("--book-cols")).toBe("2");
+		expect(grids[1]?.style.getPropertyValue("--book-rows")).toBe("14");
+		expect(getByText(browseSection as ParentNode, "Genesis")).toBeDefined();
+		expect(getByText(browseSection as ParentNode, "Matthew")).toBeDefined();
 
 		const homeInput = browseSection?.querySelector("input[type='search']") as HTMLInputElement;
 		setInputValue(homeInput, "시 23");
@@ -399,6 +427,10 @@ describe("Reader UI & audio hooks", () => {
 				expect(audioLoaded).toBe(true);
 				expect(window.location.hash).toBe("#/GEN/1");
 				expect(getByText(container, "In the beginning...")).toBeDefined();
+				const kickerSpans = Array.from(container.querySelectorAll(".chapter-kicker span")).map(
+					(el) => el.textContent,
+				);
+				expect(kickerSpans).toEqual(["Old Testament · ESV", "구약 · 개역한글"]);
 				expect(
 					container.querySelector('aside[aria-label="Audio Playback and Verse Sync"]'),
 				).not.toBeNull();
@@ -407,7 +439,7 @@ describe("Reader UI & audio hooks", () => {
 				).not.toBeNull();
 			});
 
-			// KRV Words starts collapsed, then clicking a word ("View in Dictionary") expands, highlights & reveals its translation
+			// Words starts collapsed, then clicking a word ("View in Dictionary") expands, highlights & reveals its translation
 			expect(container.querySelector(".vocab-list")).toBeNull();
 			fireClick(getButton(container, "올라가서"));
 			const dictEntry = container.querySelector('[data-footnote-id="vocab-올라가다"]');
@@ -527,6 +559,10 @@ describe("Reader UI & audio hooks", () => {
 		);
 		fireClick(getButton(rail.container, "Drama"));
 		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
+		expect(rail.container.querySelector(".panel-title")?.textContent).toBe("Audio");
+		expect(rail.container.querySelector(".panel-subtitle")?.textContent).toBe(
+			"John 3 · 요한복음 3장",
+		);
 
 		const transportLabels = Array.from(
 			rail.container.querySelectorAll(".rail-transport-row button"),

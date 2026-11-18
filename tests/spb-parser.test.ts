@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { findBookByQuery, getAdjacentChapter, parsePassageReference } from "../src/shared/books";
+import {
+	BIBLE_BOOKS,
+	BIBLE_GENRES,
+	findBookByQuery,
+	getAdjacentChapter,
+	parsePassageReference,
+} from "../src/shared/books";
 import {
 	extractPsalmSuperscription,
 	normalizeSpbText,
@@ -92,5 +98,12 @@ describe("books & passage reference parser", () => {
 		expect(getAdjacentChapter(1, 50, 1)).toEqual({ bookNumber: 2, chapter: 1 });
 		expect(getAdjacentChapter(2, 1, -1)).toEqual({ bookNumber: 1, chapter: 50 });
 		expect(getAdjacentChapter(66, 22, 1)).toBeNull();
+	});
+
+	it("categorizes all 66 Bible books into genres without duplicates or gaps", () => {
+		const groupedNumbers = BIBLE_GENRES.flatMap((g) => g.bookNumbers);
+		expect(groupedNumbers).toHaveLength(BIBLE_BOOKS.length);
+		expect(new Set(groupedNumbers).size).toBe(66);
+		expect(groupedNumbers).toEqual(BIBLE_BOOKS.map((b) => b.number));
 	});
 });

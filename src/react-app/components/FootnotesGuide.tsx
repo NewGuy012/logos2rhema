@@ -33,7 +33,7 @@ export function FootnotesGuide({
 	const [wordsOpen, setWordsOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-	// Automatically expand KRV Words and clear search filter when tapping a verse word
+	// Automatically expand Words and clear search filter when tapping a verse word
 	useEffect(() => {
 		if (!highlightedFootnoteId) return;
 		setWordsOpen(true);
@@ -84,8 +84,8 @@ export function FootnotesGuide({
 		>
 			<div className="dict-panel-header">
 				<div className="dict-header-text">
-					<h2 className="dict-panel-title">Korean Dictionary</h2>
-					<p className="dict-panel-subtitle">
+					<h2 className="panel-title">Dictionary</h2>
+					<p className="panel-subtitle">
 						{bookEn} {chapter} ·{" "}
 						<span lang="ko">
 							{bookKo} {chapter}장
@@ -137,14 +137,14 @@ export function FootnotesGuide({
 			</div>
 
 			<div className="dict-panel-scroll" ref={scrollContainerRef}>
-				<section className="dict-disclosure" aria-label="KRV Words">
+				<section className="dict-disclosure" aria-label="Words">
 					<button
 						type="button"
 						className="dict-disclosure-btn"
 						aria-expanded={wordsOpen}
 						onClick={() => setWordsOpen((prev) => !prev)}
 					>
-						<span>KRV Words ({visibleEntries.length})</span>
+						<span>Words ({visibleEntries.length})</span>
 						{wordsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 					</button>
 					{wordsOpen && (
@@ -207,14 +207,14 @@ export function FootnotesGuide({
 				</section>
 
 				{grammarNotes.length > 0 && !query.trim() && (
-					<section className="dict-disclosure" aria-label="KRV Grammar Notes">
+					<section className="dict-disclosure" aria-label="Grammar Notes">
 						<button
 							type="button"
 							className="dict-disclosure-btn"
 							aria-expanded={grammarOpen}
 							onClick={() => setGrammarOpen((prev) => !prev)}
 						>
-							<span>KRV Grammar ({grammarNotes.length})</span>
+							<span>Grammar ({grammarNotes.length})</span>
 							{grammarOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 						</button>
 						{grammarOpen && (

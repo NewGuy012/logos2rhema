@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import type { BookMeta, Testament } from "../../shared/types";
 
 export function TestamentTabs({
@@ -38,6 +40,7 @@ export function BookChapterGrid({
 	currentChapter,
 	showChapterCount = false,
 	classPrefix = "",
+	verticalColumns,
 	onSelectBook,
 	onSelectChapter,
 }: {
@@ -47,6 +50,7 @@ export function BookChapterGrid({
 	currentChapter: number;
 	showChapterCount?: boolean;
 	classPrefix?: string;
+	verticalColumns?: number;
 	onSelectBook: (book: BookMeta) => void;
 	onSelectChapter: (bookNumber: number, chapter: number) => void;
 }) {
@@ -69,8 +73,18 @@ export function BookChapterGrid({
 		);
 	}
 
+	const verticalStyle = verticalColumns
+		? ({
+				"--book-cols": verticalColumns,
+				"--book-rows": Math.max(1, Math.ceil(books.length / verticalColumns)),
+			} as CSSProperties)
+		: undefined;
+
 	return (
-		<div className={`books-grid ${classPrefix ? `${classPrefix}-books-grid` : ""}`.trim()}>
+		<div
+			className={`books-grid ${verticalColumns ? "books-grid-vertical" : ""} ${classPrefix ? `${classPrefix}-books-grid` : ""}`.trim()}
+			style={verticalStyle}
+		>
 			{books.map((book) => (
 				<button
 					key={book.usfm}

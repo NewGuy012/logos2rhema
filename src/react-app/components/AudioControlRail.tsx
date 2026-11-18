@@ -92,49 +92,55 @@ export function AudioControlRail({
 	return (
 		<aside className="audio-rail" aria-label="Audio Playback and Verse Sync">
 			<div className="rail-card">
-				<div className="rail-passage-nav">
-					<button
-						type="button"
-						className="pill-nav-btn"
-						disabled={!hasPrev}
-						onClick={onPrevChapter}
-						aria-label="Previous chapter"
-						title="Previous chapter"
-					>
-						<ChevronLeft size={16} />
-					</button>
+				<div className="rail-panel-header">
+					<div className="rail-header-top">
+						<h2 className="panel-title">Audio</h2>
+						<AudioLanguageToggle
+							preferredLang={preferredLang}
+							activeKoCode={activeKoCode}
+							activeEnCode={activeEnCode}
+							onSelectLanguage={onSelectLanguage}
+						/>
+					</div>
 
-					<button type="button" className="rail-chapter-btn" onClick={onOpenPicker}>
-						<span className="rail-chapter-en">
-							{bookEn} {chapter}
-						</span>
-						<span className="rail-chapter-ko" lang="ko">
-							{bookKo} {chapter}장
-						</span>
-					</button>
+					<div className="rail-header-sub">
+						<button
+							type="button"
+							className="rail-chapter-btn"
+							onClick={onOpenPicker}
+							title="Choose book or chapter"
+						>
+							<span className="panel-subtitle">
+								{bookEn} {chapter} ·{" "}
+								<span lang="ko">
+									{bookKo} {chapter}장
+								</span>
+							</span>
+						</button>
 
-					<button
-						type="button"
-						className="pill-nav-btn"
-						disabled={!hasNext}
-						onClick={onNextChapter}
-						aria-label="Next chapter"
-						title="Next chapter"
-					>
-						<ChevronRight size={16} />
-					</button>
-				</div>
-
-				<div className="rail-divider" />
-
-				<div className="rail-section-head">
-					<span className="rail-section-label">Audio</span>
-					<AudioLanguageToggle
-						preferredLang={preferredLang}
-						activeKoCode={activeKoCode}
-						activeEnCode={activeEnCode}
-						onSelectLanguage={onSelectLanguage}
-					/>
+						<div className="rail-chapter-arrows">
+							<button
+								type="button"
+								className="rail-nav-icon-btn"
+								disabled={!hasPrev}
+								onClick={onPrevChapter}
+								aria-label="Previous chapter"
+								title="Previous chapter"
+							>
+								<ChevronLeft size={14} />
+							</button>
+							<button
+								type="button"
+								className="rail-nav-icon-btn"
+								disabled={!hasNext}
+								onClick={onNextChapter}
+								aria-label="Next chapter"
+								title="Next chapter"
+							>
+								<ChevronRight size={14} />
+							</button>
+						</div>
+					</div>
 				</div>
 
 				<div className="rail-player">
