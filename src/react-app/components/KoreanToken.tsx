@@ -16,6 +16,7 @@ interface TooltipPos {
 
 export function KoreanToken({ token, onSelectFootnote }: KoreanTokenProps) {
 	const buttonRef = useRef<HTMLButtonElement | null>(null);
+	const pointerDownRef = useRef(false);
 	const [open, setOpen] = useState(false);
 	const [pos, setPos] = useState<TooltipPos | null>(null);
 
@@ -57,12 +58,20 @@ export function KoreanToken({ token, onSelectFootnote }: KoreanTokenProps) {
 					setOpen(true);
 				}}
 				onMouseLeave={() => setOpen(false)}
+				onPointerDown={() => {
+					pointerDownRef.current = true;
+				}}
 				onFocus={() => {
+					if (pointerDownRef.current) return;
 					updatePosition();
 					setOpen(true);
 				}}
-				onBlur={() => setOpen(false)}
+				onBlur={() => {
+					pointerDownRef.current = false;
+					setOpen(false);
+				}}
 				onClick={() => {
+					pointerDownRef.current = false;
 					if (token.footnoteId && onSelectFootnote) {
 						onSelectFootnote(token.footnoteId);
 					} else {

@@ -1,4 +1,5 @@
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+import { AudioFallbackAction, AudioLanguageToggle, AudioScrubber, formatTime } from "./AudioShared";
 import {
 	ChevronLeft,
 	ChevronRight,
@@ -46,13 +47,6 @@ interface AudioControlRailProps {
 	onFollowActiveVerse: () => void;
 }
 
-function formatTime(totalSeconds: number): string {
-	if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
-	const mins = Math.floor(totalSeconds / 60);
-	const secs = Math.floor(totalSeconds % 60);
-	return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 export function AudioControlRail({
 	bookEn,
 	bookKo,
@@ -88,7 +82,6 @@ export function AudioControlRail({
 	onFollowActiveVerse,
 }: AudioControlRailProps) {
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
-	const koTracks = tracks.filter((t) => t.language === "ko");
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
 	const hasTimestamps = Boolean(activeTrack?.verseTimings);
 
@@ -132,24 +125,12 @@ export function AudioControlRail({
 
 				<div className="rail-section-head">
 					<span className="rail-section-label">Audio</span>
-					<div className="quick-lang-toggle" role="group" aria-label="Audio language">
-						<button
-							type="button"
-							className={`quick-lang-btn ${preferredLang === "ko" ? "active" : ""}`}
-							onClick={() => onSelectLanguage("ko")}
-							title={`Korean audio (${activeKoCode})`}
-						>
-							한
-						</button>
-						<button
-							type="button"
-							className={`quick-lang-btn ${preferredLang === "en" ? "active" : ""}`}
-							onClick={() => onSelectLanguage("en")}
-							title={`English audio (${activeEnCode})`}
-						>
-							EN
-						</button>
-					</div>
+					<AudioLanguageToggle
+						preferredLang={preferredLang}
+						activeKoCode={activeKoCode}
+						activeEnCode={activeEnCode}
+						onSelectLanguage={onSelectLanguage}
+					/>
 				</div>
 
 				<div className="rail-play-row">
@@ -190,29 +171,17 @@ export function AudioControlRail({
 						<p className="rail-note">
 							No audio linked to <strong>{activeLangCode}</strong> for this chapter.
 						</p>
-						{preferredLang === "en" && koTracks.length > 0 && (
-							<button
-								type="button"
-								className="quick-inline-chip active"
-								onClick={() => onSelectLanguage("ko")}
-							>
-								Use {activeKoCode} Audio
-							</button>
-						)}
+						<AudioFallbackAction
+							preferredLang={preferredLang}
+							tracks={tracks}
+							activeKoCode={activeKoCode}
+							onSelectLanguage={onSelectLanguage}
+						/>
 					</div>
 				) : (
 					<>
 						<div className="rail-scrubber">
-							<input
-								type="range"
-								className="audio-range"
-								min={0}
-								max={duration > 0 ? duration : 100}
-								step={0.5}
-								value={duration > 0 ? Math.min(currentTime, duration) : 0}
-								onChange={(e) => onSeek(Number.parseFloat(e.target.value))}
-								aria-label="Audio playback progress"
-							/>
+							<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
 							<div className="rail-time-row">
 								<span className="quick-time">{formatTime(currentTime)}</span>
 								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>

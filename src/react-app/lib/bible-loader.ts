@@ -18,11 +18,14 @@ let lexiconPromise: Promise<LexiconMap> | null = null;
 export async function loadLexicon(): Promise<LexiconMap> {
 	if (!lexiconPromise) {
 		lexiconPromise = fetch("/data/lexicon.json")
-			.then(async (res) => {
-				if (!res.ok) return {};
-				return (await res.json()) as LexiconMap;
+			.then((res) => {
+				if (!res.ok) throw new Error("Failed to load lexicon");
+				return res.json() as Promise<LexiconMap>;
 			})
-			.catch(() => ({}));
+			.catch(() => {
+				lexiconPromise = null;
+				return {};
+			});
 	}
 	return lexiconPromise;
 }
@@ -49,12 +52,17 @@ async function fetchBundledBook(translationId: string, usfm: string): Promise<Bo
 	const existing = bundledBookCache.get(cacheKey);
 	if (existing) return existing;
 
-	const promise = fetch(`/data/bibles/${translationId}/${usfm}.json`).then(async (res) => {
-		if (!res.ok) {
-			throw new Error(`Failed to load ${translationId} ${usfm}`);
-		}
-		return (await res.json()) as BookBibleData;
-	});
+	const promise = fetch(`/data/bibles/${translationId}/${usfm}.json`)
+		.then((res) => {
+			if (!res.ok) {
+				throw new Error(`Failed to load ${translationId} ${usfm}`);
+			}
+			return res.json() as Promise<BookBibleData>;
+		})
+		.catch((err) => {
+			bundledBookCache.delete(cacheKey);
+			throw err;
+		});
 	bundledBookCache.set(cacheKey, promise);
 	return promise;
 }
@@ -78,13 +86,18 @@ export async function loadTranslationChapter(
 
 	const promise = fetch(
 		`/api/passage/${encodeURIComponent(translation.id)}/${book.usfm}/${chapter}`,
-	).then(async (res) => {
-		if (!res.ok) {
-			throw new Error(`${translation.code} does not have ${book.en} ${chapter}`);
-		}
-		const payload = (await res.json()) as { verses?: VerseEntry[] };
-		return payload.verses ?? [];
-	});
+	)
+		.then(async (res) => {
+			if (!res.ok) {
+				throw new Error(`${translation.code} does not have ${book.en} ${chapter}`);
+			}
+			const payload = (await res.json()) as { verses?: VerseEntry[] };
+			return payload.verses ?? [];
+		})
+		.catch((err) => {
+			remotePassageCache.delete(cacheKey);
+			throw err;
+		});
 	remotePassageCache.set(cacheKey, promise);
 	return promise;
 }

@@ -72,7 +72,6 @@ export function TopBar({
 					<a
 						href="#/"
 						className={`brand-mark ${isHome ? "is-home" : ""}`}
-						style={{ textDecoration: "none" }}
 						aria-label="Logos Home"
 						title="Return to Logos Home"
 						onClick={(e) => {

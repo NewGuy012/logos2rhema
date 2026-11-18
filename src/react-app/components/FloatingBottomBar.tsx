@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+import { AudioFallbackAction, AudioLanguageToggle, AudioScrubber, formatTime } from "./AudioShared";
 import {
 	BookOpen,
 	ChevronLeft,
@@ -43,13 +44,6 @@ interface FloatingBottomBarProps {
 	onCycleSpeed: () => void;
 }
 
-function formatTime(totalSeconds: number): string {
-	if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
-	const mins = Math.floor(totalSeconds / 60);
-	const secs = Math.floor(totalSeconds % 60);
-	return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 export function FloatingBottomBar({
 	bookEn,
 	bookKo,
@@ -81,7 +75,6 @@ export function FloatingBottomBar({
 	onCycleSpeed,
 }: FloatingBottomBarProps) {
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
-	const koTracks = tracks.filter((t) => t.language === "ko");
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
 	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
 	const showUnavailable = Boolean(!activeTrack && preferredLang === "en");
@@ -107,29 +100,17 @@ export function FloatingBottomBar({
 								<span>
 									No audio recording linked to <strong>{activeLangCode}</strong> for this chapter.
 								</span>
-								{koTracks.length > 0 && (
-									<button
-										type="button"
-										className="quick-inline-chip active"
-										onClick={() => onSelectLanguage("ko")}
-									>
-										Use {activeKoCode}
-									</button>
-								)}
+								<AudioFallbackAction
+									preferredLang={preferredLang}
+									tracks={tracks}
+									activeKoCode={activeKoCode}
+									onSelectLanguage={onSelectLanguage}
+								/>
 							</div>
 						) : (
 							<>
 								<span className="quick-time">{formatTime(currentTime)}</span>
-								<input
-									type="range"
-									className="audio-range"
-									min={0}
-									max={duration > 0 ? duration : 100}
-									step={0.5}
-									value={duration > 0 ? Math.min(currentTime, duration) : 0}
-									onChange={(e) => onSeek(Number.parseFloat(e.target.value))}
-									aria-label="Audio playback progress"
-								/>
+								<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
 								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>
 								{langTracks.length > 1 && activeTrack && (
 									<button
@@ -165,24 +146,12 @@ export function FloatingBottomBar({
 						<span>{isPlaying ? "Pause" : "Listen"}</span>
 					</button>
 
-					<div className="quick-lang-toggle" role="group" aria-label="Audio language">
-						<button
-							type="button"
-							className={`quick-lang-btn ${preferredLang === "ko" ? "active" : ""}`}
-							onClick={() => onSelectLanguage("ko")}
-							title={`Korean audio (${activeKoCode})`}
-						>
-							한
-						</button>
-						<button
-							type="button"
-							className={`quick-lang-btn ${preferredLang === "en" ? "active" : ""}`}
-							onClick={() => onSelectLanguage("en")}
-							title={`English audio (${activeEnCode})`}
-						>
-							EN
-						</button>
-					</div>
+					<AudioLanguageToggle
+						preferredLang={preferredLang}
+						activeKoCode={activeKoCode}
+						activeEnCode={activeEnCode}
+						onSelectLanguage={onSelectLanguage}
+					/>
 
 					{activeTrack && (
 						<button

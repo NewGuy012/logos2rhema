@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { BIBLE_BOOKS, parsePassageReference } from "../../shared/books";
+import { BIBLE_BOOKS, filterBooks, parsePassageReference } from "../../shared/books";
 import type { BookMeta, Testament } from "../../shared/types";
+import { BookChapterGrid, TestamentTabs } from "./BookChapterBrowser";
 import { ArrowLeft, X } from "./Icons";
 
 interface PassagePickerProps {
@@ -42,30 +43,27 @@ export function PassagePicker({
 		return () => window.removeEventListener("keydown", onKey);
 	}, [isOpen, onClose]);
 
-	const filteredBooks = useMemo(() => {
-		const trimmed = query.trim().toLowerCase();
-		if (!trimmed) {
-			return BIBLE_BOOKS.filter((b) => b.testament === testament);
-		}
-		return BIBLE_BOOKS.filter(
-			(b) =>
-				b.en.toLowerCase().includes(trimmed) ||
-				b.enShort.toLowerCase().includes(trimmed) ||
-				b.ko.includes(query.trim()) ||
-				b.koShort.includes(query.trim()),
-		);
-	}, [query, testament]);
+	const filteredBooks = useMemo(() => filterBooks(query, testament), [query, testament]);
 
 	if (!isOpen) return null;
+
+	const selectChapter = (bookNum: number, chap: number, verse?: number) => {
+		onNavigate(bookNum, chap, verse);
+		onClose();
+	};
 
 	const handleSubmitReference = (e: React.FormEvent) => {
 		e.preventDefault();
 		const parsed = parsePassageReference(query);
 		if (parsed) {
-			onNavigate(parsed.bookNumber, parsed.chapter, parsed.verse);
-			onClose();
+			selectChapter(parsed.bookNumber, parsed.chapter, parsed.verse);
 		} else if (filteredBooks.length === 1) {
-			setActiveBook(filteredBooks[0]);
+			const only = filteredBooks[0];
+			if (only.chapters === 1) {
+				selectChapter(only.number, 1);
+			} else {
+				setActiveBook(only);
+			}
 		}
 	};
 
@@ -112,77 +110,24 @@ export function PassagePicker({
 					</form>
 
 					{!activeBook && !query.trim() && (
-						<div className="filter-tabs" role="tablist">
-							<button
-								type="button"
-								role="tab"
-								aria-selected={testament === "OT"}
-								className={`filter-tab ${testament === "OT" ? "active" : ""}`}
-								onClick={() => setTestament("OT")}
-							>
-								Old Testament · 구약 (39)
-							</button>
-							<button
-								type="button"
-								role="tab"
-								aria-selected={testament === "NT"}
-								className={`filter-tab ${testament === "NT" ? "active" : ""}`}
-								onClick={() => setTestament("NT")}
-							>
-								New Testament · 신약 (27)
-							</button>
-						</div>
+						<TestamentTabs testament={testament} onChange={setTestament} />
 					)}
 				</div>
 
 				<div className="modal-body">
-					{activeBook ? (
-						<div>
-							<p className="popover-title" style={{ marginBottom: "0.75rem" }}>
-								{activeBook.en} · {activeBook.ko}
-							</p>
-							<div className="chapters-grid">
-								{Array.from({ length: activeBook.chapters }, (_, i) => i + 1).map((ch) => (
-									<button
-										key={ch}
-										type="button"
-										className={`chapter-cell ${
-											activeBook.number === currentBookNumber && ch === currentChapter
-												? "current"
-												: ""
-										}`}
-										onClick={() => {
-											onNavigate(activeBook.number, ch);
-											onClose();
-										}}
-									>
-										{ch}
-									</button>
-								))}
-							</div>
-						</div>
-					) : (
-						<div className="books-grid">
-							{filteredBooks.map((book) => (
-								<button
-									key={book.usfm}
-									type="button"
-									className={`book-cell ${book.number === currentBookNumber ? "current" : ""}`}
-									onClick={() => {
-										if (book.chapters === 1) {
-											onNavigate(book.number, 1);
-											onClose();
-										} else {
-											setActiveBook(book);
-										}
-									}}
-								>
-									<div className="book-cell-en">{book.en}</div>
-									<div className="book-cell-ko">{book.ko}</div>
-								</button>
-							))}
-						</div>
+					{activeBook && (
+						<p className="popover-title picker-book-title">
+							{activeBook.en} · {activeBook.ko}
+						</p>
 					)}
+					<BookChapterGrid
+						books={filteredBooks}
+						selectedBook={activeBook}
+						currentBookNumber={currentBookNumber}
+						currentChapter={currentChapter}
+						onSelectBook={setActiveBook}
+						onSelectChapter={selectChapter}
+					/>
 				</div>
 			</div>
 		</div>

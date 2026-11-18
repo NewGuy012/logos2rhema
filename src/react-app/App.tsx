@@ -66,15 +66,54 @@ function parseLocationHash(): AppRoute {
 	};
 }
 
+function isOneOf<T extends string>(val: unknown, allowed: readonly T[]): val is T {
+	return typeof val === "string" && (allowed as readonly string[]).includes(val);
+}
+
 function readStoredPrefs(): StoredPrefs {
 	if (typeof localStorage === "undefined") return DEFAULT_PREFS;
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (!raw) return DEFAULT_PREFS;
-		return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<StoredPrefs>) };
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		const book =
+			typeof parsed.bookNumber === "number" ? getBookByNumber(parsed.bookNumber) : undefined;
+		const chapter =
+			book && typeof parsed.chapter === "number" && Number.isInteger(parsed.chapter)
+				? Math.max(1, Math.min(book.chapters, parsed.chapter))
+				: DEFAULT_PREFS.chapter;
+		return {
+			bookNumber: book ? book.number : DEFAULT_PREFS.bookNumber,
+			chapter,
+			stackOrder: isOneOf(parsed.stackOrder, ["en-first", "ko-first"])
+				? parsed.stackOrder
+				: DEFAULT_PREFS.stackOrder,
+			theme: isOneOf(parsed.theme, ["paper", "sepia", "dark"]) ? parsed.theme : DEFAULT_PREFS.theme,
+			fontScale:
+				typeof parsed.fontScale === "number" &&
+				Number.isFinite(parsed.fontScale) &&
+				parsed.fontScale >= 0.75 &&
+				parsed.fontScale <= 1.5
+					? parsed.fontScale
+					: DEFAULT_PREFS.fontScale,
+			koFontStyle: isOneOf(parsed.koFontStyle, ["serif", "sans"])
+				? parsed.koFontStyle
+				: DEFAULT_PREFS.koFontStyle,
+			studyMask: isOneOf(parsed.studyMask, ["none", "mask-en", "mask-ko"])
+				? parsed.studyMask
+				: DEFAULT_PREFS.studyMask,
+			autoSync: typeof parsed.autoSync === "boolean" ? parsed.autoSync : DEFAULT_PREFS.autoSync,
+		};
 	} catch {
 		return DEFAULT_PREFS;
 	}
+}
+
+function scrollToVerse(verseNum: number): boolean {
+	const el = document.getElementById(`verse-${verseNum}`);
+	if (!el) return false;
+	el.scrollIntoView({ behavior: "smooth", block: "center" });
+	return true;
 }
 
 function useIsDesktopLayout(): boolean {
@@ -133,6 +172,7 @@ export default function App() {
 		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
 	);
 	const [highlightedFootnoteId, setHighlightedFootnoteId] = useState<string | null>(null);
+	const highlightTimerRef = useRef<number | null>(null);
 	const [pendingScrollVerse, setPendingScrollVerse] = useState<number | null>(
 		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
 	);
@@ -268,13 +308,16 @@ export default function App() {
 
 	const navigateTo = useCallback((targetBook: number, targetChapter: number, verse?: number) => {
 		const book = getBookByNumber(targetBook) ?? BIBLE_BOOKS[0];
-		const targetHash = `#/${book.usfm}/${targetChapter}`;
+		const clampedChapter = Math.max(1, Math.min(book.chapters, targetChapter));
+		const targetHash = verse
+			? `#/${book.usfm}/${clampedChapter}/${verse}`
+			: `#/${book.usfm}/${clampedChapter}`;
 		if (window.location.hash !== targetHash) {
 			window.history.pushState(null, "", targetHash);
 		}
 		setView("reader");
-		setBookNumber(targetBook);
-		setChapter(targetChapter);
+		setBookNumber(book.number);
+		setChapter(clampedChapter);
 		setSelectedVerse(verse ?? null);
 		setPendingScrollVerse(verse ?? null);
 		if (!verse) {
@@ -285,9 +328,7 @@ export default function App() {
 	// Scroll to requested verse once chapter finishes rendering
 	useEffect(() => {
 		if (!pendingScrollVerse || loadingChapter) return;
-		const el = document.getElementById(`verse-${pendingScrollVerse}`);
-		if (el) {
-			el.scrollIntoView({ behavior: "smooth", block: "center" });
+		if (scrollToVerse(pendingScrollVerse)) {
 			setPendingScrollVerse(null);
 		}
 	}, [pendingScrollVerse, loadingChapter]);
@@ -332,17 +373,13 @@ export default function App() {
 	// Scroll active audio verse into view smoothly when auto-sync & following are active
 	useEffect(() => {
 		if (!audio.activeVerse || !autoSync || !audio.isFollowingAudio) return;
-		const el = document.getElementById(`verse-${audio.activeVerse}`);
-		if (el) {
-			el.scrollIntoView({ behavior: "smooth", block: "center" });
-		}
+		scrollToVerse(audio.activeVerse);
 	}, [audio.activeVerse, autoSync, audio.isFollowingAudio]);
 
 	const handleFollowActiveVerse = useCallback(() => {
 		audio.setIsFollowingAudio(true);
 		if (audio.activeVerse) {
-			const el = document.getElementById(`verse-${audio.activeVerse}`);
-			el?.scrollIntoView({ behavior: "smooth", block: "center" });
+			scrollToVerse(audio.activeVerse);
 		}
 	}, [audio]);
 
@@ -394,6 +431,14 @@ export default function App() {
 		}
 	}, [isDesktop]);
 
+	useEffect(() => {
+		return () => {
+			if (highlightTimerRef.current !== null) {
+				window.clearTimeout(highlightTimerRef.current);
+			}
+		};
+	}, []);
+
 	const handleSelectFootnote = useCallback(
 		(footnoteId: string) => {
 			setHighlightedFootnoteId(footnoteId);
@@ -402,7 +447,11 @@ export default function App() {
 			} else {
 				setSheetOpen(true);
 			}
-			window.setTimeout(() => {
+			if (highlightTimerRef.current !== null) {
+				window.clearTimeout(highlightTimerRef.current);
+			}
+			highlightTimerRef.current = window.setTimeout(() => {
+				highlightTimerRef.current = null;
 				setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
 			}, 2600);
 		},
@@ -411,10 +460,7 @@ export default function App() {
 
 	const handleJumpFromFootnote = useCallback((verseNum: number) => {
 		setSelectedVerse(verseNum);
-		const el = document.getElementById(`verse-${verseNum}`);
-		if (el) {
-			el.scrollIntoView({ behavior: "smooth", block: "center" });
-		}
+		scrollToVerse(verseNum);
 	}, []);
 
 	const readerStyle = useMemo(
@@ -429,6 +475,53 @@ export default function App() {
 
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
 	const showDictionary = !loadingChapter && !chapterError;
+
+	const openPrevChapter = () =>
+		prevChapterTarget && navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter);
+	const openNextChapter = () =>
+		nextChapterTarget && navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
+
+	const sharedAudioControls = {
+		bookEn: currentBook.en,
+		bookKo: currentBook.ko,
+		chapter,
+		hasPrev: Boolean(prevChapterTarget),
+		hasNext: Boolean(nextChapterTarget),
+		tracks: audioTracks,
+		preferredLang: audio.preferredLang,
+		activeTrack: audio.activeTrack,
+		isPlaying: audio.isPlaying,
+		isLoading: audio.isLoading,
+		currentTime: audio.currentTime,
+		duration: audio.duration,
+		playbackRate: audio.playbackRate,
+		errorMessage: audio.errorMessage,
+		activeEnCode: selectedEn.code,
+		activeKoCode: selectedKo.code,
+		onPrevChapter: openPrevChapter,
+		onNextChapter: openNextChapter,
+		onOpenPicker: () => setPickerOpen(true),
+		onTogglePlay: audio.togglePlay,
+		onSeek: audio.seekTo,
+		onSkipBy: audio.skipBy,
+		onSelectTrack: audio.selectTrack,
+		onSelectLanguage: audio.selectLanguage,
+		onCycleSpeed: audio.cyclePlaybackRate,
+	};
+
+	const renderDictionary = (variant: "sidebar" | "sheet", onClose: () => void) => (
+		<FootnotesGuide
+			bookEn={currentBook.en}
+			bookKo={currentBook.ko}
+			chapter={chapter}
+			footnotes={analysis.footnotes}
+			grammarNotes={analysis.grammarNotes}
+			highlightedFootnoteId={highlightedFootnoteId}
+			variant={variant}
+			onClose={onClose}
+			onJumpToVerse={handleJumpFromFootnote}
+		/>
+	);
 
 	return (
 		<div id="top" className="app-shell" style={readerStyle}>
@@ -469,41 +562,11 @@ export default function App() {
 						{isDesktop && (
 							<div className="audio-rail-wrap">
 								<AudioControlRail
-									bookEn={currentBook.en}
-									bookKo={currentBook.ko}
-									chapter={chapter}
-									hasPrev={Boolean(prevChapterTarget)}
-									hasNext={Boolean(nextChapterTarget)}
-									tracks={audioTracks}
-									preferredLang={audio.preferredLang}
-									activeTrack={audio.activeTrack}
-									isPlaying={audio.isPlaying}
-									isLoading={audio.isLoading}
-									currentTime={audio.currentTime}
-									duration={audio.duration}
-									playbackRate={audio.playbackRate}
-									errorMessage={audio.errorMessage}
-									activeEnCode={selectedEn.code}
-									activeKoCode={selectedKo.code}
+									{...sharedAudioControls}
 									visibleVerse={visibleVerse}
 									activeVerse={audio.activeVerse}
 									autoSync={autoSync}
 									isFollowingAudio={audio.isFollowingAudio}
-									onPrevChapter={() =>
-										prevChapterTarget &&
-										navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-									}
-									onNextChapter={() =>
-										nextChapterTarget &&
-										navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-									}
-									onOpenPicker={() => setPickerOpen(true)}
-									onTogglePlay={audio.togglePlay}
-									onSeek={audio.seekTo}
-									onSkipBy={audio.skipBy}
-									onSelectTrack={audio.selectTrack}
-									onSelectLanguage={audio.selectLanguage}
-									onCycleSpeed={audio.cyclePlaybackRate}
 									onToggleAutoSync={() => setAutoSync((prev) => !prev)}
 									onSyncToVisibleVerse={() => audio.jumpToVerse(visibleVerse)}
 									onFollowActiveVerse={handleFollowActiveVerse}
@@ -579,10 +642,7 @@ export default function App() {
 									type="button"
 									className="nav-chapter-btn"
 									disabled={!prevChapterTarget}
-									onClick={() =>
-										prevChapterTarget &&
-										navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-									}
+									onClick={openPrevChapter}
 								>
 									<ChevronLeft size={16} />
 									<span>Previous Chapter</span>
@@ -592,10 +652,7 @@ export default function App() {
 									type="button"
 									className="nav-chapter-btn"
 									disabled={!nextChapterTarget}
-									onClick={() =>
-										nextChapterTarget &&
-										navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-									}
+									onClick={openNextChapter}
 								>
 									<span>Next Chapter</span>
 									<ChevronRight size={16} />
@@ -610,73 +667,23 @@ export default function App() {
 
 						{showDictionary && isDesktop && sidebarOpen && (
 							<div className="dict-sidebar-wrap">
-								<FootnotesGuide
-									bookEn={currentBook.en}
-									bookKo={currentBook.ko}
-									chapter={chapter}
-									footnotes={analysis.footnotes}
-									grammarNotes={analysis.grammarNotes}
-									highlightedFootnoteId={highlightedFootnoteId}
-									variant="sidebar"
-									onClose={() => setSidebarOpen(false)}
-									onJumpToVerse={handleJumpFromFootnote}
-								/>
+								{renderDictionary("sidebar", () => setSidebarOpen(false))}
 							</div>
 						)}
 					</div>
 
 					{!isDesktop && (
 						<FloatingBottomBar
-							bookEn={currentBook.en}
-							bookKo={currentBook.ko}
-							chapter={chapter}
-							hasPrev={Boolean(prevChapterTarget)}
-							hasNext={Boolean(nextChapterTarget)}
-							onPrevChapter={() =>
-								prevChapterTarget &&
-								navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter)
-							}
-							onNextChapter={() =>
-								nextChapterTarget &&
-								navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter)
-							}
-							onOpenPicker={() => setPickerOpen(true)}
-							tracks={audioTracks}
-							preferredLang={audio.preferredLang}
-							activeTrack={audio.activeTrack}
-							isPlaying={audio.isPlaying}
-							isLoading={audio.isLoading}
-							currentTime={audio.currentTime}
-							duration={audio.duration}
-							playbackRate={audio.playbackRate}
-							errorMessage={audio.errorMessage}
-							activeEnCode={selectedEn.code}
-							activeKoCode={selectedKo.code}
+							{...sharedAudioControls}
 							dictionaryOpen={dictionaryOpen}
 							dictionarySheet={
 								showDictionary && sheetOpen ? (
 									<div className="dict-sheet-wrap">
-										<FootnotesGuide
-											bookEn={currentBook.en}
-											bookKo={currentBook.ko}
-											chapter={chapter}
-											footnotes={analysis.footnotes}
-											grammarNotes={analysis.grammarNotes}
-											highlightedFootnoteId={highlightedFootnoteId}
-											variant="sheet"
-											onClose={() => setSheetOpen(false)}
-											onJumpToVerse={handleJumpFromFootnote}
-										/>
+										{renderDictionary("sheet", () => setSheetOpen(false))}
 									</div>
 								) : undefined
 							}
 							onToggleDictionary={handleToggleDictionary}
-							onTogglePlay={audio.togglePlay}
-							onSeek={audio.seekTo}
-							onSkipBy={audio.skipBy}
-							onSelectTrack={audio.selectTrack}
-							onSelectLanguage={audio.selectLanguage}
-							onCycleSpeed={audio.cyclePlaybackRate}
 						/>
 					)}
 				</>

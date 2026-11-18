@@ -42,6 +42,13 @@ export function resolveTimeForVerse(
 	return bestTime;
 }
 
+function applyPlaybackRate(audio: HTMLAudioElement, rate: number): void {
+	audio.playbackRate = rate;
+	if ("preservesPitch" in audio) {
+		audio.preservesPitch = true;
+	}
+}
+
 export interface UseHumanAudioOptions {
 	tracks: AudioTrackOption[];
 	visibleVerse?: number;
@@ -202,10 +209,7 @@ export function useHumanAudio({
 			audio.src = activeTrack.url;
 			audio.load();
 		}
-		audio.playbackRate = playbackRateRef.current;
-		if ("preservesPitch" in audio) {
-			audio.preservesPitch = true;
-		}
+		applyPlaybackRate(audio, playbackRateRef.current);
 
 		if (resumePlayback) {
 			setIsLoading(true);
@@ -219,15 +223,12 @@ export function useHumanAudio({
 	useEffect(() => {
 		const audio = audioRef.current;
 		if (!audio) return;
-		audio.playbackRate = playbackRate;
-		if ("preservesPitch" in audio) {
-			audio.preservesPitch = true;
-		}
+		applyPlaybackRate(audio, playbackRate);
 	}, [playbackRate]);
 
 	const seekTo = useCallback((seconds: number) => {
 		const audio = audioRef.current;
-		if (!audio) return;
+		if (!audio || !Number.isFinite(seconds)) return;
 		const validDuration =
 			Number.isFinite(audio.duration) && audio.duration > 0
 				? audio.duration
@@ -287,28 +288,26 @@ export function useHumanAudio({
 		[seekTo],
 	);
 
-	const selectTrack = useCallback(
-		(track: AudioTrackOption) => {
-			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
-			pendingSyncVerseRef.current = autoSyncRef.current
-				? (activeVerse ?? visibleVerseRef.current)
-				: null;
-			setPreferredLang(track.language);
-			setSelectedTrackId(track.id);
-		},
-		[isPlaying, activeVerse],
-	);
-
-	const selectLanguage = useCallback(
-		(lang: TranslationLanguage) => {
+	const switchTrackOrLanguage = useCallback(
+		(lang: TranslationLanguage, trackId: string) => {
 			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
 			pendingSyncVerseRef.current = autoSyncRef.current
 				? (activeVerse ?? visibleVerseRef.current)
 				: null;
 			setPreferredLang(lang);
-			setSelectedTrackId("");
+			setSelectedTrackId(trackId);
 		},
 		[isPlaying, activeVerse],
+	);
+
+	const selectTrack = useCallback(
+		(track: AudioTrackOption) => switchTrackOrLanguage(track.language, track.id),
+		[switchTrackOrLanguage],
+	);
+
+	const selectLanguage = useCallback(
+		(lang: TranslationLanguage) => switchTrackOrLanguage(lang, ""),
+		[switchTrackOrLanguage],
 	);
 
 	const prepareAutoAdvancePlay = useCallback(() => {

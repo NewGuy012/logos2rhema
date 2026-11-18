@@ -1,7 +1,13 @@
 import { useMemo, useState } from "react";
 
-import { BIBLE_BOOKS, getBookByNumber, parsePassageReference } from "../../shared/books";
+import {
+	BIBLE_BOOKS,
+	filterBooks,
+	getBookByNumber,
+	parsePassageReference,
+} from "../../shared/books";
 import type { BookMeta, Testament, TranslationMeta } from "../../shared/types";
+import { BookChapterGrid, TestamentTabs } from "./BookChapterBrowser";
 import { ArrowLeft, ArrowRight, BookOpen, Headphones, Search } from "./Icons";
 
 interface HomePageProps {
@@ -45,19 +51,7 @@ export function HomePage({
 		[lastBookNumber],
 	);
 
-	const filteredBooks = useMemo(() => {
-		const trimmed = query.trim().toLowerCase();
-		if (!trimmed) {
-			return BIBLE_BOOKS.filter((b) => b.testament === testament);
-		}
-		return BIBLE_BOOKS.filter(
-			(b) =>
-				b.en.toLowerCase().includes(trimmed) ||
-				b.enShort.toLowerCase().includes(trimmed) ||
-				b.ko.includes(query.trim()) ||
-				b.koShort.includes(query.trim()),
-		);
-	}, [query, testament]);
+	const filteredBooks = useMemo(() => filterBooks(query, testament), [query, testament]);
 
 	const handleSearchSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -179,69 +173,20 @@ export function HomePage({
 							<span>All Books</span>
 						</button>
 					) : (
-						!query.trim() && (
-							<div className="filter-tabs" role="tablist" aria-label="Testament">
-								<button
-									type="button"
-									role="tab"
-									aria-selected={testament === "OT"}
-									className={`filter-tab ${testament === "OT" ? "active" : ""}`}
-									onClick={() => setTestament("OT")}
-								>
-									Old Testament · 구약 (39)
-								</button>
-								<button
-									type="button"
-									role="tab"
-									aria-selected={testament === "NT"}
-									className={`filter-tab ${testament === "NT" ? "active" : ""}`}
-									onClick={() => setTestament("NT")}
-								>
-									New Testament · 신약 (27)
-								</button>
-							</div>
-						)
+						!query.trim() && <TestamentTabs testament={testament} onChange={setTestament} />
 					)}
 				</div>
 
-				{selectedBook ? (
-					<div className="chapters-grid home-chapters-grid">
-						{Array.from({ length: selectedBook.chapters }, (_, idx) => idx + 1).map((ch) => (
-							<button
-								key={ch}
-								type="button"
-								className={`chapter-cell ${
-									selectedBook.number === lastBook.number && ch === lastChapter ? "current" : ""
-								}`}
-								onClick={() => onOpenPassage(selectedBook.number, ch)}
-							>
-								{ch}
-							</button>
-						))}
-					</div>
-				) : (
-					<div className="books-grid home-books-grid">
-						{filteredBooks.map((book) => (
-							<button
-								key={book.usfm}
-								type="button"
-								className={`book-cell ${book.number === lastBook.number ? "current" : ""}`}
-								onClick={() => {
-									if (book.chapters === 1) {
-										onOpenPassage(book.number, 1);
-									} else {
-										setSelectedBook(book);
-									}
-								}}
-							>
-								<div className="book-cell-en">{book.en}</div>
-								<div className="book-cell-ko" lang="ko">
-									{book.ko} · {book.chapters}ch
-								</div>
-							</button>
-						))}
-					</div>
-				)}
+				<BookChapterGrid
+					books={filteredBooks}
+					selectedBook={selectedBook}
+					currentBookNumber={lastBook.number}
+					currentChapter={lastChapter}
+					showChapterCount={true}
+					classPrefix="home"
+					onSelectBook={setSelectedBook}
+					onSelectChapter={onOpenPassage}
+				/>
 			</section>
 		</main>
 	);
