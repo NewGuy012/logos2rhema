@@ -1,14 +1,13 @@
 import { Hono } from "hono";
 
+import { SUPERTONIC_TRACK_ID } from "../shared/audio-timings";
 import { getBookByUsfm } from "../shared/books";
-import { COMMENTARY_SOURCES, isCommentaryId } from "../shared/commentaries";
-import { CANONICAL_BIBLES } from "../shared/translations";
+import { isCommentaryId } from "../shared/commentaries";
 import type {
 	AudioTrackOption,
 	BookMeta,
 	ChapterAudioResponse,
 	ReaderConfigResponse,
-	TranslationMeta,
 } from "../shared/types";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
 import { fetchHelloAoCommentaryChapter } from "./helloao";
@@ -23,11 +22,14 @@ interface WorkerDeps {
 	fetcher?: FetchLike;
 }
 
+const SAFE_AUDIO_MIME_RE = /^audio\/[a-z0-9.+-]+$/i;
+
 function applySecurityHeaders(headers: Headers): void {
 	headers.set("X-Content-Type-Options", "nosniff");
 	headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 	headers.set("X-Frame-Options", "DENY");
 	headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+	headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 	headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 }
 
@@ -61,6 +63,10 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 		await next();
 		applySecurityHeaders(c.res.headers);
+		if (c.req.method === "HEAD" && c.res.body !== null) {
+			c.res.body.cancel?.().catch(() => {});
+			c.res = new Response(null, { status: c.res.status, headers: c.res.headers });
+		}
 	});
 
 	app.onError((_err, c) => {
@@ -70,31 +76,10 @@ export function createApp(deps: WorkerDeps = {}) {
 		return res;
 	});
 
-	app.get("/api/health", (c) => c.json({ ok: true, service: "logos" }));
-
 	app.get("/api/config", (c) => {
-		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
-		const hasCustomAudio = Boolean(customAudioBase && isSafeHttpsUrl(customAudioBase));
-		const esvAudioEnabled = Boolean(esvApiKey);
-
-		const english: TranslationMeta = {
-			...CANONICAL_BIBLES.en,
-			hasAudio: esvAudioEnabled,
-			audioLabel: esvApiKey ? "Crossway ESV (David Cochran Heath)" : undefined,
-		};
-
-		const korean: TranslationMeta = {
-			...CANONICAL_BIBLES.ko,
-			hasAudio: hasCustomAudio,
-			audioLabel: hasCustomAudio ? "Supertonic 3 Korean · Daniel (Verse-Synced)" : undefined,
-		};
-
 		const body: ReaderConfigResponse = {
-			english,
-			korean,
-			krvSyncedAudioEnabled: hasCustomAudio,
-			esvAudioEnabled,
+			krvSyncedAudioEnabled: Boolean(customAudioBase && isSafeHttpsUrl(customAudioBase)),
 		};
 
 		c.header("Cache-Control", "private, max-age=300");
@@ -110,43 +95,28 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
+		const tracks: AudioTrackOption[] = [];
 
-		const resolveKoreanTracks = async (): Promise<AudioTrackOption[]> => {
-			if (!customAudioBase || !isSafeHttpsUrl(customAudioBase)) {
-				return [];
-			}
+		if (customAudioBase && isSafeHttpsUrl(customAudioBase)) {
 			const cleanBase = customAudioBase.replace(/\/+$/, "");
-			return [
-				{
-					id: "custom:krv:supertonic",
-					label: "개역한글 · Daniel (AI)",
-					language: "ko",
-					translationId: "krv",
-					url: `${cleanBase}/${usfm}/${chapter}.mp3`,
-					source: "custom",
-					note: "AI-synthesized narration (Supertonic 3 · Daniel)",
-				},
-			];
-		};
+			tracks.push({
+				id: SUPERTONIC_TRACK_ID,
+				label: "개역한글 · Daniel (AI)",
+				language: "ko",
+				url: `${cleanBase}/${usfm}/${chapter}.mp3`,
+			});
+		}
 
-		const resolveEnglishTracks = async (): Promise<AudioTrackOption[]> => {
-			if (!esvApiKey) return [];
+		if (esvApiKey) {
 			const esvTrack = await fetchEsvAudioTrack(
 				esvApiKey,
 				{ usfm, bookEn: book.en, chapter, chaptersInBook: book.chapters },
 				fetcher,
 			).catch(() => null);
-			return esvTrack ? [esvTrack] : [];
-		};
+			if (esvTrack) tracks.push(esvTrack);
+		}
 
-		const [koTracks, enTracks] = await Promise.all([resolveKoreanTracks(), resolveEnglishTracks()]);
-
-		const responseBody: ChapterAudioResponse = {
-			bookUsfm: usfm,
-			chapter,
-			tracks: [...koTracks, ...enTracks],
-		};
-
+		const responseBody: ChapterAudioResponse = { tracks };
 		c.header("Cache-Control", "private, max-age=1800");
 		return c.json(responseBody);
 	});
@@ -179,8 +149,11 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		if (resolved.directStreamResponse) {
 			const headers = new Headers();
-			const rawType = resolved.directStreamResponse.headers.get("content-type") ?? "";
-			headers.set("Content-Type", rawType.startsWith("audio/") ? rawType : "audio/mpeg");
+			const rawType = (resolved.directStreamResponse.headers.get("content-type") ?? "")
+				.split(";")[0]
+				.trim();
+			headers.set("Content-Type", SAFE_AUDIO_MIME_RE.test(rawType) ? rawType : "audio/mpeg");
+			headers.set("Content-Disposition", "inline");
 			headers.set("Cache-Control", "private, max-age=1800");
 			return new Response(resolved.directStreamResponse.body, {
 				status: resolved.directStreamResponse.status,
@@ -189,11 +162,6 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		return c.json({ error: "ESV audio unavailable" }, 502);
-	});
-
-	app.get("/api/commentaries", (c) => {
-		c.header("Cache-Control", "public, max-age=86400");
-		return c.json({ commentaries: COMMENTARY_SOURCES });
 	});
 
 	app.get("/api/commentary/:commentaryId/:usfm/:chapter", async (c) => {

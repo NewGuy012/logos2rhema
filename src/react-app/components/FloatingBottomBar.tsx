@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
-import type { AudioTrackOption, RightRailTab } from "../../shared/types";
+import { CANONICAL_BIBLES } from "../../shared/translations";
+import type { AudioTrackOption, RightRailTab, TranslationLanguage } from "../../shared/types";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
@@ -32,7 +33,7 @@ interface FloatingBottomBarProps {
 	onNextChapter: () => void;
 	onOpenPicker: () => void;
 	tracks: AudioTrackOption[];
-	preferredLang: string;
+	preferredLang: TranslationLanguage;
 	activeTrack: AudioTrackOption | null;
 	isPlaying: boolean;
 	isLoading: boolean;
@@ -40,8 +41,6 @@ interface FloatingBottomBarProps {
 	duration: number;
 	playbackRate: number;
 	errorMessage: string | null;
-	activeEnCode: string;
-	activeKoCode: string;
 	activeVerse?: number | null;
 	autoSync?: boolean;
 	isFollowingAudio?: boolean;
@@ -53,7 +52,7 @@ interface FloatingBottomBarProps {
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
 	onSelectTrack: (track: AudioTrackOption) => void;
-	onSelectLanguage: (lang: string) => void;
+	onSelectLanguage: (lang: TranslationLanguage) => void;
 	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync?: () => void;
 	onFollowActiveVerse?: () => void;
@@ -77,8 +76,6 @@ export function FloatingBottomBar({
 	duration,
 	playbackRate,
 	errorMessage,
-	activeEnCode,
-	activeKoCode,
 	activeVerse = null,
 	autoSync = true,
 	isFollowingAudio = true,
@@ -96,7 +93,7 @@ export function FloatingBottomBar({
 	onFollowActiveVerse,
 }: FloatingBottomBarProps) {
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
-	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
+	const activeLangCode = CANONICAL_BIBLES[preferredLang].code;
 	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
 	const showUnavailable = Boolean(!activeTrack);
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
@@ -129,8 +126,6 @@ export function FloatingBottomBar({
 								<AudioFallbackAction
 									preferredLang={preferredLang}
 									tracks={tracks}
-									activeKoCode={activeKoCode}
-									activeEnCode={activeEnCode}
 									onSelectLanguage={onSelectLanguage}
 								/>
 							</div>
@@ -201,12 +196,7 @@ export function FloatingBottomBar({
 						<span>{isPlaying ? "Pause" : "Listen"}</span>
 					</button>
 
-					<AudioLanguageToggle
-						preferredLang={preferredLang}
-						activeKoCode={activeKoCode}
-						activeEnCode={activeEnCode}
-						onSelectLanguage={onSelectLanguage}
-					/>
+					<AudioLanguageToggle preferredLang={preferredLang} onSelectLanguage={onSelectLanguage} />
 
 					{activeTrack && (
 						<AudioSpeedSelect playbackRate={playbackRate} onChangeSpeed={onChangeSpeed} />

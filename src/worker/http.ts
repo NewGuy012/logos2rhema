@@ -2,11 +2,13 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 
 const DEFAULT_TIMEOUT_MS = 6000;
 const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 
 export function isSafeHttpsUrl(
 	rawUrl: string,
 	options?: { allowedHostSuffix?: string; forbiddenSubstring?: string },
 ): boolean {
+	if (!rawUrl || CONTROL_CHAR_RE.test(rawUrl)) return false;
 	try {
 		const parsed = new URL(rawUrl);
 		const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
@@ -35,12 +37,21 @@ export function isSafeHttpsUrl(
 			}
 		}
 		if (options?.forbiddenSubstring) {
-			const encoded = encodeURIComponent(options.forbiddenSubstring);
+			const needle = options.forbiddenSubstring.toLowerCase();
+			const encodedNeedle = encodeURIComponent(options.forbiddenSubstring).toLowerCase();
+			const candidates = [rawUrl, parsed.href];
+			for (const value of [rawUrl, parsed.href]) {
+				try {
+					candidates.push(decodeURIComponent(value));
+				} catch {
+					// Ignore malformed percent-escapes
+				}
+			}
 			if (
-				rawUrl.includes(options.forbiddenSubstring) ||
-				parsed.href.includes(options.forbiddenSubstring) ||
-				rawUrl.includes(encoded) ||
-				parsed.href.includes(encoded)
+				candidates.some((value) => {
+					const lower = value.toLowerCase();
+					return lower.includes(needle) || lower.includes(encodedNeedle);
+				})
 			) {
 				return false;
 			}

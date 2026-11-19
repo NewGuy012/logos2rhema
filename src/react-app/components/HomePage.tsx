@@ -1,7 +1,8 @@
 import { Fragment, useId, useMemo, useState } from "react";
 
 import { BIBLE_BOOKS, filterBooks, getBookByNumber } from "../../shared/books";
-import type { BookMeta, FavoriteItem, HighlightItem, TranslationMeta } from "../../shared/types";
+import { CANONICAL_BIBLES } from "../../shared/translations";
+import type { BookMeta, FavoriteItem, HighlightItem } from "../../shared/types";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList } from "./FavoritesList";
 import {
@@ -18,8 +19,6 @@ interface HomePageProps {
 	lastBookNumber: number;
 	lastChapter: number;
 	lastVerse?: number;
-	selectedEn: TranslationMeta;
-	selectedKo: TranslationMeta;
 	krvSyncedAudioEnabled: boolean;
 	favorites?: FavoriteItem[];
 	highlights?: HighlightItem[];
@@ -41,8 +40,6 @@ export function HomePage({
 	lastBookNumber,
 	lastChapter,
 	lastVerse = 1,
-	selectedEn,
-	selectedKo,
 	krvSyncedAudioEnabled,
 	favorites = [],
 	highlights = [],
@@ -94,8 +91,8 @@ export function HomePage({
 					</span>
 				</div>
 				<p className="home-subtitle">
-					Read {selectedEn.code} and {selectedKo.code} side-by-side, hover any Korean word for
-					instant dictionary and grammar notes, and listen along verse by verse.
+					Read {CANONICAL_BIBLES.en.code} and {CANONICAL_BIBLES.ko.code} side-by-side, hover any
+					Korean word for instant dictionary and grammar notes, and listen along verse by verse.
 				</p>
 			</section>
 

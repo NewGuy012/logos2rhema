@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
-import type { AudioTrackOption } from "../../shared/types";
+import { CANONICAL_BIBLES } from "../../shared/translations";
+import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
@@ -27,7 +28,7 @@ interface AudioControlRailProps {
 	bookKo: string;
 	chapter: number;
 	tracks: AudioTrackOption[];
-	preferredLang: string;
+	preferredLang: TranslationLanguage;
 	activeTrack: AudioTrackOption | null;
 	isPlaying: boolean;
 	isLoading: boolean;
@@ -35,8 +36,6 @@ interface AudioControlRailProps {
 	duration: number;
 	playbackRate: number;
 	errorMessage: string | null;
-	activeEnCode: string;
-	activeKoCode: string;
 	visibleVerse: number;
 	activeVerse: number | null;
 	autoSync: boolean;
@@ -45,7 +44,7 @@ interface AudioControlRailProps {
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
 	onSelectTrack: (track: AudioTrackOption) => void;
-	onSelectLanguage: (lang: string) => void;
+	onSelectLanguage: (lang: TranslationLanguage) => void;
 	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync: () => void;
 	onSyncToVisibleVerse: () => void;
@@ -66,8 +65,6 @@ export function AudioControlRail({
 	duration,
 	playbackRate,
 	errorMessage,
-	activeEnCode,
-	activeKoCode,
 	visibleVerse,
 	activeVerse,
 	autoSync,
@@ -85,7 +82,7 @@ export function AudioControlRail({
 }: AudioControlRailProps) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
-	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
+	const activeLangCode = CANONICAL_BIBLES[preferredLang].code;
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
 	const showFollowButton = Boolean(syncActive && isPlaying && !isFollowingAudio && activeVerse);
@@ -124,8 +121,6 @@ export function AudioControlRail({
 					<div className="rail-lang-row">
 						<AudioLanguageToggle
 							preferredLang={preferredLang}
-							activeKoCode={activeKoCode}
-							activeEnCode={activeEnCode}
 							onSelectLanguage={onSelectLanguage}
 						/>
 					</div>
@@ -192,8 +187,6 @@ export function AudioControlRail({
 							<AudioFallbackAction
 								preferredLang={preferredLang}
 								tracks={tracks}
-								activeKoCode={activeKoCode}
-								activeEnCode={activeEnCode}
 								onSelectLanguage={onSelectLanguage}
 							/>
 						</div>

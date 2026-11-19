@@ -16,11 +16,7 @@ export type TranslationLanguage = "en" | "ko";
 export interface TranslationMeta {
 	id: string;
 	code: string;
-	name: string;
 	nativeName: string;
-	language: TranslationLanguage;
-	hasAudio: boolean;
-	audioLabel?: string;
 }
 
 type WordPos =
@@ -93,32 +89,21 @@ export interface AlignedVerse {
 export interface AudioTrackOption {
 	id: string;
 	label: string;
-	language: TranslationLanguage | (string & {});
-	translationId: string;
+	language: TranslationLanguage;
 	url: string;
-	source: "esv-api" | "custom";
 	verseTimings?: Record<number, number>;
-	note?: string;
 }
 
 export interface BookAudioTimingsData {
-	translationId: string;
-	audioSource: string;
-	usfm: string;
 	chapters: Record<string, Record<string, number>>;
 }
 
 export interface ChapterAudioResponse {
-	bookUsfm: string;
-	chapter: number;
 	tracks: AudioTrackOption[];
 }
 
 export interface ReaderConfigResponse {
-	english: TranslationMeta;
-	korean: TranslationMeta;
 	krvSyncedAudioEnabled: boolean;
-	esvAudioEnabled: boolean;
 }
 
 export type CommentaryId = "tyndale" | "matthew-henry";
@@ -131,7 +116,6 @@ export interface CommentaryMeta {
 	description: string;
 	license: string;
 	licenseUrl: string;
-	website: string;
 	attribution: string;
 }
 
@@ -144,9 +128,6 @@ export interface CommentaryEntry {
 }
 
 export interface ChapterCommentaryResponse {
-	commentary: CommentaryMeta;
-	bookUsfm: string;
-	chapter: number;
 	bookIntroduction?: string[];
 	introduction?: string[];
 	entries: CommentaryEntry[];

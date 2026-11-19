@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { CommentaryPanel } from "../src/react-app/components/CommentaryPanel";
 import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
 import { clearCommentaryCache, loadChapterCommentary } from "../src/react-app/lib/bible-loader";
-import { getCommentaryMeta } from "../src/shared/commentaries";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import type { ChapterCommentaryResponse } from "../src/shared/types";
 import { fireClick, getButton, getByText, render, setInputValue } from "./setup";
@@ -16,9 +15,6 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 	});
 
 	const sampleMhData: ChapterCommentaryResponse = {
-		commentary: getCommentaryMeta("matthew-henry"),
-		bookUsfm: "JHN",
-		chapter: 3,
 		bookIntroduction: ["An Exposition of the Gospel of John."],
 		introduction: ["Christ's discourse with Nicodemus (v. 1-21)."],
 		entries: [
@@ -192,9 +188,6 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 				chapter={1}
 				source="tyndale"
 				data={{
-					commentary: getCommentaryMeta("tyndale"),
-					bookUsfm: "JDG",
-					chapter: 1,
 					entries: [],
 				}}
 				loading={false}
@@ -219,9 +212,6 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 				return Response.json({ error: "Commentary lookup failed" }, { status: 502 });
 			}
 			return Response.json({
-				commentary: getCommentaryMeta("tyndale"),
-				bookUsfm: "GEN",
-				chapter: 1,
 				entries: [
 					{
 						id: "tyndale:GEN:1:1",

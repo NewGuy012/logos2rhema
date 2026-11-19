@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
-import type { FavoriteItem, HighlightItem, TranslationMeta } from "../../shared/types";
+import { CANONICAL_BIBLES } from "../../shared/translations";
+import type { FavoriteItem, HighlightItem } from "../../shared/types";
 import { useDismissListeners } from "../hooks/usePopover";
 import { FavoritesList } from "./FavoritesList";
 import { Bible, Bookmark, BookOpen, ChevronDown, Home, Search, Settings } from "./Icons";
@@ -17,8 +18,6 @@ interface TopBarProps {
 	lastVerse?: number;
 	favorites?: FavoriteItem[];
 	highlights?: HighlightItem[];
-	selectedEn: TranslationMeta;
-	selectedKo: TranslationMeta;
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
@@ -92,8 +91,6 @@ export function TopBar({
 	lastVerse = 1,
 	favorites = [],
 	highlights = [],
-	selectedEn,
-	selectedKo,
 	stackOrder,
 	theme,
 	fontScale,
@@ -244,9 +241,9 @@ export function TopBar({
 					<span
 						className="translation-badge"
 						aria-label="Canonical language editions"
-						title={`${selectedEn.nativeName} · ${selectedKo.nativeName}`}
+						title={`${CANONICAL_BIBLES.en.nativeName} · ${CANONICAL_BIBLES.ko.nativeName}`}
 					>
-						{selectedEn.code} / {selectedKo.code}
+						{CANONICAL_BIBLES.en.code} / {CANONICAL_BIBLES.ko.code}
 					</span>
 
 					<div className="popover-anchor">

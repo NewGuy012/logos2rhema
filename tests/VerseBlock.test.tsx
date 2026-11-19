@@ -34,9 +34,8 @@ import {
 	splitTextByHighlights,
 	toggleHighlightSpans,
 } from "../src/react-app/lib/highlights";
-import { getCommentaryMeta } from "../src/shared/commentaries";
+import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
-import { CANONICAL_BIBLES } from "../src/shared/translations";
 import {
 	fireClick,
 	fireHover,
@@ -108,7 +107,7 @@ function baseBarProps() {
 		hasPrev: false,
 		hasNext: true,
 		tracks: [],
-		preferredLang: "ko",
+		preferredLang: "ko" as const,
 		activeTrack: null,
 		isPlaying: false,
 		isLoading: false,
@@ -116,8 +115,6 @@ function baseBarProps() {
 		duration: 120,
 		playbackRate: 1,
 		errorMessage: null,
-		activeEnCode: "ESV",
-		activeKoCode: "개역한글",
 		onPrevChapter: noop,
 		onNextChapter: noop,
 		onOpenPicker: noop,
@@ -164,8 +161,6 @@ describe("Reader UI & audio hooks", () => {
 			isSelected: false,
 			isAudioActive: false,
 			isFavorited: false,
-			enCode: "ESV",
-			koCode: "개역한글",
 			hasVerseTimestamps: false,
 			onSelectVerse: noop,
 			onToggleFavorite,
@@ -394,8 +389,6 @@ describe("Reader UI & audio hooks", () => {
 						createdAt: 100,
 					},
 				]}
-				selectedEn={CANONICAL_BIBLES.en}
-				selectedKo={CANONICAL_BIBLES.ko}
 				stackOrder="en-first"
 				theme="paper"
 				fontScale={1}
@@ -445,8 +438,6 @@ describe("Reader UI & audio hooks", () => {
 				lastBookNumber={8}
 				lastChapter={4}
 				lastVerse={12}
-				selectedEn={CANONICAL_BIBLES.en}
-				selectedKo={CANONICAL_BIBLES.ko}
 				krvSyncedAudioEnabled={true}
 				onOpenPassage={onOpenPassage}
 			/>,
@@ -546,12 +537,7 @@ describe("Reader UI & audio hooks", () => {
 			const url = String(input);
 			if (url.includes("/api/config")) {
 				configLoaded = true;
-				return Response.json({
-					english: CANONICAL_BIBLES.en,
-					korean: CANONICAL_BIBLES.ko,
-					krvSyncedAudioEnabled: false,
-					esvAudioEnabled: false,
-				});
+				return Response.json({ krvSyncedAudioEnabled: false });
 			}
 			if (url.includes("/data/lexicon.json")) return Response.json({});
 			if (url.includes("/data/bibles/krv/")) {
@@ -584,15 +570,12 @@ describe("Reader UI & audio hooks", () => {
 			}
 			if (url.includes("/api/audio/")) {
 				audioLoadCount++;
-				return Response.json({ bookUsfm: "GEN", chapter: 1, tracks: [] });
+				return Response.json({ tracks: [] });
 			}
 			if (url.includes("/api/commentary/")) {
 				commentaryFetchUrls.push(url);
 				const isMh = url.includes("/matthew-henry/");
 				return Response.json({
-					commentary: getCommentaryMeta(isMh ? "matthew-henry" : "tyndale"),
-					bookUsfm: "GEN",
-					chapter: 1,
 					entries: [
 						{
 							id: `${isMh ? "matthew-henry" : "tyndale"}:GEN:1:1`,
@@ -783,12 +766,10 @@ describe("Reader UI & audio hooks", () => {
 		const onSelectLanguage = mock(() => {});
 		const onSkipBy = mock((_delta: number) => {});
 		const koTrack = {
-			id: "custom:krv:supertonic",
+			id: SUPERTONIC_TRACK_ID,
 			label: "개역한글 · Daniel (AI)",
-			language: "ko",
-			translationId: "krv",
+			language: "ko" as const,
 			url: "https://cdn.example.com/krv/GEN/1.mp3",
-			source: "custom" as const,
 		};
 
 		const bar = render(
@@ -827,10 +808,8 @@ describe("Reader UI & audio hooks", () => {
 		const enTrack = {
 			id: "esv-api:GEN:1",
 			label: "David Cochran Heath (ESV)",
-			language: "en",
-			translationId: "esv",
+			language: "en" as const,
 			url: "https://audio.esv.org/hw/gen1.mp3",
-			source: "esv-api" as const,
 		};
 		bar.rerender(
 			<FloatingBottomBar
@@ -847,19 +826,16 @@ describe("Reader UI & audio hooks", () => {
 		expect(onSelectLanguage).toHaveBeenCalledWith("en");
 
 		const supertonicTrack = {
-			id: "custom:krv:supertonic",
+			id: SUPERTONIC_TRACK_ID,
 			label: "개역한글 · Daniel (AI)",
-			language: "ko",
-			translationId: "krv",
+			language: "ko" as const,
 			url: "https://cdn.example.com/JHN/3.mp3",
-			source: "custom" as const,
 			verseTimings: { 1: 2.3, 12: 34.5, 16: 48.2 },
 		};
 		const altTrack = {
 			...supertonicTrack,
 			id: "custom:krv:alt",
 			label: "개역한글 · Alternative (AI)",
-			source: "custom" as const,
 		};
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 1.5)).toBeNull();
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 2.1)).toBe(1);
@@ -990,12 +966,10 @@ describe("Reader UI & audio hooks", () => {
 				useHumanAudio({
 					tracks: [
 						{
-							id: "custom:krv:supertonic",
+							id: SUPERTONIC_TRACK_ID,
 							label: "개역한글 · Daniel (AI)",
 							language: "ko",
-							translationId: "krv",
 							url: "https://cdn.example.com/krv.mp3",
-							source: "custom",
 							verseTimings: { 1: 2.3, 16: 48.2 },
 						},
 					],
@@ -1016,9 +990,7 @@ describe("Reader UI & audio hooks", () => {
 							id: "bad",
 							label: "Bad",
 							language: "ko",
-							translationId: "krv",
 							url: "javascript:alert(1)",
-							source: "custom",
 						},
 					],
 				}),
@@ -1036,12 +1008,10 @@ describe("Reader UI & audio hooks", () => {
 				useHumanAudio({
 					tracks: [
 						{
-							id: "custom:krv:supertonic",
+							id: SUPERTONIC_TRACK_ID,
 							label: "개역한글 · Daniel (AI)",
 							language: "ko",
-							translationId: "krv",
 							url: "https://cdn.example.com/krv.mp3",
-							source: "custom",
 							verseTimings: { 1: 1.2, 16: 48.2 },
 						},
 					],
@@ -1071,33 +1041,24 @@ describe("Reader UI & audio hooks", () => {
 			const url = String(input);
 			if (url === "/api/audio/JHN/3") {
 				return Response.json({
-					bookUsfm: "JHN",
-					chapter: 3,
 					tracks: [
 						{
-							id: "custom:krv:supertonic",
+							id: SUPERTONIC_TRACK_ID,
 							label: "개역한글 · Daniel (AI)",
 							language: "ko",
-							translationId: "krv",
 							url: "https://cdn.example.com/JHN/3.mp3",
-							source: "custom",
 						},
 						{
 							id: "esv-api:JHN:3",
 							label: "David Cochran Heath (ESV)",
 							language: "en",
-							translationId: "esv",
 							url: "https://audio.esv.org/hw/jhn3.mp3",
-							source: "esv-api",
 						},
 					],
 				});
 			}
 			if (url === "/data/timings/krv-supertonic/JHN.json") {
 				return Response.json({
-					translationId: "krv",
-					audioSource: "custom:krv:supertonic",
-					usfm: "JHN",
 					chapters: {
 						"3": { "1": 2.345, "16": 51.789, bad: "x" },
 					},
@@ -1108,18 +1069,15 @@ describe("Reader UI & audio hooks", () => {
 
 		try {
 			const res = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
-			const supertonicTrack = res.tracks.find((t) => t.id === "custom:krv:supertonic");
+			const supertonicTrack = res.tracks.find((t) => t.id === SUPERTONIC_TRACK_ID);
 			const esvTrack = res.tracks.find((t) => t.id === "esv-api:JHN:3");
 			expect(supertonicTrack?.verseTimings).toEqual({ 1: 2.345, 16: 51.789 });
-			expect(supertonicTrack?.note).toBe(
-				"AI-synthesized (Supertonic 3 · Daniel) · Exact verse sync",
-			);
 			expect(esvTrack?.verseTimings).toBeUndefined();
 
 			// Gracefully handles missing timing JSON (404)
 			const missing = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 99 });
 			expect(
-				missing.tracks.find((t) => t.id === "custom:krv:supertonic")?.verseTimings,
+				missing.tracks.find((t) => t.id === SUPERTONIC_TRACK_ID)?.verseTimings,
 			).toBeUndefined();
 		} finally {
 			globalThis.fetch = originalFetch;
@@ -1178,12 +1136,7 @@ describe("Reader UI & audio hooks", () => {
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url.includes("/api/config")) {
-				return Response.json({
-					english: CANONICAL_BIBLES.en,
-					korean: CANONICAL_BIBLES.ko,
-					krvSyncedAudioEnabled: false,
-					esvAudioEnabled: false,
-				});
+				return Response.json({ krvSyncedAudioEnabled: false });
 			}
 			if (url.includes("/data/lexicon.json")) return Response.json({});
 			if (url.includes("/data/bibles/krv/")) {
@@ -1204,25 +1157,18 @@ describe("Reader UI & audio hooks", () => {
 			}
 			if (url.includes("/api/audio/GEN/1")) {
 				return Response.json({
-					bookUsfm: "GEN",
-					chapter: 1,
 					tracks: [
 						{
-							id: "custom:krv:supertonic",
+							id: SUPERTONIC_TRACK_ID,
 							label: "개역한글 · Daniel (AI)",
 							language: "ko",
-							translationId: "krv",
 							url: "https://cdn.example.com/krv/GEN/1.mp3",
-							source: "custom",
 						},
 					],
 				});
 			}
 			if (url.includes("/data/timings/krv-supertonic/GEN.json")) {
 				return Response.json({
-					translationId: "krv",
-					audioSource: "custom:krv:supertonic",
-					usfm: "GEN",
 					chapters: { "1": { "1": 1.2 } },
 				});
 			}

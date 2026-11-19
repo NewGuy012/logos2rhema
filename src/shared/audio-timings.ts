@@ -1,3 +1,5 @@
+export const SUPERTONIC_TRACK_ID = "custom:krv:supertonic";
+
 export function hasVerseTimings(timings: Record<number, number> | undefined): boolean {
 	return Boolean(timings && Object.keys(timings).length > 0);
 }

@@ -13,7 +13,6 @@ import type {
 	HighlightItem,
 	LexiconMap,
 	RightRailTab,
-	TranslationMeta,
 	VerseEntry,
 } from "../shared/types";
 import { AudioControlRail } from "./components/AudioControlRail";
@@ -264,8 +263,6 @@ export default function App() {
 		setPrefs((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
 	}, []);
 
-	const [selectedEn, setSelectedEn] = useState<TranslationMeta>(CANONICAL_BIBLES.en);
-	const [selectedKo, setSelectedKo] = useState<TranslationMeta>(CANONICAL_BIBLES.ko);
 	const [krvSyncedAudioEnabled, setKrvSyncedAudioEnabled] = useState(false);
 
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
@@ -528,8 +525,6 @@ export default function App() {
 		let cancelled = false;
 		loadReaderConfig().then((cfg) => {
 			if (cancelled) return;
-			setSelectedEn(cfg.english);
-			setSelectedKo(cfg.korean);
 			setKrvSyncedAudioEnabled(cfg.krvSyncedAudioEnabled);
 		});
 		loadLexicon().then((lex) => {
@@ -549,8 +544,8 @@ export default function App() {
 		setChapterError(null);
 
 		Promise.all([
-			loadTranslationChapter(selectedEn, bookNumber, chapter),
-			loadTranslationChapter(selectedKo, bookNumber, chapter),
+			loadTranslationChapter(CANONICAL_BIBLES.en.id, bookNumber, chapter),
+			loadTranslationChapter(CANONICAL_BIBLES.ko.id, bookNumber, chapter),
 		])
 			.then(([enVerses, koVerses]) => {
 				if (cancelled) return;
@@ -567,7 +562,7 @@ export default function App() {
 		return () => {
 			cancelled = true;
 		};
-	}, [view, selectedEn, selectedKo, bookNumber, chapter]);
+	}, [view, bookNumber, chapter]);
 
 	useEffect(() => {
 		if (view !== "reader") return;
@@ -895,8 +890,6 @@ export default function App() {
 		duration: audio.duration,
 		playbackRate: audio.playbackRate,
 		errorMessage: audio.errorMessage,
-		activeEnCode: selectedEn.code,
-		activeKoCode: selectedKo.code,
 		onTogglePlay: audio.togglePlay,
 		onSeek: audio.seekTo,
 		onSkipBy: skipBy,
@@ -941,8 +934,6 @@ export default function App() {
 				lastVerse={lastVerse}
 				favorites={favorites}
 				highlights={highlights}
-				selectedEn={selectedEn}
-				selectedKo={selectedKo}
 				stackOrder={prefs.stackOrder}
 				theme={prefs.theme}
 				fontScale={prefs.fontScale}
@@ -968,8 +959,6 @@ export default function App() {
 					lastBookNumber={bookNumber}
 					lastChapter={chapter}
 					lastVerse={lastVerse}
-					selectedEn={selectedEn}
-					selectedKo={selectedKo}
 					krvSyncedAudioEnabled={krvSyncedAudioEnabled}
 					favorites={favorites}
 					highlights={highlights}
@@ -1017,10 +1006,10 @@ export default function App() {
 								<div className="chapter-kicker">
 									<span>
 										{currentBook.testament === "OT" ? "Old Testament" : "New Testament"} ·{" "}
-										{selectedEn.code}
+										{CANONICAL_BIBLES.en.code}
 									</span>
 									<span lang="ko">
-										{currentBook.testament === "OT" ? "구약" : "신약"} · {selectedKo.code}
+										{currentBook.testament === "OT" ? "구약" : "신약"} · {CANONICAL_BIBLES.ko.code}
 									</span>
 								</div>
 
@@ -1111,8 +1100,6 @@ export default function App() {
 												)}
 												enHighlights={verseHighlights?.en}
 												koHighlights={verseHighlights?.ko}
-												enCode={selectedEn.code}
-												koCode={selectedKo.code}
 												hasVerseTimestamps={hasAudioTimings}
 												onSelectVerse={handleSelectVerse}
 												onToggleFavorite={handleToggleVerseFavorite}
@@ -1127,7 +1114,7 @@ export default function App() {
 
 							<footer className="copyright-footer">
 								Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
-								{selectedEn.nativeName} · Hover any Korean word for instant translation.
+								{CANONICAL_BIBLES.en.nativeName} · Hover any Korean word for instant translation.
 							</footer>
 						</main>
 

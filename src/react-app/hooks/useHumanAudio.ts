@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
-import type { AudioTrackOption } from "../../shared/types";
+import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
 
@@ -82,7 +82,7 @@ export function useHumanAudio({
 	const autoSyncRef = useRef(autoSync);
 	autoSyncRef.current = autoSync;
 
-	const [preferredLang, setPreferredLang] = useState("ko");
+	const [preferredLang, setPreferredLang] = useState<TranslationLanguage>("ko");
 	const [selectedTrackId, setSelectedTrackId] = useState("");
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
@@ -298,7 +298,7 @@ export function useHumanAudio({
 	);
 
 	const switchTrackOrLanguage = useCallback(
-		(lang: string, trackId: string) => {
+		(lang: TranslationLanguage, trackId: string) => {
 			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
 			pendingSyncVerseRef.current = autoSyncRef.current
 				? (activeVerse ?? visibleVerseRef.current)
@@ -315,7 +315,7 @@ export function useHumanAudio({
 	);
 
 	const selectLanguage = useCallback(
-		(lang: string) => switchTrackOrLanguage(lang, ""),
+		(lang: TranslationLanguage) => switchTrackOrLanguage(lang, ""),
 		[switchTrackOrLanguage],
 	);
 

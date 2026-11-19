@@ -84,9 +84,6 @@ export async function fetchEsvAudioTrack(
 		id: `esv-api:${options.usfm}:${options.chapter}`,
 		label: "David Cochran Heath (ESV)",
 		language: "en",
-		translationId: "esv",
 		url: resolved.url || `/api/audio/esv/${encodeURIComponent(options.usfm)}/${options.chapter}`,
-		source: "esv-api",
-		note: "Official Crossway ESV audio",
 	};
 }

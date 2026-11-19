@@ -1,15 +1,10 @@
-import { getCommentaryMeta } from "../shared/commentaries";
-import type {
-	ChapterCommentaryResponse,
-	CommentaryEntry,
-	CommentaryId,
-	CommentaryMeta,
-} from "../shared/types";
+import type { ChapterCommentaryResponse, CommentaryEntry, CommentaryId } from "../shared/types";
 import { type FetchLike, fetchWithTimeout } from "./http";
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
+const MAX_TEXT_DEPTH = 20;
 
-export interface HelloAoCommentaryPayload {
+interface HelloAoCommentaryPayload {
 	book?: {
 		introduction?: unknown;
 		introductionSummary?: unknown;
@@ -21,17 +16,18 @@ export interface HelloAoCommentaryPayload {
 	};
 }
 
-function extractPlainText(node: unknown): string {
+function extractPlainText(node: unknown, depth = 0): string {
+	if (depth > MAX_TEXT_DEPTH) return "";
 	if (typeof node === "string") return node;
 	if (Array.isArray(node)) {
-		return node.map(extractPlainText).join("");
+		return node.map((child) => extractPlainText(child, depth + 1)).join("");
 	}
 	if (node && typeof node === "object") {
 		const record = node as Record<string, unknown>;
 		if (record.lineBreak === true) return "\n";
 		if (typeof record.text === "string") return record.text;
 		if (Array.isArray(record.content)) {
-			const inner = extractPlainText(record.content);
+			const inner = extractPlainText(record.content, depth + 1);
 			return record.type === "paragraph" ? `${inner}\n` : inner;
 		}
 	}
@@ -68,9 +64,9 @@ function parsePositiveVerse(raw: unknown): number | null {
 	return null;
 }
 
-export function normalizeHelloAoCommentary(
+function normalizeHelloAoCommentary(
 	payload: HelloAoCommentaryPayload,
-	commentary: CommentaryMeta,
+	commentaryId: CommentaryId,
 	usfm: string,
 	chapter: number,
 ): ChapterCommentaryResponse {
@@ -111,10 +107,10 @@ export function normalizeHelloAoCommentary(
 		const paragraphs = splitParagraphs(item.content ?? item.text);
 		if (paragraphs.length === 0) continue;
 
-		let id = `${commentary.id}:${usfm}:${chapter}:${verseStart}`;
+		let id = `${commentaryId}:${usfm}:${chapter}:${verseStart}`;
 		let suffix = 2;
 		while (usedIds.has(id)) {
-			id = `${commentary.id}:${usfm}:${chapter}:${verseStart}-${suffix++}`;
+			id = `${commentaryId}:${usfm}:${chapter}:${verseStart}-${suffix++}`;
 		}
 		usedIds.add(id);
 
@@ -136,11 +132,11 @@ export function normalizeHelloAoCommentary(
 		if (entry.verseEnd !== undefined) continue;
 		const nextEntry = entries[i + 1];
 
-		if (commentary.id === "matthew-henry") {
+		if (commentaryId === "matthew-henry") {
 			if (nextEntry && nextEntry.verseStart > entry.verseStart + 1) {
 				entry.verseEnd = nextEntry.verseStart - 1;
 			}
-		} else if (commentary.id === "tyndale" && entry.paragraphs.length === 1) {
+		} else if (commentaryId === "tyndale" && entry.paragraphs.length === 1) {
 			const match = entry.paragraphs[0].match(tyndaleRangeRe);
 			if (match) {
 				const rangeStart = Number.parseInt(match[1], 10);
@@ -157,9 +153,6 @@ export function normalizeHelloAoCommentary(
 	}
 
 	return {
-		commentary,
-		bookUsfm: usfm,
-		chapter,
 		...(bookIntroduction.length > 0 ? { bookIntroduction } : {}),
 		...(chapterIntroduction.length > 0 ? { introduction: chapterIntroduction } : {}),
 		entries,
@@ -172,7 +165,6 @@ export async function fetchHelloAoCommentaryChapter(
 	chapter: number,
 	fetcher: FetchLike = fetch,
 ): Promise<{ status: "ok" | "empty"; data: ChapterCommentaryResponse } | { status: "error" }> {
-	const meta = getCommentaryMeta(commentaryId);
 	const url = `${HELLOAO_BASE}/c/${encodeURIComponent(commentaryId)}/${encodeURIComponent(usfm)}/${chapter}.json`;
 
 	try {
@@ -183,7 +175,7 @@ export async function fetchHelloAoCommentaryChapter(
 			response.body?.cancel?.().catch(() => {});
 			return {
 				status: "empty",
-				data: normalizeHelloAoCommentary({}, meta, usfm, chapter),
+				data: normalizeHelloAoCommentary({}, commentaryId, usfm, chapter),
 			};
 		}
 		if (!response.ok) {
@@ -191,12 +183,17 @@ export async function fetchHelloAoCommentaryChapter(
 			return { status: "error" };
 		}
 		const payload = (await response.json()) as unknown;
-		if (!payload || typeof payload !== "object") {
+		if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
 			return { status: "error" };
 		}
 		return {
 			status: "ok",
-			data: normalizeHelloAoCommentary(payload as HelloAoCommentaryPayload, meta, usfm, chapter),
+			data: normalizeHelloAoCommentary(
+				payload as HelloAoCommentaryPayload,
+				commentaryId,
+				usfm,
+				chapter,
+			),
 		};
 	} catch {
 		return { status: "error" };

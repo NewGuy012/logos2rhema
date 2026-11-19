@@ -1,3 +1,4 @@
+import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, HighlightItem } from "../../shared/types";
 import { renderHighlightedText } from "./HighlightText";
 import { Bookmark } from "./Icons";
@@ -15,8 +16,6 @@ interface VerseBlockProps {
 	isFavorited?: boolean;
 	enHighlights?: readonly HighlightItem[];
 	koHighlights?: readonly HighlightItem[];
-	enCode: string;
-	koCode: string;
 	hasVerseTimestamps: boolean;
 	onSelectVerse: (verseNum: number) => void;
 	onToggleFavorite?: (verse: AlignedVerse) => void;
@@ -32,8 +31,6 @@ export function VerseBlock({
 	isFavorited = false,
 	enHighlights = [],
 	koHighlights = [],
-	enCode,
-	koCode,
 	hasVerseTimestamps,
 	onSelectVerse,
 	onToggleFavorite,
@@ -51,7 +48,9 @@ export function VerseBlock({
 			{verse.enText !== null ? (
 				renderHighlightedText(verse.enText, 0, enHighlights)
 			) : (
-				<span className="verse-omitted">[Verse omitted in {enCode} manuscripts]</span>
+				<span className="verse-omitted">
+					[Verse omitted in {CANONICAL_BIBLES.en.code} manuscripts]
+				</span>
 			)}
 		</p>
 	);
@@ -92,7 +91,7 @@ export function VerseBlock({
 					renderHighlightedText(verse.koText, 0, koHighlights)
 				)
 			) : (
-				<span className="verse-omitted">[{koCode} 본문 없음]</span>
+				<span className="verse-omitted">[{CANONICAL_BIBLES.ko.code} 본문 없음]</span>
 			)}
 		</p>
 	);

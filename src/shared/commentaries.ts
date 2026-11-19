@@ -10,7 +10,6 @@ export const COMMENTARY_SOURCES: readonly CommentaryMeta[] = [
 		description: "Concise verse-by-verse study notes & book introductions",
 		license: "CC BY-SA 4.0",
 		licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
-		website: "https://tyndaleopenresources.com/",
 		attribution: "Tyndale Open Study Notes (Tyndale House Publishers)",
 	},
 	{
@@ -20,7 +19,6 @@ export const COMMENTARY_SOURCES: readonly CommentaryMeta[] = [
 		description: "Classic devotional & expository pericope commentary",
 		license: "Public Domain",
 		licenseUrl: "https://creativecommons.org/publicdomain/mark/1.0/",
-		website: "https://en.wikipedia.org/wiki/Matthew_Henry",
 		attribution: "Matthew Henry's Complete Commentary on the Whole Bible",
 	},
 ] as const;

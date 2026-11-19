@@ -1,7 +1,10 @@
-import { hasVerseTimings, normalizeVerseTimings } from "../../shared/audio-timings";
+import {
+	hasVerseTimings,
+	normalizeVerseTimings,
+	SUPERTONIC_TRACK_ID,
+} from "../../shared/audio-timings";
 import { getBookByNumber } from "../../shared/books";
 import { analyzeKoreanChapter, type ChapterAnalysisResult } from "../../shared/korean-morphology";
-import { CANONICAL_BIBLES } from "../../shared/translations";
 import type {
 	AlignedVerse,
 	BookAudioTimingsData,
@@ -11,16 +14,12 @@ import type {
 	CommentaryId,
 	LexiconMap,
 	ReaderConfigResponse,
-	TranslationMeta,
 	VerseEntry,
 } from "../../shared/types";
 
 const MAX_COMMENTARY_CACHE_ENTRIES = 50;
-const STATIC_TIMINGS_SOURCES: Readonly<Record<string, { dir: string; note: string }>> = {
-	"custom:krv:supertonic": {
-		dir: "krv-supertonic",
-		note: "AI-synthesized (Supertonic 3 · Daniel) · Exact verse sync",
-	},
+const STATIC_TIMINGS_DIR_BY_TRACK_ID: Readonly<Record<string, string>> = {
+	[SUPERTONIC_TRACK_ID]: "krv-supertonic",
 };
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
 const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>>();
@@ -57,14 +56,9 @@ export async function loadReaderConfig(): Promise<ReaderConfigResponse> {
 			return (await res.json()) as ReaderConfigResponse;
 		}
 	} catch {
-		// Fallback to canonical bundled config if API is unreachable during isolated testing
+		// Fallback when API is unreachable during isolated testing
 	}
-	return {
-		english: CANONICAL_BIBLES.en,
-		korean: CANONICAL_BIBLES.ko,
-		krvSyncedAudioEnabled: false,
-		esvAudioEnabled: false,
-	};
+	return { krvSyncedAudioEnabled: false };
 }
 
 async function fetchBundledBook(translationId: string, usfm: string): Promise<BookBibleData> {
@@ -88,14 +82,14 @@ async function fetchBundledBook(translationId: string, usfm: string): Promise<Bo
 }
 
 export async function loadTranslationChapter(
-	translation: TranslationMeta,
+	translationId: string,
 	bookNumber: number,
 	chapter: number,
 ): Promise<VerseEntry[]> {
 	const book = getBookByNumber(bookNumber);
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
 
-	const data = await fetchBundledBook(translation.id, book.usfm);
+	const data = await fetchBundledBook(translationId, book.usfm);
 	return data.chapters[String(chapter)] ?? [];
 }
 
@@ -129,46 +123,27 @@ export async function loadSyncedChapterAudio(options: {
 	try {
 		const res = await fetch(`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`);
 		if (!res.ok) {
-			return {
-				bookUsfm: options.usfm,
-				chapter: options.chapter,
-				tracks: [],
-			};
+			return { tracks: [] };
 		}
 		const payload = (await res.json()) as ChapterAudioResponse;
 		const tracks = await Promise.all(
 			payload.tracks.map(async (track) => {
-				if (track.source !== "custom" || hasVerseTimings(track.verseTimings)) {
-					return track;
-				}
-				const timingSource = STATIC_TIMINGS_SOURCES[track.id];
-				if (!timingSource) return track;
+				if (hasVerseTimings(track.verseTimings)) return track;
+				const timingsDir = STATIC_TIMINGS_DIR_BY_TRACK_ID[track.id];
+				if (!timingsDir) return track;
 
-				const bookTimings = await fetchStaticBookTimings(timingSource.dir, options.usfm);
+				const bookTimings = await fetchStaticBookTimings(timingsDir, options.usfm);
 				const chapterTimings = normalizeVerseTimings(
 					bookTimings?.chapters?.[String(options.chapter)],
 				);
-				if (!chapterTimings) return track;
-
-				return {
-					...track,
-					verseTimings: chapterTimings,
-					note: timingSource.note,
-				};
+				return chapterTimings ? { ...track, verseTimings: chapterTimings } : track;
 			}),
 		);
-		return {
-			...payload,
-			tracks,
-		};
+		return { tracks };
 	} catch {
 		// Fallback gracefully when running offline or in isolated DOM tests
 	}
-	return {
-		bookUsfm: options.usfm,
-		chapter: options.chapter,
-		tracks: [],
-	};
+	return { tracks: [] };
 }
 
 export function loadChapterCommentary(options: {

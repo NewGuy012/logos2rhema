@@ -1,7 +1,8 @@
 import { type CSSProperties, useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import type { AudioTrackOption } from "../../shared/types";
+import { CANONICAL_BIBLES } from "../../shared/translations";
+import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
 import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
 import { ChevronDown } from "./Icons";
@@ -15,14 +16,10 @@ export function formatTime(totalSeconds: number): string {
 
 export function AudioLanguageToggle({
 	preferredLang,
-	activeKoCode,
-	activeEnCode,
 	onSelectLanguage,
 }: {
-	preferredLang: string;
-	activeKoCode: string;
-	activeEnCode: string;
-	onSelectLanguage: (lang: string) => void;
+	preferredLang: TranslationLanguage;
+	onSelectLanguage: (lang: TranslationLanguage) => void;
 }) {
 	return (
 		<div className="quick-lang-toggle" role="group" aria-label="Audio language">
@@ -30,7 +27,7 @@ export function AudioLanguageToggle({
 				type="button"
 				className={`quick-lang-btn ${preferredLang === "ko" ? "active" : ""}`}
 				onClick={() => onSelectLanguage("ko")}
-				title={`Korean audio (${activeKoCode})`}
+				title={`Korean audio (${CANONICAL_BIBLES.ko.code})`}
 			>
 				한
 			</button>
@@ -38,7 +35,7 @@ export function AudioLanguageToggle({
 				type="button"
 				className={`quick-lang-btn ${preferredLang === "en" ? "active" : ""}`}
 				onClick={() => onSelectLanguage("en")}
-				title={`English audio (${activeEnCode})`}
+				title={`English audio (${CANONICAL_BIBLES.en.code})`}
 			>
 				EN
 			</button>
@@ -167,26 +164,21 @@ export function AudioSpeedSelect({
 export function AudioFallbackAction({
 	preferredLang,
 	tracks,
-	activeKoCode,
-	activeEnCode,
 	onSelectLanguage,
 }: {
-	preferredLang: string;
+	preferredLang: TranslationLanguage;
 	tracks: AudioTrackOption[];
-	activeKoCode: string;
-	activeEnCode: string;
-	onSelectLanguage: (lang: string) => void;
+	onSelectLanguage: (lang: TranslationLanguage) => void;
 }) {
-	const fallbackLang = preferredLang === "en" ? "ko" : "en";
+	const fallbackLang: TranslationLanguage = preferredLang === "en" ? "ko" : "en";
 	if (!tracks.some((t) => t.language === fallbackLang)) return null;
-	const fallbackCode = fallbackLang === "ko" ? activeKoCode : activeEnCode;
 	return (
 		<button
 			type="button"
 			className="quick-inline-chip active"
 			onClick={() => onSelectLanguage(fallbackLang)}
 		>
-			Use {fallbackCode} Audio
+			Use {CANONICAL_BIBLES[fallbackLang].code} Audio
 		</button>
 	);
 }
