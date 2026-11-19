@@ -1,8 +1,14 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "logos",
+	"name": "logos2rhema",
 	"main": "./src/worker/index.ts",
 	"compatibility_date": "2025-10-08",
+	"r2_buckets": [
+		{
+			"binding": "AUDIO_BUCKET",
+			"bucket_name": "logos-krv-audio"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},

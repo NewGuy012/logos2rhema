@@ -1,5 +1,5 @@
-# Optional: Base URL for Cloudflare R2 / CDN hosting Supertonic 3 KRV MP3 files
-# Generated via `bun run audio:generate-krv`; expects files at {AUDIO_BASE_URL}/{USFM}/{CHAPTER}.mp3
+# Optional external-CDN fallback for Supertonic 3 KRV MP3 files ({AUDIO_BASE_URL}/{USFM}/{CHAPTER}.mp3).
+# Not needed when using the private R2 binding (`AUDIO_BUCKET` in wrangler.json) or local `.cache/krv-supertonic-audio/`.
 # AUDIO_BASE_URL=
 
 # Optional: Free non-commercial Crossway ESV API key (https://api.esv.org/)

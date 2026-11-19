@@ -52,16 +52,17 @@ Bundled Scripture text, Korean lexicon, and HelloAO commentaries work out of the
 
 ### Scripts
 
-| Command                      | Description                                               |
-| :--------------------------- | :-------------------------------------------------------- |
-| `bun run dev`                | Start Bun dev server with HMR + local Hono API            |
-| `bun test`                   | Run unit, Worker API, and `happy-dom` React tests         |
-| `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking |
-| `bun run format`             | Format codebase with `bun fmt`                            |
-| `bun run build`              | Typecheck and build client SPA bundle into `dist/client/` |
-| `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                 |
-| `bun run data:build`         | Rebuild bundled ESV/KRV chapters and Korean lexicon       |
-| `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings         |
+| Command                      | Description                                                 |
+| :--------------------------- | :---------------------------------------------------------- |
+| `bun run dev`                | Start Bun dev server with HMR + local Hono API              |
+| `bun test`                   | Run unit, Worker API, and `happy-dom` React tests           |
+| `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking   |
+| `bun run format`             | Format codebase with `bun fmt`                              |
+| `bun run build`              | Typecheck and build client SPA bundle into `dist/client/`   |
+| `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                   |
+| `bun run data:build`         | Rebuild bundled ESV/KRV chapters and Korean lexicon         |
+| `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings           |
+| `bun run audio:upload-krv`   | Upload local KRV MP3s to private Cloudflare R2 via Wrangler |
 
 ## API Endpoints
 
@@ -71,20 +72,14 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security
 | :------------------------------------------------- | :---------------------------------------------------------------------- |
 | `GET /api/config`                                  | Korean verse-synced audio capability flag (`krvSyncedAudioEnabled`)     |
 | `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3) and English (Crossway ESV) chapter tracks |
+| `GET /api/audio/krv/:usfm/:chapter`                | Stream Korean Supertonic 3 chapter MP3 from private R2 (`Range` + ETag) |
 | `GET /api/audio/esv/:usfm/:chapter`                | Proxy or redirect Crossway ESV chapter audio                            |
 | `GET /api/commentary/:commentaryId/:usfm/:chapter` | Normalized chapter commentary & introductions from `bible.helloao.org`  |
 
 <details>
 <summary><strong>Optional: Configure ESV &amp; Supertonic 3 Korean Audio</strong></summary>
 
-1. Copy `.dev.vars.example` to `.dev.vars` (gitignored):
-
-   ```env
-   AUDIO_BASE_URL=https://your-r2-domain.example.com
-   ESV_API_KEY=your_free_esv_key
-   ```
-
-2. _(Optional)_ Generate Supertonic 3 (`Daniel`) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)):
+1. _(Optional)_ Generate Supertonic 3 (`Daniel`) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)):
 
    ```bash
    bun run audio:generate-krv --dry-run
@@ -92,6 +87,21 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security
    caffeinate -i bun run audio:generate-krv --testament OT --voice Daniel --speed 0.95 --steps 10
    ```
 
-3. Upload `.cache/krv-supertonic-audio/{USFM}/{CHAPTER}.mp3` to your Cloudflare R2 bucket with `Cache-Control: public, max-age=31536000, immutable` and configure `AUDIO_BASE_URL` / `ESV_API_KEY` in `.dev.vars` and your Worker bindings.
+   When `.cache/krv-supertonic-audio/` exists locally (and `AUDIO_BASE_URL` is unset), `bun run dev` and `bun run preview` serve chapters directly from disk via `GET /api/audio/krv/:usfm/:chapter`.
+
+2. Upload `.cache/krv-supertonic-audio/{USFM}/{CHAPTER}.mp3` to your private R2 bucket (`logos-krv-audio`, `Public Access: Disabled`, bound as `AUDIO_BUCKET` in `wrangler.json`):
+
+   ```bash
+   bunx wrangler login
+   bun run audio:upload-krv --dry-run
+   caffeinate -i bun run audio:upload-krv
+   ```
+
+3. Copy `.dev.vars.example` to `.dev.vars` (gitignored) if you want Crossway ESV English audio locally, or use `AUDIO_BASE_URL` only as an optional external-CDN fallback when `AUDIO_BUCKET` is unbound:
+
+   ```env
+   ESV_API_KEY=your_free_esv_key
+   # AUDIO_BASE_URL=https://your-cdn.example.com
+   ```
 
 </details>
