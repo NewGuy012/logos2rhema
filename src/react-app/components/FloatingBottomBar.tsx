@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { hasVerseTimings } from "../../shared/audio-timings";
 import type { AudioTrackOption, RightRailTab } from "../../shared/types";
 import {
 	AudioFallbackAction,
@@ -16,6 +17,7 @@ import {
 	Headphones,
 	Loader2,
 	Pause,
+	RefreshCw,
 	RotateCcw,
 	RotateCw,
 } from "./Icons";
@@ -40,6 +42,9 @@ interface FloatingBottomBarProps {
 	errorMessage: string | null;
 	activeEnCode: string;
 	activeKoCode: string;
+	activeVerse?: number | null;
+	autoSync?: boolean;
+	isFollowingAudio?: boolean;
 	rightRailTab?: RightRailTab;
 	dictionaryOpen: boolean;
 	dictionarySheet?: ReactNode;
@@ -50,6 +55,8 @@ interface FloatingBottomBarProps {
 	onSelectTrack: (track: AudioTrackOption) => void;
 	onSelectLanguage: (lang: string) => void;
 	onChangeSpeed: (rate: number) => void;
+	onToggleAutoSync?: () => void;
+	onFollowActiveVerse?: () => void;
 }
 
 export function FloatingBottomBar({
@@ -72,6 +79,9 @@ export function FloatingBottomBar({
 	errorMessage,
 	activeEnCode,
 	activeKoCode,
+	activeVerse = null,
+	autoSync = true,
+	isFollowingAudio = true,
 	rightRailTab = "dictionary",
 	dictionaryOpen,
 	dictionarySheet,
@@ -82,11 +92,18 @@ export function FloatingBottomBar({
 	onSelectTrack,
 	onSelectLanguage,
 	onChangeSpeed,
+	onToggleAutoSync,
+	onFollowActiveVerse,
 }: FloatingBottomBarProps) {
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
 	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
 	const showUnavailable = Boolean(!activeTrack && preferredLang === "en");
+	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
+	const syncActive = hasTimestamps && autoSync;
+	const showFollowChip = Boolean(
+		syncActive && isPlaying && !isFollowingAudio && activeVerse && onFollowActiveVerse,
+	);
 
 	const handleCycleNarrator = () => {
 		if (langTracks.length <= 1 || !activeTrack) return;
@@ -130,6 +147,34 @@ export function FloatingBottomBar({
 									>
 										{activeTrack.label.split(" ")[0]} ↻
 									</button>
+								)}
+								{showFollowChip && activeVerse && onFollowActiveVerse ? (
+									<button
+										type="button"
+										className="quick-inline-chip active"
+										onClick={onFollowActiveVerse}
+										title={`Scroll back to verse ${activeVerse}`}
+									>
+										<RefreshCw size={10} />
+										<span>Follow v.{activeVerse}</span>
+									</button>
+								) : (
+									hasTimestamps &&
+									onToggleAutoSync && (
+										<button
+											type="button"
+											role="switch"
+											aria-checked={syncActive}
+											className={`quick-inline-chip ${syncActive ? "active" : ""}`.trim()}
+											onClick={onToggleAutoSync}
+											title={
+												syncActive ? "Auto-scroll verse sync on" : "Auto-scroll verse sync off"
+											}
+										>
+											<RefreshCw size={10} />
+											<span>{syncActive ? "Sync" : "Sync Off"}</span>
+										</button>
+									)
 								)}
 							</>
 						)}

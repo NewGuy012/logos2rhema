@@ -760,6 +760,8 @@ button {
 	margin: 0 -0.8rem;
 	border-radius: 10px;
 	border-left: 2.5px solid transparent;
+	scroll-margin-top: 5rem;
+	scroll-margin-bottom: 3rem;
 	transition:
 		background-color 180ms ease,
 		border-color 180ms ease;
@@ -1950,6 +1952,9 @@ button {
 }
 
 .quick-inline-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.24rem;
 	padding: 0.18rem 0.54rem;
 	border-radius: 999px;
 	font-size: 0.7rem;
@@ -3415,6 +3420,13 @@ button {
 @media (max-width: 1023px) {
 	.app-shell {
 		padding-bottom: 120px;
+	}
+	.verse-block {
+		scroll-margin-top: 6rem;
+		scroll-margin-bottom: 8.5rem;
+	}
+	.quick-bar-strip {
+		flex-wrap: wrap;
 	}
 	.audio-rail-wrap,
 	.dict-sidebar-wrap,

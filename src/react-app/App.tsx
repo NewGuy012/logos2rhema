@@ -1,5 +1,6 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { hasVerseTimings } from "../shared/audio-timings";
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
 import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
@@ -165,10 +166,52 @@ function readStoredPrefs(): StoredPrefs {
 	};
 }
 
-function scrollToVerse(verseNum: number): void {
+const SCROLL_FOLLOW_IGNORED_SELECTOR =
+	".dict-sidebar-wrap, .audio-rail-wrap, .dict-sheet-wrap, .top-popover, .picker-modal, .verse-ref-menu, .speed-menu";
+
+function getReaderVerticalBounds(): { topInset: number; bottomLimit: number } {
+	const viewportHeight = window.innerHeight || 0;
+	const topBarBottom = document.querySelector(".top-bar")?.getBoundingClientRect().bottom ?? 56;
+	const topInset = Math.max(56, topBarBottom) + 14;
+	const dockTop = document.querySelector(".floating-dock")?.getBoundingClientRect().top;
+	const bottomLimit =
+		dockTop && dockTop > topInset + 80
+			? Math.min(viewportHeight - 20, dockTop - 14)
+			: viewportHeight - 28;
+	return { topInset, bottomLimit };
+}
+
+function scrollToVerse(verseNum: number, mode: "jump" | "follow" = "jump"): void {
 	const el = document.getElementById(`verse-${verseNum}`);
-	if (el && typeof el.scrollIntoView === "function") {
-		el.scrollIntoView({ behavior: "smooth", block: "center" });
+	if (!el) return;
+
+	if (
+		mode === "follow" &&
+		typeof window !== "undefined" &&
+		typeof window.scrollTo === "function" &&
+		typeof el.getBoundingClientRect === "function"
+	) {
+		const rect = el.getBoundingClientRect();
+		const viewportHeight = window.innerHeight || 0;
+		if (rect.height > 0 && viewportHeight > 0) {
+			const { topInset, bottomLimit } = getReaderVerticalBounds();
+			const usableHeight = Math.max(120, bottomLimit - topInset);
+			const bandBottom = topInset + usableHeight * 0.72;
+			const fitsComfortably =
+				rect.top >= topInset &&
+				rect.top <= bandBottom &&
+				(rect.bottom <= bottomLimit || rect.top <= topInset + 72);
+			if (fitsComfortably) return;
+
+			const desiredTop = topInset + Math.min(44, usableHeight * 0.14);
+			const targetScrollY = Math.max(0, window.scrollY + rect.top - desiredTop);
+			window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+			return;
+		}
+	}
+
+	if (typeof el.scrollIntoView === "function") {
+		el.scrollIntoView({ behavior: "smooth", block: mode === "follow" ? "nearest" : "start" });
 	}
 }
 
@@ -597,30 +640,69 @@ export default function App() {
 		navigateTo(bookNumber, chapter, lastVerse > 1 ? lastVerse : undefined);
 	}, [bookNumber, chapter, lastVerse, navigateTo]);
 
-	// Pause auto-scroll follow when user manually scrolls via wheel/touch while audio plays.
+	const hasAudioTimings = hasVerseTimings(audio.activeTrack?.verseTimings);
+
+	// Pause auto-scroll follow when user manually scrolls the reader via wheel/touch while audio plays.
 	useEffect(() => {
-		if (!isPlaying || !prefs.autoSync) return;
-		const pauseFollow = () => setIsFollowingAudio(false);
-		window.addEventListener("wheel", pauseFollow, { passive: true });
-		window.addEventListener("touchmove", pauseFollow, { passive: true });
-		return () => {
-			window.removeEventListener("wheel", pauseFollow);
-			window.removeEventListener("touchmove", pauseFollow);
+		if (!isPlaying || !prefs.autoSync || !hasAudioTimings) return;
+		let touchStartY: number | null = null;
+		let touchIgnored = false;
+		const isIgnoredTarget = (target: EventTarget | null) =>
+			Boolean((target as HTMLElement | null)?.closest?.(SCROLL_FOLLOW_IGNORED_SELECTOR));
+
+		const handleWheel = (e: WheelEvent) => {
+			if (Math.abs(e.deltaY) < 4 || isIgnoredTarget(e.target)) return;
+			setIsFollowingAudio(false);
 		};
-	}, [isPlaying, prefs.autoSync, setIsFollowingAudio]);
+		const handleTouchStart = (e: TouchEvent) => {
+			touchIgnored = isIgnoredTarget(e.target);
+			touchStartY = touchIgnored ? null : (e.touches?.[0]?.clientY ?? null);
+		};
+		const handleTouchMove = (e: TouchEvent) => {
+			if (touchIgnored || isIgnoredTarget(e.target)) return;
+			const currentY = e.touches?.[0]?.clientY;
+			if (touchStartY !== null && currentY !== undefined && Math.abs(currentY - touchStartY) < 8) {
+				return;
+			}
+			setIsFollowingAudio(false);
+		};
+		const handleTouchEnd = () => {
+			touchStartY = null;
+			touchIgnored = false;
+		};
+
+		window.addEventListener("wheel", handleWheel, { passive: true });
+		window.addEventListener("touchstart", handleTouchStart, { passive: true });
+		window.addEventListener("touchmove", handleTouchMove, { passive: true });
+		window.addEventListener("touchend", handleTouchEnd, { passive: true });
+		return () => {
+			window.removeEventListener("wheel", handleWheel);
+			window.removeEventListener("touchstart", handleTouchStart);
+			window.removeEventListener("touchmove", handleTouchMove);
+			window.removeEventListener("touchend", handleTouchEnd);
+		};
+	}, [isPlaying, prefs.autoSync, hasAudioTimings, setIsFollowingAudio]);
 
 	useEffect(() => {
 		if (activeVerse) setLastVerse(activeVerse);
 	}, [activeVerse]);
 
 	useEffect(() => {
-		if (!activeVerse || !prefs.autoSync || !isFollowingAudio) return;
-		scrollToVerse(activeVerse);
-	}, [activeVerse, prefs.autoSync, isFollowingAudio]);
+		if (
+			view !== "reader" ||
+			loadingChapter ||
+			!activeVerse ||
+			!prefs.autoSync ||
+			!isFollowingAudio
+		) {
+			return;
+		}
+		scrollToVerse(activeVerse, "follow");
+	}, [view, loadingChapter, activeVerse, prefs.autoSync, isFollowingAudio]);
 
 	const handleFollowActiveVerse = useCallback(() => {
 		setIsFollowingAudio(true);
-		if (activeVerse) scrollToVerse(activeVerse);
+		if (activeVerse) scrollToVerse(activeVerse, "jump");
 	}, [activeVerse, setIsFollowingAudio]);
 
 	useEffect(() => {
@@ -1031,7 +1113,7 @@ export default function App() {
 												koHighlights={verseHighlights?.ko}
 												enCode={selectedEn.code}
 												koCode={selectedKo.code}
-												hasVerseTimestamps={Boolean(audio.activeTrack?.verseTimings)}
+												hasVerseTimestamps={hasAudioTimings}
 												onSelectVerse={handleSelectVerse}
 												onToggleFavorite={handleToggleVerseFavorite}
 												onSelectFootnote={handleSelectFootnote}
@@ -1085,6 +1167,11 @@ export default function App() {
 					{!isDesktop && (
 						<FloatingBottomBar
 							{...sharedAudioControls}
+							activeVerse={activeVerse}
+							autoSync={prefs.autoSync}
+							isFollowingAudio={isFollowingAudio}
+							onToggleAutoSync={() => updatePref("autoSync", !prefs.autoSync)}
+							onFollowActiveVerse={handleFollowActiveVerse}
 							hasPrev={Boolean(prevChapterTarget)}
 							hasNext={Boolean(nextChapterTarget)}
 							onPrevChapter={openPrevChapter}

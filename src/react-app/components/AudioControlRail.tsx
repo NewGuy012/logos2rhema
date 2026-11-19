@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { hasVerseTimings } from "../../shared/audio-timings";
 import type { AudioTrackOption } from "../../shared/types";
 import {
 	AudioFallbackAction,
@@ -85,8 +86,9 @@ export function AudioControlRail({
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
-	const hasTimestamps = Boolean(activeTrack?.verseTimings);
+	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
+	const showFollowButton = Boolean(syncActive && isPlaying && !isFollowingAudio && activeVerse);
 
 	return (
 		<aside className="audio-rail" aria-label="Audio Playback and Verse Sync">
@@ -227,6 +229,17 @@ export function AudioControlRail({
 									})}
 								</div>
 							)}
+
+							{showFollowButton && activeVerse && (
+								<button
+									type="button"
+									className="rail-sync-btn rail-follow-btn"
+									onClick={onFollowActiveVerse}
+								>
+									<RefreshCw size={12} />
+									<span>Follow Audio (v.{activeVerse})</span>
+								</button>
+							)}
 						</>
 					)}
 				</div>
@@ -282,12 +295,6 @@ export function AudioControlRail({
 											>
 												<Crosshair size={12} />
 												<span>Play from v.{visibleVerse}</span>
-											</button>
-										)}
-										{isPlaying && !isFollowingAudio && activeVerse && (
-											<button type="button" className="rail-sync-btn" onClick={onFollowActiveVerse}>
-												<RefreshCw size={12} />
-												<span>Follow Audio (v.{activeVerse})</span>
 											</button>
 										)}
 									</div>

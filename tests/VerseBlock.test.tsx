@@ -814,6 +814,7 @@ describe("Reader UI & audio hooks", () => {
 		const onSyncToVisible = mock(() => {});
 		const onSelectTrack = mock(() => {});
 		const onChangeSpeed = mock((_rate: number) => {});
+		const onFollowActive = mock(() => {});
 		const rail = render(
 			<AudioControlRail
 				{...baseBarProps()}
@@ -833,9 +834,54 @@ describe("Reader UI & audio hooks", () => {
 				onChangeSpeed={onChangeSpeed}
 				onToggleAutoSync={noop}
 				onSyncToVisibleVerse={onSyncToVisible}
-				onFollowActiveVerse={noop}
+				onFollowActiveVerse={onFollowActive}
 			/>,
 		);
+		// Follow recovery button is surfaced even with Settings collapsed
+		fireClick(getButton(rail.container, "Follow Audio (v.12)"));
+		expect(onFollowActive).toHaveBeenCalledTimes(1);
+
+		const onMobileToggleSync = mock(() => {});
+		const onMobileFollow = mock(() => {});
+		const mobileSyncBar = render(
+			<FloatingBottomBar
+				{...baseBarProps()}
+				tracks={[standardTrack]}
+				preferredLang="en"
+				activeTrack={standardTrack}
+				isPlaying={true}
+				currentTime={35}
+				activeVerse={12}
+				autoSync={true}
+				isFollowingAudio={true}
+				dictionaryOpen={false}
+				onToggleDictionary={noop}
+				onToggleAutoSync={onMobileToggleSync}
+				onFollowActiveVerse={onMobileFollow}
+			/>,
+		);
+		fireClick(getButton(mobileSyncBar.container, "Sync"));
+		expect(onMobileToggleSync).toHaveBeenCalledTimes(1);
+		mobileSyncBar.rerender(
+			<FloatingBottomBar
+				{...baseBarProps()}
+				tracks={[standardTrack]}
+				preferredLang="en"
+				activeTrack={standardTrack}
+				isPlaying={true}
+				currentTime={35}
+				activeVerse={12}
+				autoSync={true}
+				isFollowingAudio={false}
+				dictionaryOpen={false}
+				onToggleDictionary={noop}
+				onToggleAutoSync={onMobileToggleSync}
+				onFollowActiveVerse={onMobileFollow}
+			/>,
+		);
+		fireClick(getButton(mobileSyncBar.container, "Follow v.12"));
+		expect(onMobileFollow).toHaveBeenCalledTimes(1);
+
 		fireClick(getButton(rail.container, "Drama"));
 		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
 
@@ -1030,6 +1076,145 @@ describe("Reader UI & audio hooks", () => {
 			).toBeUndefined();
 		} finally {
 			globalThis.fetch = originalFetch;
+			clearAudioTimingsCache();
+		}
+	});
+
+	it("keeps audio follow active when scrolling sidebars and pauses only on reader scroll", async () => {
+		window.location.hash = "#/GEN/1";
+		localStorage.clear();
+		clearCommentaryCache();
+		clearAudioTimingsCache();
+
+		const originalFetch = globalThis.fetch;
+		const originalAudio = globalThis.Audio;
+		const originalMatchMedia = window.matchMedia;
+		window.matchMedia = ((query: string) => ({
+			matches: query.includes("min-width: 1024px"),
+			media: query,
+			onchange: null,
+			addListener: noop,
+			removeListener: noop,
+			addEventListener: noop,
+			removeEventListener: noop,
+			dispatchEvent: () => false,
+		})) as typeof window.matchMedia;
+
+		class PlayingMockAudio {
+			preload = "metadata";
+			src = "";
+			duration = 60;
+			currentTime = 1.5;
+			readyState = 4;
+			paused = true;
+			playbackRate = 1;
+			preservesPitch = true;
+			private listeners = new Map<string, Array<() => void>>();
+			load() {}
+			removeAttribute() {}
+			addEventListener(type: string, fn: () => void) {
+				this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
+			}
+			removeEventListener() {}
+			pause() {
+				this.paused = true;
+				for (const fn of this.listeners.get("pause") ?? []) fn();
+			}
+			play() {
+				this.paused = false;
+				for (const fn of this.listeners.get("play") ?? []) fn();
+				for (const fn of this.listeners.get("timeupdate") ?? []) fn();
+				return Promise.resolve();
+			}
+		}
+		globalThis.Audio = PlayingMockAudio as unknown as typeof Audio;
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("/api/config")) {
+				return Response.json({
+					english: CANONICAL_BIBLES.en,
+					korean: CANONICAL_BIBLES.ko,
+					bibleBrainEnabled: false,
+					esvAudioEnabled: false,
+				});
+			}
+			if (url.includes("/data/lexicon.json")) return Response.json({});
+			if (url.includes("/data/bibles/krv/")) {
+				return Response.json({
+					translationId: "krv",
+					bookNumber: 1,
+					usfm: "GEN",
+					chapters: { "1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }] },
+				});
+			}
+			if (url.includes("/data/bibles/esv/")) {
+				return Response.json({
+					translationId: "esv",
+					bookNumber: 1,
+					usfm: "GEN",
+					chapters: { "1": [{ verse: 1, text: "In the beginning..." }] },
+				});
+			}
+			if (url.includes("/api/audio/GEN/1")) {
+				return Response.json({
+					bookUsfm: "GEN",
+					chapter: 1,
+					tracks: [
+						{
+							id: "helloao:krv:wordproject",
+							label: "Wordproject Reader (KRV)",
+							language: "ko",
+							translationId: "krv",
+							url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
+							source: "helloao",
+						},
+					],
+				});
+			}
+			if (url.includes("/data/timings/krv-wordproject/GEN.json")) {
+				return Response.json({
+					translationId: "krv",
+					audioSource: "helloao:krv:wordproject",
+					usfm: "GEN",
+					chapters: { "1": { "1": 1.2 } },
+				});
+			}
+			return new Response("Not Found", { status: 404 });
+		}) as unknown as typeof fetch;
+
+		try {
+			const { container } = render(<App />);
+			await waitUntil(() => {
+				expect(getByText(container, "In the beginning...")).toBeDefined();
+				const rail = container.querySelector(".audio-rail");
+				expect(rail).not.toBeNull();
+				expect(getButton(rail as ParentNode, "Play audio").disabled).toBe(false);
+			});
+
+			fireClick(getButton(container.querySelector(".audio-rail") as ParentNode, "Play audio"));
+			await waitUntil(() => {
+				expect(container.querySelector("#verse-1")?.className).toContain("audio-active");
+			});
+
+			// Scrolling inside the dictionary sidebar should NOT pause follow
+			const dictWrap = container.querySelector(".dict-sidebar-wrap") as HTMLElement;
+			act(() => {
+				dictWrap.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true }));
+			});
+			expect(container.querySelector(".rail-follow-btn")).toBeNull();
+
+			// Scrolling the main reader SHOULD pause follow and reveal Follow Audio button
+			const verseEl = container.querySelector("#verse-1") as HTMLElement;
+			act(() => {
+				verseEl.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true }));
+			});
+			const followBtn = getButton(container, "Follow Audio (v.1)");
+			fireClick(followBtn);
+			expect(container.querySelector(".rail-follow-btn")).toBeNull();
+		} finally {
+			globalThis.fetch = originalFetch;
+			globalThis.Audio = originalAudio;
+			window.matchMedia = originalMatchMedia;
 			clearAudioTimingsCache();
 		}
 	});
