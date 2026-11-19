@@ -1,18 +1,17 @@
 import type { AudioTrackOption, TranslationLanguage } from "../shared/types";
-import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
-
-export type { FetchLike };
+import { fetchJson, type FetchLike, isSafeHttpsUrl } from "./http";
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
 
-export interface HelloAoAudioPayload {
+interface HelloAoAudioPayload {
 	thisChapterAudioLinks?: Record<string, string>;
 	thisChapterAudioTimings?: Record<string, Record<string, number>>;
 }
 
 function formatReaderName(readerKey: string): string {
-	if (readerKey === "wordproject") return "Wordproject Reader";
-	return readerKey.charAt(0).toUpperCase() + readerKey.slice(1);
+	return readerKey === "wordproject"
+		? "Wordproject Reader"
+		: readerKey.charAt(0).toUpperCase() + readerKey.slice(1);
 }
 
 export function extractHelloAoAudioTracks(
@@ -35,7 +34,7 @@ export function extractHelloAoAudioTracks(
 			verseTimings = {};
 			for (const [vStr, sec] of Object.entries(rawTimings)) {
 				const vNum = Number.parseInt(vStr, 10);
-				if (!Number.isNaN(vNum) && vNum >= 1 && typeof sec === "number") {
+				if (!Number.isNaN(vNum) && vNum >= 1 && typeof sec === "number" && Number.isFinite(sec)) {
 					verseTimings[vNum] = sec;
 				}
 			}
@@ -57,18 +56,12 @@ export function extractHelloAoAudioTracks(
 	return tracks;
 }
 
-export async function fetchHelloAoChapter(
+export function fetchHelloAoChapter(
 	externalTranslationId: string,
 	usfm: string,
 	chapter: number,
 	fetcher: FetchLike = fetch,
 ): Promise<HelloAoAudioPayload | null> {
 	const url = `${HELLOAO_BASE}/${encodeURIComponent(externalTranslationId)}/${encodeURIComponent(usfm)}/${chapter}.json`;
-	const response = await fetchWithTimeout(fetcher, url, {
-		headers: { Accept: "application/json" },
-	});
-	if (!response.ok) {
-		return null;
-	}
-	return (await response.json()) as HelloAoAudioPayload;
+	return fetchJson<HelloAoAudioPayload>(fetcher, url);
 }

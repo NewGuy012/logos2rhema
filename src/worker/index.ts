@@ -21,7 +21,7 @@ import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
 import { extractHelloAoAudioTracks, fetchHelloAoChapter } from "./helloao";
 import { type FetchLike, isSafeHttpsUrl } from "./http";
 
-export interface WorkerBindings {
+interface WorkerBindings {
 	ESV_API_KEY?: string;
 	BIBLE_BRAIN_API_KEY?: string;
 	BIBLE_BRAIN_EN_BIBLE_ID?: string;
@@ -29,8 +29,37 @@ export interface WorkerBindings {
 	AUDIO_BASE_URL?: string;
 }
 
-export interface WorkerDeps {
+interface WorkerDeps {
 	fetcher?: FetchLike;
+}
+
+const FILESET_ID_RE = /^[A-Za-z0-9_-]{4,24}$/;
+const ISO_639_3_RE = /^[a-z]{3}$/i;
+const BIBLE_ABBR_RE = /^[A-Za-z0-9_-]{2,16}$/;
+
+function applySecurityHeaders(headers: Headers): void {
+	headers.set("X-Content-Type-Options", "nosniff");
+	headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+	headers.set("X-Frame-Options", "DENY");
+	headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+	headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+}
+
+function parsePositiveInt(raw: string | undefined, min: number, max: number): number | null {
+	if (!raw || !/^\d+$/.test(raw)) return null;
+	const val = Number.parseInt(raw, 10);
+	return val >= min && val <= max ? val : null;
+}
+
+function parseChapterRef(
+	usfmRaw: string,
+	chapterRaw: string,
+): { book: BookMeta; usfm: string; chapter: number } | null {
+	const usfm = usfmRaw.toUpperCase();
+	const book = getBookByUsfm(usfm);
+	if (!book) return null;
+	const chapter = parsePositiveInt(chapterRaw, 1, book.chapters);
+	return chapter !== null ? { book, usfm, chapter } : null;
 }
 
 async function resolveBibleBrainTracksForLanguage(
@@ -55,20 +84,18 @@ async function resolveBibleBrainTracksForLanguage(
 			fallbackFilesets: options.fallbackFilesets,
 		},
 		fetcher,
-	).catch(() => []);
-
+	);
 	if (filesets.length === 0) return [];
 
-	// Keep up to one standard and one drama fileset candidate to avoid excessive upstream calls
+	// Cap at one standard + one drama candidate to avoid excessive upstream calls.
 	const picked: ResolvedAudioFileset[] = [
 		filesets.find((f) => f.audioStyle === "standard"),
 		filesets.find((f) => f.audioStyle === "drama"),
 	].filter((f): f is ResolvedAudioFileset => f !== undefined);
 
 	const results = await Promise.all(
-		picked.map((candidate) => {
-			const styleLabel = candidate.audioStyle === "drama" ? "Drama" : "Narration";
-			return fetchBibleBrainAudioTrack(
+		picked.map((candidate) =>
+			fetchBibleBrainAudioTrack(
 				apiKey,
 				{
 					filesetId: candidate.filesetId,
@@ -77,36 +104,13 @@ async function resolveBibleBrainTracksForLanguage(
 					translationId: options.translationId,
 					language: options.language,
 					audioStyle: candidate.audioStyle,
-					label: `${candidate.bibleName} · ${styleLabel}`,
+					label: `${candidate.bibleName} · ${candidate.audioStyle === "drama" ? "Drama" : "Narration"}`,
 				},
 				fetcher,
-			).catch(() => null);
-		}),
+			),
+		),
 	);
-
 	return results.filter((t): t is AudioTrackOption => t !== null);
-}
-
-function parsePositiveInt(raw: string | undefined, min: number, max: number): number | null {
-	if (!raw || !/^\d+$/.test(raw)) return null;
-	const val = Number.parseInt(raw, 10);
-	return val >= min && val <= max ? val : null;
-}
-
-const FILESET_ID_RE = /^[A-Za-z0-9_-]{4,24}$/;
-const ISO_639_3_RE = /^[a-z]{3}$/i;
-const BIBLE_ABBR_RE = /^[A-Za-z0-9_-]{2,16}$/;
-
-function parseChapterRef(
-	usfmRaw: string,
-	chapterRaw: string,
-): { book: BookMeta; usfm: string; chapter: number } | null {
-	if (!/^\d+$/.test(chapterRaw)) return null;
-	const usfm = usfmRaw.toUpperCase();
-	const chapter = Number.parseInt(chapterRaw, 10);
-	const book = getBookByUsfm(usfm);
-	if (!book || chapter < 1 || chapter > book.chapters) return null;
-	return { book, usfm, chapter };
 }
 
 export function createApp(deps: WorkerDeps = {}) {
@@ -115,13 +119,20 @@ export function createApp(deps: WorkerDeps = {}) {
 
 	app.use("*", async (c, next) => {
 		if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-			c.header("Allow", "GET, HEAD");
-			return c.json({ error: "Method not allowed" }, 405);
+			const res = c.json({ error: "Method not allowed" }, 405);
+			res.headers.set("Allow", "GET, HEAD");
+			applySecurityHeaders(res.headers);
+			return res;
 		}
 		await next();
-		c.header("X-Content-Type-Options", "nosniff");
-		c.header("Referrer-Policy", "strict-origin-when-cross-origin");
-		c.header("X-Frame-Options", "DENY");
+		applySecurityHeaders(c.res.headers);
+	});
+
+	app.onError((_err, c) => {
+		const res = c.json({ error: "Upstream service error" }, 502);
+		res.headers.set("Cache-Control", "no-store");
+		applySecurityHeaders(res.headers);
+		return res;
 	});
 
 	app.get("/api/health", (c) => c.json({ ok: true, service: "logos" }));
@@ -178,13 +189,17 @@ export function createApp(deps: WorkerDeps = {}) {
 			return c.json({ error: "Invalid page or limit parameter" }, 400);
 		}
 
-		const { languages, pagination } = await fetchBibleBrainLanguages(
-			apiKey,
-			{ page, limit },
-			fetcher,
-		).catch(() => ({ languages: [], pagination: undefined }));
+		const result = await fetchBibleBrainLanguages(apiKey, { page, limit }, fetcher);
+		if (!result) {
+			c.header("Cache-Control", "no-store");
+			return c.json({ error: "Languages lookup failed" }, 502);
+		}
 		c.header("Cache-Control", "private, max-age=3600");
-		return c.json({ bibleBrainEnabled: true, languages, ...(pagination ? { pagination } : {}) });
+		return c.json({
+			bibleBrainEnabled: true,
+			languages: result.languages,
+			...(result.pagination ? { pagination: result.pagination } : {}),
+		});
 	});
 
 	app.get("/api/passage/:target/:usfm/:chapter", async (c) => {
@@ -216,6 +231,10 @@ export function createApp(deps: WorkerDeps = {}) {
 				return c.json({ error: "Invalid fileset identifier" }, 400);
 			}
 			const verses = await fetchBibleBrainChapterText(apiKey, filesetId, usfm, chapter, fetcher);
+			if (!verses) {
+				c.header("Cache-Control", "no-store");
+				return c.json({ error: "Passage lookup failed" }, 502);
+			}
 			c.header("Cache-Control", "public, max-age=3600");
 			return c.json({ translationId: target, usfm, chapter, verses });
 		}
@@ -227,7 +246,11 @@ export function createApp(deps: WorkerDeps = {}) {
 				return c.json({ error: "Invalid language or Bible abbreviation" }, 400);
 			}
 			const resolved = await resolveBibleBrainLanguageTextFileset(apiKey, langIso, abbr, fetcher);
-			if (!resolved) {
+			if (resolved.status !== "ok") {
+				if (resolved.status === "error") {
+					c.header("Cache-Control", "no-store");
+					return c.json({ error: "Passage lookup failed" }, 502);
+				}
 				return c.json({ error: `No text fileset found for language ${langIso}` }, 404);
 			}
 			const verses = await fetchBibleBrainChapterText(
@@ -237,6 +260,10 @@ export function createApp(deps: WorkerDeps = {}) {
 				chapter,
 				fetcher,
 			);
+			if (!verses) {
+				c.header("Cache-Control", "no-store");
+				return c.json({ error: "Passage lookup failed" }, 502);
+			}
 			c.header("Cache-Control", "public, max-age=3600");
 			return c.json({
 				translationId: `bb:${resolved.textFilesetId}`,
@@ -257,6 +284,15 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 		const { book, usfm, chapter } = parsed;
 
+		const extraLang = c.req.query("lang")?.toLowerCase();
+		const extraBible = c.req.query("bible");
+		if (extraLang !== undefined && !ISO_639_3_RE.test(extraLang)) {
+			return c.json({ error: "Invalid ISO 639-3 language code" }, 400);
+		}
+		if (extraBible !== undefined && !BIBLE_ABBR_RE.test(extraBible)) {
+			return c.json({ error: "Invalid Bible identifier" }, 400);
+		}
+
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
 		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
@@ -265,25 +301,22 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		const resolveKoreanTracks = async (): Promise<AudioTrackOption[]> => {
 			const koTracks: AudioTrackOption[] = [];
-
-			// 1. Primary: Bible Brain Korean audio + verse timestamps
 			if (apiKey) {
-				const bbKo = await resolveBibleBrainTracksForLanguage(
-					apiKey,
-					{
-						language: "ko",
-						translationId: "krv",
-						usfm,
-						chapter,
-						testament: book.testament,
-						bibleId: koBibleIdOverride,
-					},
-					fetcher,
+				koTracks.push(
+					...(await resolveBibleBrainTracksForLanguage(
+						apiKey,
+						{
+							language: "ko",
+							translationId: "krv",
+							usfm,
+							chapter,
+							testament: book.testament,
+							bibleId: koBibleIdOverride,
+						},
+						fetcher,
+					)),
 				);
-				koTracks.push(...bbKo);
 			}
-
-			// 2. Custom hosted/R2 KRV MP3 files
 			if (customAudioBase && isSafeHttpsUrl(customAudioBase)) {
 				const cleanBase = customAudioBase.replace(/\/+$/, "");
 				koTracks.push({
@@ -296,12 +329,8 @@ export function createApp(deps: WorkerDeps = {}) {
 					audioStyle: "standard",
 				});
 			}
-
-			// 3. Zero-key fallback: HelloAO Wordproject Korean human narration
 			if (koTracks.length === 0) {
-				const korPayload = await fetchHelloAoChapter("kor_old", usfm, chapter, fetcher).catch(
-					() => null,
-				);
+				const korPayload = await fetchHelloAoChapter("kor_old", usfm, chapter, fetcher);
 				if (korPayload) {
 					koTracks.push(
 						...extractHelloAoAudioTracks(korPayload, {
@@ -312,65 +341,42 @@ export function createApp(deps: WorkerDeps = {}) {
 					);
 				}
 			}
-
 			return koTracks;
 		};
 
 		const resolveEnglishTracks = async (): Promise<AudioTrackOption[]> => {
 			const enTracks: AudioTrackOption[] = [];
-
-			// 1. Primary: Bible Brain ESV audio + verse timestamps
 			if (apiKey) {
 				const enMeta = CANONICAL_BIBLES.en;
-				const fallbackFilesets =
-					book.testament === "OT"
-						? enMeta.preferredAudioFilesets?.OT
-						: enMeta.preferredAudioFilesets?.NT;
-
-				const bbEn = await resolveBibleBrainTracksForLanguage(
-					apiKey,
-					{
-						language: "en",
-						translationId: "esv",
-						usfm,
-						chapter,
-						testament: book.testament,
-						bibleId: enBibleIdOverride || enMeta.bibleBrainBibleId,
-						fallbackFilesets,
-					},
-					fetcher,
+				enTracks.push(
+					...(await resolveBibleBrainTracksForLanguage(
+						apiKey,
+						{
+							language: "en",
+							translationId: "esv",
+							usfm,
+							chapter,
+							testament: book.testament,
+							bibleId: enBibleIdOverride || enMeta.bibleBrainBibleId,
+							fallbackFilesets:
+								book.testament === "OT"
+									? enMeta.preferredAudioFilesets?.OT
+									: enMeta.preferredAudioFilesets?.NT,
+						},
+						fetcher,
+					)),
 				);
-				enTracks.push(...bbEn);
 			}
-
-			// 2. Fallback: Direct Crossway ESV API when Bible Brain has no licensed ESV track
 			if (enTracks.length === 0 && esvApiKey) {
 				const esvTrack = await fetchEsvAudioTrack(
 					esvApiKey,
-					{
-						usfm,
-						bookEn: book.en,
-						chapter,
-						chaptersInBook: book.chapters,
-					},
+					{ usfm, bookEn: book.en, chapter, chaptersInBook: book.chapters },
 					fetcher,
 				).catch(() => null);
-				if (esvTrack) {
-					enTracks.push(esvTrack);
-				}
+				if (esvTrack) enTracks.push(esvTrack);
 			}
-
 			return enTracks;
 		};
-
-		const extraLang = c.req.query("lang")?.toLowerCase();
-		const extraBible = c.req.query("bible");
-		if (extraLang !== undefined && !ISO_639_3_RE.test(extraLang)) {
-			return c.json({ error: "Invalid ISO 639-3 language code" }, 400);
-		}
-		if (extraBible !== undefined && !BIBLE_ABBR_RE.test(extraBible)) {
-			return c.json({ error: "Invalid Bible identifier" }, 400);
-		}
 
 		const [koTracks, enTracks, extraTracks] = await Promise.all([
 			resolveKoreanTracks(),
@@ -419,14 +425,9 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		const resolved = await resolveEsvAudioUrl(
 			esvApiKey,
-			{
-				bookEn: book.en,
-				chapter,
-				chaptersInBook: book.chapters,
-			},
+			{ bookEn: book.en, chapter, chaptersInBook: book.chapters },
 			fetcher,
 		).catch(() => null);
-
 		if (!resolved) {
 			return c.json({ error: "ESV audio unavailable for this passage" }, 502);
 		}
@@ -439,8 +440,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (resolved.directStreamResponse) {
 			const headers = new Headers();
 			const rawType = resolved.directStreamResponse.headers.get("content-type") ?? "";
-			const contentType = rawType.startsWith("audio/") ? rawType : "audio/mpeg";
-			headers.set("Content-Type", contentType);
+			headers.set("Content-Type", rawType.startsWith("audio/") ? rawType : "audio/mpeg");
 			headers.set("Cache-Control", "private, max-age=1800");
 			return new Response(resolved.directStreamResponse.body, {
 				status: resolved.directStreamResponse.status,

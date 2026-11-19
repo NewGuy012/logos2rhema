@@ -1,6 +1,7 @@
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 const DEFAULT_TIMEOUT_MS = 6000;
+const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 export function isSafeHttpsUrl(
 	rawUrl: string,
@@ -8,21 +9,41 @@ export function isSafeHttpsUrl(
 ): boolean {
 	try {
 		const parsed = new URL(rawUrl);
-		if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+		const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
+		if (
+			parsed.protocol !== "https:" ||
+			parsed.username ||
+			parsed.password ||
+			parsed.port !== "" ||
+			!host ||
+			!host.includes(".") ||
+			host.includes(":") ||
+			host.startsWith("[") ||
+			IPV4_RE.test(host) ||
+			host === "localhost" ||
+			host.endsWith(".localhost") ||
+			host.endsWith(".local") ||
+			host.endsWith(".internal") ||
+			host.endsWith(".arpa")
+		) {
 			return false;
 		}
 		if (options?.allowedHostSuffix) {
-			const rootDomain = options.allowedHostSuffix.replace(/^\./, "");
-			if (parsed.hostname !== rootDomain && !parsed.hostname.endsWith(options.allowedHostSuffix)) {
+			const rootDomain = options.allowedHostSuffix.toLowerCase().replace(/^\.+|\.+$/g, "");
+			if (host !== rootDomain && !host.endsWith(`.${rootDomain}`)) {
 				return false;
 			}
 		}
-		if (
-			options?.forbiddenSubstring &&
-			(rawUrl.includes(options.forbiddenSubstring) ||
-				parsed.href.includes(options.forbiddenSubstring))
-		) {
-			return false;
+		if (options?.forbiddenSubstring) {
+			const encoded = encodeURIComponent(options.forbiddenSubstring);
+			if (
+				rawUrl.includes(options.forbiddenSubstring) ||
+				parsed.href.includes(options.forbiddenSubstring) ||
+				rawUrl.includes(encoded) ||
+				parsed.href.includes(encoded)
+			) {
+				return false;
+			}
 		}
 		return true;
 	} catch {
@@ -42,4 +63,26 @@ export function fetchWithTimeout(
 			? AbortSignal.timeout(timeoutMs)
 			: undefined);
 	return fetcher(input, signal ? { ...init, signal } : init);
+}
+
+export async function fetchJson<T>(
+	fetcher: FetchLike,
+	input: string | URL,
+	init: RequestInit = {},
+	timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<T | null> {
+	const headers = new Headers(init.headers);
+	if (!headers.has("Accept")) {
+		headers.set("Accept", "application/json");
+	}
+	try {
+		const response = await fetchWithTimeout(fetcher, input, { ...init, headers }, timeoutMs);
+		if (!response.ok) {
+			response.body?.cancel?.().catch(() => {});
+			return null;
+		}
+		return (await response.json()) as T;
+	} catch {
+		return null;
+	}
 }

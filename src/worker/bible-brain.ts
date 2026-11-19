@@ -1,31 +1,27 @@
 import type { AudioStyle, AudioTrackOption, Testament, VerseEntry } from "../shared/types";
-import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
+import { fetchJson, type FetchLike, isSafeHttpsUrl } from "./http";
 
 const BIBLE_BRAIN_BASE = "https://4.dbt.io/api";
 const CATALOG_CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_CATALOG_CACHE_ENTRIES = 100;
 
-export interface BibleBrainFileset {
+interface BibleBrainFileset {
 	id: string;
 	type?: string;
 	set_type_code?: string;
 	size?: string;
 	set_size_code?: string;
 	codec?: string;
-	container?: string;
-	segmentation_type?: "section" | "chapter" | null;
 }
 
-export interface BibleBrainBibleItem {
+interface BibleBrainBibleItem {
 	abbr: string;
 	name: string;
 	vname?: string;
-	language_iso?: string;
-	iso?: string;
 	filesets?: Record<string, BibleBrainFileset[]> | BibleBrainFileset[];
 }
 
-export interface BibleBrainLanguageItem {
+interface BibleBrainLanguageItem {
 	id: number;
 	name: string;
 	iso: string;
@@ -33,7 +29,7 @@ export interface BibleBrainLanguageItem {
 	bibles?: number;
 }
 
-export interface BibleBrainPagination {
+interface BibleBrainPagination {
 	total: number;
 	count: number;
 	per_page: number;
@@ -54,7 +50,6 @@ interface BibleBrainTimestampsResponse {
 	data?: Array<{
 		verse_start?: number | string;
 		verse_sequence?: number;
-		verse_end?: number | string;
 		timestamp?: number | string;
 	}>;
 }
@@ -66,15 +61,41 @@ export interface ResolvedAudioFileset {
 	bibleName: string;
 }
 
-interface CacheEntry<T> {
-	value: T;
-	expiresAt: number;
-}
-
-const catalogCache = new Map<string, CacheEntry<BibleBrainBibleItem[]>>();
+const catalogCache = new Map<string, { value: BibleBrainBibleItem[]; expiresAt: number }>();
 
 export function clearBibleBrainCache(): void {
 	catalogCache.clear();
+}
+
+function hashCacheScope(secret: string): string {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < secret.length; i++) {
+		hash ^= secret.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(36);
+}
+
+function bibleBrainUrl(
+	path: string,
+	apiKey: string,
+	params?: Record<string, string | number>,
+): string {
+	const search = new URLSearchParams();
+	if (params) {
+		for (const [k, v] of Object.entries(params)) {
+			search.set(k, String(v));
+		}
+	}
+	search.set("v", "4");
+	search.set("key", apiKey);
+	return `${BIBLE_BRAIN_BASE}${path}?${search.toString()}`;
+}
+
+function parseVerseNumber(rawVerse: unknown): number | null {
+	const verse =
+		typeof rawVerse === "number" ? rawVerse : Number.parseInt(String(rawVerse ?? ""), 10);
+	return Number.isNaN(verse) || verse < 1 ? null : verse;
 }
 
 function getAllFilesets(item: BibleBrainBibleItem): BibleBrainFileset[] {
@@ -92,15 +113,9 @@ function getFilesetSize(fileset: BibleBrainFileset): string {
 
 function isDirectAudioFileset(fileset: BibleBrainFileset): boolean {
 	const filesetType = getFilesetType(fileset);
-	if (filesetType !== "audio" && filesetType !== "audio_drama") {
-		return false;
-	}
-	if (fileset.id.toLowerCase().includes("opus")) {
-		return false;
-	}
-	if (fileset.codec && fileset.codec.toLowerCase() !== "mp3") {
-		return false;
-	}
+	if (filesetType !== "audio" && filesetType !== "audio_drama") return false;
+	if (fileset.id.toLowerCase().includes("opus")) return false;
+	if (fileset.codec && fileset.codec.toLowerCase() !== "mp3") return false;
 	return true;
 }
 
@@ -114,9 +129,9 @@ function matchesTestament(fileset: BibleBrainFileset, testament: Testament): boo
 }
 
 function inferAudioStyle(fileset: BibleBrainFileset): AudioStyle {
-	if (getFilesetType(fileset) === "audio_drama") return "drama";
-	if (/[ON]2DA/i.test(fileset.id)) return "drama";
-	return "standard";
+	return getFilesetType(fileset) === "audio_drama" || /[ON]2DA/i.test(fileset.id)
+		? "drama"
+		: "standard";
 }
 
 export function selectAudioFilesetsForTestament(
@@ -139,11 +154,10 @@ export function selectAudioFilesetsForTestament(
 	}
 
 	const all = [...deduped.values()];
-	const standard = all.filter((f) => f.audioStyle === "standard");
-	const drama = all.filter((f) => f.audioStyle === "drama");
-
-	// Keep standard narration primary, followed by dramatized recording if available
-	return [...standard, ...drama];
+	return [
+		...all.filter((f) => f.audioStyle === "standard"),
+		...all.filter((f) => f.audioStyle === "drama"),
+	];
 }
 
 function scoreKoreanBibleForKrv(item: BibleBrainBibleItem): number {
@@ -171,31 +185,29 @@ async function fetchCatalogItems<T>(
 	url: string,
 	fetcher: FetchLike,
 	extract: (payload: T) => BibleBrainBibleItem[],
-): Promise<BibleBrainBibleItem[]> {
+): Promise<BibleBrainBibleItem[] | null> {
 	const cached = catalogCache.get(cacheKey);
 	if (cached && cached.expiresAt > Date.now()) {
 		return cached.value;
 	}
 
-	const response = await fetchWithTimeout(fetcher, url, {
-		headers: { Accept: "application/json" },
-	});
-	if (!response.ok) return [];
+	const payload = await fetchJson<T>(fetcher, url);
+	if (!payload) return null;
 
-	const items = extract((await response.json()) as T);
+	const items = extract(payload);
 	setCatalogCache(cacheKey, items);
 	return items;
 }
 
-async function fetchBiblesByLanguage(
+function fetchBiblesByLanguage(
 	apiKey: string,
 	langIso: string,
 	fetcher: FetchLike,
-): Promise<BibleBrainBibleItem[]> {
-	// OpenAPI /bibles defaults to limit=25; request 250 so large languages (eng, kor, spa) aren't truncated
-	const url = `${BIBLE_BRAIN_BASE}/bibles?language_code=${encodeURIComponent(langIso)}&limit=250&v=4&key=${encodeURIComponent(apiKey)}`;
+): Promise<BibleBrainBibleItem[] | null> {
+	// OpenAPI /bibles defaults to limit=25; request 250 so large languages aren't truncated.
+	const url = bibleBrainUrl("/bibles", apiKey, { language_code: langIso, limit: 250 });
 	return fetchCatalogItems<{ data?: BibleBrainBibleItem[] }>(
-		`lang:${langIso.toLowerCase()}:${apiKey.slice(-6)}`,
+		`lang:${langIso.toLowerCase()}:${hashCacheScope(apiKey)}`,
 		url,
 		fetcher,
 		(payload) => payload.data ?? [],
@@ -207,22 +219,16 @@ async function fetchBibleById(
 	bibleId: string,
 	fetcher: FetchLike,
 ): Promise<BibleBrainBibleItem | null> {
-	const url = `${BIBLE_BRAIN_BASE}/bibles/${encodeURIComponent(bibleId)}?v=4&key=${encodeURIComponent(apiKey)}`;
+	const url = bibleBrainUrl(`/bibles/${encodeURIComponent(bibleId)}`, apiKey);
 	const items = await fetchCatalogItems<{ data?: BibleBrainBibleItem | BibleBrainBibleItem[] }>(
-		`bible:${bibleId}:${apiKey.slice(-6)}`,
+		`bible:${bibleId}:${hashCacheScope(apiKey)}`,
 		url,
 		fetcher,
-		(payload) => {
-			if (!payload.data) return [];
-			return Array.isArray(payload.data) ? payload.data : [payload.data];
-		},
+		(payload) => (!payload.data ? [] : Array.isArray(payload.data) ? payload.data : [payload.data]),
 	);
-	return items[0] ?? null;
+	return items?.[0] ?? null;
 }
 
-/**
- * Resolves candidate MP3 audio filesets for any language ISO code (or exact bibleId).
- */
 export async function resolveCanonicalAudioFilesets(
 	apiKey: string,
 	options: {
@@ -234,7 +240,7 @@ export async function resolveCanonicalAudioFilesets(
 	fetcher: FetchLike = fetch,
 ): Promise<ResolvedAudioFileset[]> {
 	if (options.bibleId) {
-		const exactBible = await fetchBibleById(apiKey, options.bibleId, fetcher).catch(() => null);
+		const exactBible = await fetchBibleById(apiKey, options.bibleId, fetcher);
 		if (exactBible) {
 			const matched = selectAudioFilesetsForTestament(exactBible, options.testament);
 			if (matched.length > 0) return matched;
@@ -243,7 +249,7 @@ export async function resolveCanonicalAudioFilesets(
 
 	const langIso =
 		options.language === "ko" ? "kor" : options.language === "en" ? "eng" : options.language;
-	const items = await fetchBiblesByLanguage(apiKey, langIso, fetcher).catch(() => []);
+	const items = (await fetchBiblesByLanguage(apiKey, langIso, fetcher)) ?? [];
 
 	if (options.language === "en") {
 		const esvItem = items.find(
@@ -256,20 +262,17 @@ export async function resolveCanonicalAudioFilesets(
 			const matched = selectAudioFilesetsForTestament(esvItem, options.testament);
 			if (matched.length > 0) return matched;
 		}
-	} else if (options.language === "ko") {
-		const ranked = [...items].sort((a, b) => scoreKoreanBibleForKrv(b) - scoreKoreanBibleForKrv(a));
-		for (const item of ranked) {
-			const matched = selectAudioFilesetsForTestament(item, options.testament);
-			if (matched.length > 0) return matched;
-		}
 	} else {
-		for (const item of items) {
+		const ordered =
+			options.language === "ko"
+				? [...items].sort((a, b) => scoreKoreanBibleForKrv(b) - scoreKoreanBibleForKrv(a))
+				: items;
+		for (const item of ordered) {
 			const matched = selectAudioFilesetsForTestament(item, options.testament);
 			if (matched.length > 0) return matched;
 		}
 	}
 
-	// Canonical fileset ID fallback (e.g. ENGESVO1DA / ENGESVN2DA) if /bibles lookup wasn't populated
 	return (options.fallbackFilesets ?? []).map((id) => ({
 		filesetId: id,
 		audioStyle: /[ON]2DA/i.test(id) ? "drama" : "standard",
@@ -278,42 +281,38 @@ export async function resolveCanonicalAudioFilesets(
 	}));
 }
 
-/**
- * Lists supported languages in Bible Brain for multi-language expansion.
- */
 export async function fetchBibleBrainLanguages(
 	apiKey: string,
 	options: { page?: number; limit?: number } = {},
 	fetcher: FetchLike = fetch,
-): Promise<{ languages: BibleBrainLanguageItem[]; pagination?: BibleBrainPagination }> {
-	const page = options.page ?? 1;
-	const limit = options.limit ?? 250;
-	const url = `${BIBLE_BRAIN_BASE}/languages?page=${page}&limit=${limit}&v=4&key=${encodeURIComponent(apiKey)}`;
-	const response = await fetchWithTimeout(fetcher, url, {
-		headers: { Accept: "application/json" },
+): Promise<{ languages: BibleBrainLanguageItem[]; pagination?: BibleBrainPagination } | null> {
+	const url = bibleBrainUrl("/languages", apiKey, {
+		page: options.page ?? 1,
+		limit: options.limit ?? 250,
 	});
-	if (!response.ok) return { languages: [] };
-	const payload = (await response.json()) as {
+	const payload = await fetchJson<{
 		data?: BibleBrainLanguageItem[];
 		meta?: { pagination?: BibleBrainPagination };
-	};
+	}>(fetcher, url);
+	if (!payload) return null;
 	return {
 		languages: payload.data ?? [],
 		pagination: payload.meta?.pagination,
 	};
 }
 
-/**
- * Resolves the canonical text fileset for any ISO 639-3 language code,
- * preferring inline `text_plain` over USX/HTML `text_format` and Bibles that also carry direct audio.
- */
 export async function resolveBibleBrainLanguageTextFileset(
 	apiKey: string,
 	langIso: string,
 	preferredAbbr?: string,
 	fetcher: FetchLike = fetch,
-): Promise<{ bible: BibleBrainBibleItem; textFilesetId: string } | null> {
+): Promise<
+	| { status: "ok"; bible: BibleBrainBibleItem; textFilesetId: string }
+	| { status: "not_found" | "error" }
+> {
 	const items = await fetchBiblesByLanguage(apiKey, langIso, fetcher);
+	if (!items) return { status: "error" };
+
 	const ordered = preferredAbbr
 		? [
 				...items.filter((i) => i.abbr.toUpperCase() === preferredAbbr.toUpperCase()),
@@ -326,23 +325,22 @@ export async function resolveBibleBrainLanguageTextFileset(
 		const hasPlain = filesets.some((f) => getFilesetType(f) === "text_plain");
 		const hasFormat = filesets.some((f) => getFilesetType(f) === "text_format");
 		if (!hasPlain && !hasFormat) return -1;
-		const hasAudio = filesets.some((f) => isDirectAudioFileset(f));
-		return (hasPlain ? 10 : 1) + (hasAudio ? 5 : 0);
+		return (hasPlain ? 10 : 1) + (filesets.some(isDirectAudioFileset) ? 5 : 0);
 	};
 
-	const ranked = ordered
+	const best = ordered
 		.map((bible) => ({ bible, score: scoreTextCandidate(bible) }))
 		.filter((c) => c.score >= 0)
-		.sort((a, b) => b.score - a.score);
-
-	const best = ranked[0]?.bible;
-	if (!best) return null;
+		.sort((a, b) => b.score - a.score)[0]?.bible;
+	if (!best) return { status: "not_found" };
 
 	const filesets = getAllFilesets(best);
 	const textFileset =
 		filesets.find((f) => getFilesetType(f) === "text_plain") ??
 		filesets.find((f) => getFilesetType(f) === "text_format");
-	return textFileset ? { bible: best, textFilesetId: textFileset.id } : null;
+	return textFileset
+		? { status: "ok", bible: best, textFilesetId: textFileset.id }
+		: { status: "not_found" };
 }
 
 export async function fetchBibleBrainChapterText(
@@ -351,25 +349,20 @@ export async function fetchBibleBrainChapterText(
 	usfm: string,
 	chapter: number,
 	fetcher: FetchLike = fetch,
-): Promise<VerseEntry[]> {
-	const url = `${BIBLE_BRAIN_BASE}/bibles/filesets/${encodeURIComponent(filesetId)}/${encodeURIComponent(usfm)}/${chapter}?v=4&key=${encodeURIComponent(apiKey)}`;
-	const response = await fetchWithTimeout(fetcher, url, {
-		headers: { Accept: "application/json" },
-	});
-	if (!response.ok) return [];
+): Promise<VerseEntry[] | null> {
+	const url = bibleBrainUrl(
+		`/bibles/filesets/${encodeURIComponent(filesetId)}/${encodeURIComponent(usfm)}/${chapter}`,
+		apiKey,
+	);
+	const payload = await fetchJson<BibleBrainVersesResponse>(fetcher, url);
+	if (!payload) return null;
 
-	const payload = (await response.json()) as BibleBrainVersesResponse;
 	const entries: VerseEntry[] = [];
 	for (const row of payload.data ?? []) {
 		if (typeof row.verse_text !== "string") continue;
-		const rawVerse = row.verse_sequence ?? row.verse_start;
-		const verse =
-			typeof rawVerse === "number" ? rawVerse : Number.parseInt(String(rawVerse ?? ""), 10);
-		if (Number.isNaN(verse) || verse < 1) continue;
-		entries.push({
-			verse,
-			text: row.verse_text.replace(/\s+/g, " ").trim(),
-		});
+		const verse = parseVerseNumber(row.verse_sequence ?? row.verse_start);
+		if (verse === null) continue;
+		entries.push({ verse, text: row.verse_text.replace(/\s+/g, " ").trim() });
 	}
 	return entries;
 }
@@ -387,19 +380,19 @@ export async function fetchBibleBrainAudioTrack(
 	},
 	fetcher: FetchLike = fetch,
 ): Promise<AudioTrackOption | null> {
-	const audioUrl = `${BIBLE_BRAIN_BASE}/bibles/filesets/${encodeURIComponent(options.filesetId)}/${encodeURIComponent(options.usfm)}/${options.chapter}?v=4&key=${encodeURIComponent(apiKey)}`;
-	const tsUrl = `${BIBLE_BRAIN_BASE}/timestamps/${encodeURIComponent(options.filesetId)}/${encodeURIComponent(options.usfm)}/${options.chapter}?v=4&key=${encodeURIComponent(apiKey)}`;
-
-	// Request audio stream URL and verse timestamps in parallel
-	const [audioRes, tsRes] = await Promise.all([
-		fetchWithTimeout(fetcher, audioUrl, { headers: { Accept: "application/json" } }),
-		fetchWithTimeout(fetcher, tsUrl, { headers: { Accept: "application/json" } }).catch(() => null),
+	const segment = `${encodeURIComponent(options.filesetId)}/${encodeURIComponent(options.usfm)}/${options.chapter}`;
+	const [audioPayload, tsPayload] = await Promise.all([
+		fetchJson<BibleBrainVersesResponse>(
+			fetcher,
+			bibleBrainUrl(`/bibles/filesets/${segment}`, apiKey),
+		),
+		fetchJson<BibleBrainTimestampsResponse>(
+			fetcher,
+			bibleBrainUrl(`/timestamps/${segment}`, apiKey),
+		),
 	]);
 
-	if (!audioRes.ok) return null;
-
-	const audioPayload = (await audioRes.json()) as BibleBrainVersesResponse;
-	const mp3Path = audioPayload.data?.[0]?.path;
+	const mp3Path = audioPayload?.data?.[0]?.path;
 	if (
 		!mp3Path ||
 		!isSafeHttpsUrl(mp3Path, { forbiddenSubstring: apiKey }) ||
@@ -409,27 +402,20 @@ export async function fetchBibleBrainAudioTrack(
 	}
 
 	let verseTimings: Record<number, number> | undefined;
-	if (tsRes?.ok) {
-		try {
-			const tsPayload = (await tsRes.json()) as BibleBrainTimestampsResponse;
-			const map: Record<number, number> = {};
-			for (const row of tsPayload.data ?? []) {
-				const rawVerse = row.verse_sequence ?? row.verse_start;
-				const verse =
-					typeof rawVerse === "number" ? rawVerse : Number.parseInt(String(rawVerse ?? ""), 10);
-				const sec =
-					typeof row.timestamp === "number"
-						? row.timestamp
-						: Number.parseFloat(String(row.timestamp ?? ""));
-				if (!Number.isNaN(verse) && verse >= 1 && !Number.isNaN(sec) && sec >= 0) {
-					map[verse] = map[verse] === undefined ? sec : Math.min(map[verse], sec);
-				}
+	if (tsPayload?.data) {
+		const map: Record<number, number> = {};
+		for (const row of tsPayload.data) {
+			const verse = parseVerseNumber(row.verse_sequence ?? row.verse_start);
+			const sec =
+				typeof row.timestamp === "number"
+					? row.timestamp
+					: Number.parseFloat(String(row.timestamp ?? ""));
+			if (verse !== null && Number.isFinite(sec) && sec >= 0) {
+				map[verse] = map[verse] === undefined ? sec : Math.min(map[verse], sec);
 			}
-			if (Object.keys(map).length > 0) {
-				verseTimings = map;
-			}
-		} catch {
-			// Timestamps are optional; playback still works without them.
+		}
+		if (Object.keys(map).length > 0) {
+			verseTimings = map;
 		}
 	}
 

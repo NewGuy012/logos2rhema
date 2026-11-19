@@ -3,17 +3,16 @@ import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
 
 const ESV_AUDIO_API_BASE = "https://api.esv.org/v3/passage/audio/";
 
-export function formatEsvPassageQuery(
-	bookEn: string,
-	chapter: number,
-	chaptersInBook: number,
-): string {
-	// Single-chapter books (Obadiah, Philemon, 2-3 John, Jude) need an explicit verse span
-	// so "Jude 1" is never interpreted as verse 1 only.
-	if (chaptersInBook === 1) {
-		return `${bookEn} 1:1-99`;
-	}
-	return `${bookEn} ${chapter}`;
+function formatEsvPassageQuery(bookEn: string, chapter: number, chaptersInBook: number): string {
+	// Single-chapter books need an explicit span so "Jude 1" isn't treated as verse 1 only.
+	return chaptersInBook === 1 ? `${bookEn} 1:1-99` : `${bookEn} ${chapter}`;
+}
+
+function isSafeEsvUrl(url: string, apiKey: string): boolean {
+	return isSafeHttpsUrl(url, {
+		allowedHostSuffix: ".esv.org",
+		forbiddenSubstring: apiKey,
+	});
 }
 
 export async function resolveEsvAudioUrl(
@@ -36,37 +35,31 @@ export async function resolveEsvAudioUrl(
 		redirect: "manual",
 	});
 
-	// Crossway returns a 302 redirect to audio.esv.org with no key in the target URL.
 	if (response.status >= 300 && response.status < 400) {
+		response.body?.cancel?.().catch(() => {});
 		const location = response.headers.get("location");
 		if (!location) return null;
-		const resolved = new URL(location, ESV_AUDIO_API_BASE);
-		if (
-			!isSafeHttpsUrl(resolved.href, {
-				allowedHostSuffix: ".esv.org",
-				forbiddenSubstring: apiKey,
-			})
-		) {
+		try {
+			const resolved = new URL(location, ESV_AUDIO_API_BASE);
+			return isSafeEsvUrl(resolved.href, apiKey) ? { url: resolved.href } : null;
+		} catch {
 			return null;
 		}
-		return { url: resolved.href };
 	}
 
 	if (response.ok) {
-		// Defensive fallback if an upstream proxy already followed the redirect.
 		if (
 			response.url &&
 			!response.url.startsWith(ESV_AUDIO_API_BASE) &&
-			isSafeHttpsUrl(response.url, {
-				allowedHostSuffix: ".esv.org",
-				forbiddenSubstring: apiKey,
-			})
+			isSafeEsvUrl(response.url, apiKey)
 		) {
+			response.body?.cancel?.().catch(() => {});
 			return { url: response.url };
 		}
 		return { url: "", directStreamResponse: response };
 	}
 
+	response.body?.cancel?.().catch(() => {});
 	return null;
 }
 
@@ -87,15 +80,12 @@ export async function fetchEsvAudioTrack(
 		resolved.directStreamResponse.body.cancel().catch(() => {});
 	}
 
-	const trackUrl =
-		resolved.url || `/api/audio/esv/${encodeURIComponent(options.usfm)}/${options.chapter}`;
-
 	return {
 		id: `esv-api:${options.usfm}:${options.chapter}`,
 		label: "David Cochran Heath (ESV)",
 		language: "en",
 		translationId: "esv",
-		url: trackUrl,
+		url: resolved.url || `/api/audio/esv/${encodeURIComponent(options.usfm)}/${options.chapter}`,
 		source: "esv-api",
 		note: "Official Crossway ESV audio",
 	};

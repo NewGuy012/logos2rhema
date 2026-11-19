@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 import type { ChapterAudioResponse, ReaderConfigResponse } from "../src/shared/types";
 import { clearBibleBrainCache, selectAudioFilesetsForTestament } from "../src/worker/bible-brain";
-import type { FetchLike } from "../src/worker/helloao";
+import type { FetchLike } from "../src/worker/http";
 import { createApp } from "../src/worker/index";
 
 describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
