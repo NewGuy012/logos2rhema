@@ -118,7 +118,7 @@ export function HomePage({
 						}
 					>
 						<BookOpen size={15} />
-						<span>Continue</span>
+						<span>Read</span>
 						<ArrowRight size={15} />
 					</button>
 				</div>

@@ -452,7 +452,7 @@ describe("Reader UI & audio hooks", () => {
 		expect(continueMeta.children[0]?.className).toBe("home-continue-subtitle");
 		expect(continueMeta.children[0]?.textContent).toBe("Continue Where You Left Off");
 		expect(continueMeta.children[1]?.className).toBe("home-continue-ref");
-		fireClick(getButton(continueSection, "Continue"));
+		fireClick(getButton(continueSection, "Read"));
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4, 12);
 
 		expect(home.container.querySelector('section[aria-label="Bible Genres"]')).toBeNull();
@@ -601,9 +601,7 @@ describe("Reader UI & audio hooks", () => {
 			expect(configLoaded).toBe(true);
 			expect(getByText(container, "Continue Where You Left Off")).toBeDefined();
 
-			fireClick(
-				getButton(container.querySelector(".home-continue-section") as ParentNode, "Continue"),
-			);
+			fireClick(getButton(container.querySelector(".home-continue-section") as ParentNode, "Read"));
 			await flushAsync();
 			await waitUntil(() => {
 				expect(audioLoadCount).toBeGreaterThanOrEqual(1);
