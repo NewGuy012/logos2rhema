@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
 import { CANONICAL_BIBLES } from "../src/shared/translations";
-import type { ChapterAudioResponse, ReaderConfigResponse } from "../src/shared/types";
+import type {
+	ChapterAudioResponse,
+	ChapterCommentaryResponse,
+	CommentaryMeta,
+	ReaderConfigResponse,
+} from "../src/shared/types";
 import { clearBibleBrainCache, selectAudioFilesetsForTestament } from "../src/worker/bible-brain";
 import { type FetchLike, isSafeHttpsUrl } from "../src/worker/http";
 import { createApp } from "../src/worker/index";
@@ -326,5 +331,121 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		});
 		expect(failLangs.status).toBe(502);
 		expect(failLangs.headers.get("cache-control")).toBe("no-store");
+	});
+
+	it("serves curated Tyndale & Matthew Henry commentaries, normalizes content, and handles 404/400/502", async () => {
+		const mockFetch: FetchLike = async (input) => {
+			const url = String(input);
+			if (url === "https://bible.helloao.org/api/c/tyndale/GEN/1.json") {
+				return Response.json({
+					book: {
+						introductionSummary: "The Book of Genesis\n\nPurpose\n\nBeginnings.",
+						introduction: "Genesis introduces God's covenant.",
+					},
+					chapter: {
+						number: 1,
+						content: [
+							{
+								type: "verse",
+								number: 1,
+								content: ["1:1–2:3 Overview paragraph.", "1:1 In the beginning God created."],
+							},
+							{
+								type: "verse",
+								number: 6,
+								content: ["1:6-8 The expanse of the sky."],
+							},
+							{
+								type: "verse",
+								number: 9,
+								content: [{ text: "1:9 " }, { text: "God gathered the waters." }],
+							},
+						],
+					},
+				});
+			}
+			if (url === "https://bible.helloao.org/api/c/matthew-henry/JHN/3.json") {
+				return Response.json({
+					book: { introduction: "An Exposition of John" },
+					chapter: {
+						number: 3,
+						introduction: "Christ's discourse with Nicodemus.",
+						content: [
+							{ type: "heading", content: ["The New Birth"] },
+							{
+								type: "verse",
+								number: 1,
+								content: ["Paragraph one.\nI. Paragraph two."],
+							},
+							{
+								type: "verse",
+								number: 22,
+								content: ["John Baptist's witness."],
+							},
+						],
+					},
+				});
+			}
+			if (url === "https://bible.helloao.org/api/c/tyndale/JDG/1.json") {
+				return new Response("Not Found", { status: 404 });
+			}
+			return new Response("Upstream Error", { status: 503 });
+		};
+
+		const app = createApp({ fetcher: mockFetch });
+
+		const listRes = await app.request("/api/commentaries");
+		expect(listRes.status).toBe(200);
+		expect(listRes.headers.get("cache-control")).toBe("public, max-age=86400");
+		const listBody = (await listRes.json()) as { commentaries: CommentaryMeta[] };
+		expect(listBody.commentaries.map((c) => c.id)).toEqual(["tyndale", "matthew-henry"]);
+
+		const tyndaleRes = await app.request("/api/commentary/tyndale/gen/1");
+		expect(tyndaleRes.status).toBe(200);
+		expect(tyndaleRes.headers.get("cache-control")).toBe("public, max-age=86400");
+		const tyndaleBody = (await tyndaleRes.json()) as ChapterCommentaryResponse;
+		expect(tyndaleBody.commentary.id).toBe("tyndale");
+		expect(tyndaleBody.bookUsfm).toBe("GEN");
+		expect(tyndaleBody.bookIntroduction).toEqual([
+			"The Book of Genesis",
+			"Purpose",
+			"Beginnings.",
+			"Genesis introduces God's covenant.",
+		]);
+		expect(tyndaleBody.entries[0]?.verseStart).toBe(1);
+		expect(tyndaleBody.entries[0]?.verseEnd).toBeUndefined();
+		expect(tyndaleBody.entries[0]?.paragraphs).toEqual([
+			"1:1–2:3 Overview paragraph.",
+			"1:1 In the beginning God created.",
+		]);
+		expect(tyndaleBody.entries[1]?.verseStart).toBe(6);
+		expect(tyndaleBody.entries[1]?.verseEnd).toBe(8);
+		expect(tyndaleBody.entries[2]?.paragraphs).toEqual(["1:9 God gathered the waters."]);
+
+		const mhRes = await app.request("/api/commentary/matthew-henry/JHN/3");
+		expect(mhRes.status).toBe(200);
+		const mhBody = (await mhRes.json()) as ChapterCommentaryResponse;
+		expect(mhBody.introduction).toEqual(["Christ's discourse with Nicodemus."]);
+		expect(mhBody.entries[0]?.heading).toBe("The New Birth");
+		expect(mhBody.entries[0]?.verseStart).toBe(1);
+		expect(mhBody.entries[0]?.verseEnd).toBe(21);
+		expect(mhBody.entries[0]?.paragraphs).toEqual(["Paragraph one.", "I. Paragraph two."]);
+		expect(mhBody.entries[1]?.verseStart).toBe(22);
+
+		const emptyRes = await app.request("/api/commentary/tyndale/JDG/1");
+		expect(emptyRes.status).toBe(200);
+		const emptyBody = (await emptyRes.json()) as ChapterCommentaryResponse;
+		expect(emptyBody.entries).toEqual([]);
+
+		expect((await app.request("/api/commentary/adam-clarke/GEN/1")).status).toBe(400);
+		expect((await app.request("/api/commentary/tyndale/GEN/999")).status).toBe(400);
+		expect((await app.request("/api/commentary/tyndale/GEN/1", { method: "POST" })).status).toBe(
+			405,
+		);
+
+		const failRes = await app.request("/api/commentary/matthew-henry/EXO/1");
+		expect(failRes.status).toBe(502);
+		expect(failRes.headers.get("cache-control")).toBe("no-store");
+		expect(failRes.headers.get("x-content-type-options")).toBe("nosniff");
 	});
 });

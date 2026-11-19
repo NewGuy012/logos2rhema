@@ -122,6 +122,37 @@ export interface ReaderConfigResponse {
 	esvAudioEnabled: boolean;
 }
 
+export type CommentaryId = "tyndale" | "matthew-henry";
+export type RightRailTab = "dictionary" | "commentary";
+
+export interface CommentaryMeta {
+	id: CommentaryId;
+	name: string;
+	shortName: string;
+	description: string;
+	license: string;
+	licenseUrl: string;
+	website: string;
+	attribution: string;
+}
+
+export interface CommentaryEntry {
+	id: string;
+	verseStart: number;
+	verseEnd?: number;
+	heading?: string;
+	paragraphs: string[];
+}
+
+export interface ChapterCommentaryResponse {
+	commentary: CommentaryMeta;
+	bookUsfm: string;
+	chapter: number;
+	bookIntroduction?: string[];
+	introduction?: string[];
+	entries: CommentaryEntry[];
+}
+
 export interface ParsedReference {
 	bookNumber: number;
 	chapter: number;

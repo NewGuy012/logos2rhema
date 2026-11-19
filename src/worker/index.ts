@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { getBookByUsfm } from "../shared/books";
+import { COMMENTARY_SOURCES, isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
 	AudioTrackOption,
@@ -18,7 +19,11 @@ import {
 	type ResolvedAudioFileset,
 } from "./bible-brain";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
-import { extractHelloAoAudioTracks, fetchHelloAoChapter } from "./helloao";
+import {
+	extractHelloAoAudioTracks,
+	fetchHelloAoChapter,
+	fetchHelloAoCommentaryChapter,
+} from "./helloao";
 import { type FetchLike, isSafeHttpsUrl } from "./http";
 
 interface WorkerBindings {
@@ -445,6 +450,36 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		return c.json({ error: "ESV audio unavailable" }, 502);
+	});
+
+	app.get("/api/commentaries", (c) => {
+		c.header("Cache-Control", "public, max-age=86400");
+		return c.json({ commentaries: COMMENTARY_SOURCES });
+	});
+
+	app.get("/api/commentary/:commentaryId/:usfm/:chapter", async (c) => {
+		const commentaryId = c.req.param("commentaryId");
+		if (!isCommentaryId(commentaryId)) {
+			return c.json({ error: "Unsupported commentary source" }, 400);
+		}
+		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		if (!parsed) {
+			return c.json({ error: "Invalid book or chapter reference" }, 400);
+		}
+
+		const result = await fetchHelloAoCommentaryChapter(
+			commentaryId,
+			parsed.usfm,
+			parsed.chapter,
+			fetcher,
+		);
+		if (result.status === "error") {
+			c.header("Cache-Control", "no-store");
+			return c.json({ error: "Commentary lookup failed" }, 502);
+		}
+
+		c.header("Cache-Control", "public, max-age=86400");
+		return c.json(result.data);
 	});
 
 	return app;
