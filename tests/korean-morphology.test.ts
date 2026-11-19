@@ -131,37 +131,41 @@ describe("korean-morphology", () => {
 			몰다: { gloss: "to drive" },
 			떨다: { gloss: "to tremble" },
 		};
-		expect(analyzeKoreanWord("불어", extraLex).lemma).toBe("불다");
-		expect(analyzeKoreanWord("물어", extraLex).lemma).toBe("묻다");
-		expect(analyzeKoreanWord("두어", extraLex).lemma).toBe("두다");
-		expect(analyzeKoreanWord("내어", extraLex).lemma).toBe("내다");
-		expect(analyzeKoreanWord("내려", extraLex).lemma).toBe("내리다");
-		expect(analyzeKoreanWord("피하여", extraLex).lemma).toBe("피하다");
-		expect(analyzeKoreanWord("속한", extraLex).lemma).toBe("속하다");
-		expect(analyzeKoreanWord("강하신", extraLex).lemma).toBe("강하다");
-		expect(analyzeKoreanWord("귀하여", extraLex).lemma).toBe("귀하다");
-		expect(analyzeKoreanWord("주니라", extraLex).lemma).toBe("주다");
-		expect(analyzeKoreanWord("전에는", extraLex).lemma).toBe("전");
-		expect(analyzeKoreanWord("단을", extraLex).lemma).toBe("단");
-		expect(analyzeKoreanWord("혼이", extraLex).lemma).toBe("혼");
-		expect(analyzeKoreanWord("둘이", extraLex).lemma).toBe("둘");
-		expect(analyzeKoreanWord("모은", extraLex).lemma).toBe("모으다");
-		expect(analyzeKoreanWord("떠나", extraLex).lemma).toBe("떠나다");
-		expect(analyzeKoreanWord("들어가", extraLex).lemma).toBe("들어가다");
-		expect(analyzeKoreanWord("지켜", extraLex).lemma).toBe("지키다");
-		expect(analyzeKoreanWord("돌이켜", extraLex).lemma).toBe("돌이키다");
-		expect(analyzeKoreanWord("세워", extraLex).lemma).toBe("세우다");
-		expect(analyzeKoreanWord("가져다가", extraLex).lemma).toBe("가지다");
-		expect(analyzeKoreanWord("잠겼나이다", extraLex).lemma).toBe("잠기다");
-		expect(analyzeKoreanWord("이름이시로다", extraLex).lemma).toBe("이름");
-		expect(analyzeKoreanWord("용사시니", extraLex).lemma).toBe("용사");
-		expect(analyzeKoreanWord("할찌니라", extraLex).lemma).toBe("하다");
-		expect(analyzeKoreanWord("말찌니라", extraLex).lemma).toBe("말다");
-		expect(analyzeKoreanWord("들을찌어다", extraLex).lemma).toBe("듣다");
-		expect(analyzeKoreanWord("하였도다", extraLex).lemma).toBe("하다");
-		expect(analyzeKoreanWord("가자", extraLex).lemma).toBe("가다");
-		expect(analyzeKoreanWord("안식하시니라", extraLex).lemma).toBe("안식하다");
-		expect(analyzeKoreanWord("비취라", extraLex).lemma).toBe("비취다");
+		for (const [surface, expected] of [
+			["불어", "불다"],
+			["물어", "묻다"],
+			["두어", "두다"],
+			["내어", "내다"],
+			["내려", "내리다"],
+			["피하여", "피하다"],
+			["속한", "속하다"],
+			["강하신", "강하다"],
+			["귀하여", "귀하다"],
+			["주니라", "주다"],
+			["전에는", "전"],
+			["단을", "단"],
+			["혼이", "혼"],
+			["둘이", "둘"],
+			["모은", "모으다"],
+			["떠나", "떠나다"],
+			["들어가", "들어가다"],
+			["지켜", "지키다"],
+			["돌이켜", "돌이키다"],
+			["세워", "세우다"],
+			["가져다가", "가지다"],
+			["잠겼나이다", "잠기다"],
+			["이름이시로다", "이름"],
+			["용사시니", "용사"],
+			["할찌니라", "하다"],
+			["말찌니라", "말다"],
+			["들을찌어다", "듣다"],
+			["하였도다", "하다"],
+			["가자", "가다"],
+			["안식하시니라", "안식하다"],
+			["비취라", "비취다"],
+		] as const) {
+			expect(analyzeKoreanWord(surface, extraLex).lemma).toBe(expected);
+		}
 	});
 
 	it("handles phonological allomorphy, KRV archaic endings, irregulars, and multi-source biblical senses", async () => {
@@ -259,33 +263,37 @@ describe("korean-morphology", () => {
 		}
 
 		// Biblical disambiguations against secular homographs
-		expect(analyzeKoreanWord("보좌에", lexicon).gloss).toContain("throne");
-		expect(analyzeKoreanWord("우편에", lexicon).gloss).toContain("right");
-		expect(analyzeKoreanWord("소제와", lexicon).gloss).toContain("grain offering");
-		expect(analyzeKoreanWord("공의를", lexicon).gloss).toContain("righteousness");
-		expect(analyzeKoreanWord("허물을", lexicon).gloss).toContain("transgression");
-		expect(analyzeKoreanWord("그룹들이", lexicon).gloss).toContain("cherub");
-		expect(analyzeKoreanWord("제비를", lexicon).gloss).toContain("lot");
-		expect(analyzeKoreanWord("교회의", lexicon).gloss).toContain("church");
-		expect(analyzeKoreanWord("장사하고", lexicon).gloss).toContain("bury");
-		expect(analyzeKoreanWord("수양의", lexicon).gloss).toContain("ram");
-		expect(analyzeKoreanWord("이적을", lexicon).gloss).toContain("miracle");
-		expect(analyzeKoreanWord("지체가", lexicon).gloss).toContain("member");
-		expect(analyzeKoreanWord("하수를", lexicon).gloss).toContain("river");
-		expect(analyzeKoreanWord("중수하였고", lexicon).gloss).toContain("repair");
-		expect(analyzeKoreanWord("중수를", lexicon).gloss).toContain("weight");
-		expect(analyzeKoreanWord("수금을", lexicon).gloss).toContain("lyre");
-		expect(analyzeKoreanWord("자색", lexicon).gloss).toContain("purple");
-		expect(analyzeKoreanWord("사정을", lexicon).gloss).toContain("circumstances");
-		expect(analyzeKoreanWord("외식하는", lexicon).gloss).toContain("hypocritical");
-		expect(analyzeKoreanWord("투기하는", lexicon).gloss).toContain("envy");
-		expect(analyzeKoreanWord("배부를", lexicon).gloss).toContain("full");
-		expect(analyzeKoreanWord("곡하는", lexicon).gloss).toContain("wail");
-		expect(analyzeKoreanWord("에서의", lexicon).gloss).toBe("Esau");
-		expect(analyzeKoreanWord("예후가", lexicon).gloss).toBe("Jehu");
-		expect(analyzeKoreanWord("아사가", lexicon).gloss).toBe("Asa");
-		expect(analyzeKoreanWord("수산에", lexicon).gloss).toBe("Susa");
-		expect(analyzeKoreanWord("시바가", lexicon).gloss).toBe("Ziba");
+		for (const [surface, glossSub] of [
+			["보좌에", "throne"],
+			["우편에", "right"],
+			["소제와", "grain offering"],
+			["공의를", "righteousness"],
+			["허물을", "transgression"],
+			["그룹들이", "cherub"],
+			["제비를", "lot"],
+			["교회의", "church"],
+			["장사하고", "bury"],
+			["수양의", "ram"],
+			["이적을", "miracle"],
+			["지체가", "member"],
+			["하수를", "river"],
+			["중수하였고", "repair"],
+			["중수를", "weight"],
+			["수금을", "lyre"],
+			["자색", "purple"],
+			["사정을", "circumstances"],
+			["외식하는", "hypocritical"],
+			["투기하는", "envy"],
+			["배부를", "full"],
+			["곡하는", "wail"],
+			["에서의", "Esau"],
+			["예후가", "Jehu"],
+			["아사가", "Asa"],
+			["수산에", "Susa"],
+			["시바가", "Ziba"],
+		] as const) {
+			expect(analyzeKoreanWord(surface, lexicon).gloss).toContain(glossSub);
+		}
 		expect(analyzeKoreanWord("누가", lexicon).pos).toBe("pronoun");
 	});
 

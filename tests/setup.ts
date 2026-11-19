@@ -55,6 +55,42 @@ export function renderHook<T>(useHook: () => T): { result: { current: T } } {
 
 export const noop = () => {};
 
+export function makeBookResponse(
+	translationId: string,
+	bookNumber: number,
+	usfm: string,
+	chapters: Record<string, Array<{ verse: number; text: string }>>,
+) {
+	return Response.json({ translationId, bookNumber, usfm, chapters });
+}
+
+export function createReaderFetchHandler(
+	options: {
+		lexicon?: Record<string, unknown>;
+		esv?: (url: string) => Response;
+		krv?: (url: string) => Response;
+		audio?: (url: string) => Response;
+		timings?: (url: string) => Response;
+		commentary?: (url: string) => Response;
+	} = {},
+) {
+	return (url: string) => {
+		if (url.includes("/data/lexicon.json")) return Response.json(options.lexicon ?? {});
+		if (url.includes("/data/bibles/krv/") && options.krv) return options.krv(url);
+		if (url.includes("/data/bibles/esv/") && options.esv) return options.esv(url);
+		if (url.startsWith("/api/audio/")) {
+			return options.audio ? options.audio(url) : Response.json({ tracks: [] });
+		}
+		if (url.includes("/data/timings/krv-supertonic/") && options.timings) {
+			return options.timings(url);
+		}
+		if (url.startsWith("/api/commentary/")) {
+			return options.commentary ? options.commentary(url) : Response.json({ entries: [] });
+		}
+		return new Response("Not Found", { status: 404 });
+	};
+}
+
 export function flushAsync(ms = 10): Promise<void> {
 	return act(async () => {
 		await new Promise((r) => setTimeout(r, ms));

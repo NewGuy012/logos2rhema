@@ -4,6 +4,7 @@ import { normalizeVerseTimings, SUPERTONIC_TRACK_ID } from "../src/shared/audio-
 import type { ChapterAudioResponse, ChapterCommentaryResponse } from "../src/shared/types";
 import { isSafeHttpsUrl } from "../src/shared/url";
 import type { FetchLike } from "../src/worker/http";
+import { readJsonWithLimit } from "../src/worker/http";
 import { createApp, type R2BucketLike, type R2ObjectBodyLike } from "../src/worker/index";
 
 function assertSecurityHeaders(res: Response) {
@@ -122,9 +123,23 @@ describe("Worker API & Security Boundaries", () => {
 		const app = createApp({ fetcher: mockFetch });
 		expect((await app.request("/api/audio/GEN/999")).status).toBe(400);
 		expect((await app.request("/api/audio/GEN/1abc")).status).toBe(400);
-		expect((await app.request("/api/health")).status).toBe(404);
+		const malformedRes = await app.request("/api/audio/%E0%A4%A/1");
+		expect(malformedRes.status).toBe(400);
+		assertSecurityHeaders(malformedRes);
+
+		const notFoundRes = await app.request("/api/health");
+		expect(notFoundRes.status).toBe(404);
+		expect(notFoundRes.headers.get("cache-control")).toBe("no-store");
+		assertSecurityHeaders(notFoundRes);
 		expect((await app.request("/api/commentaries")).status).toBe(404);
 		expect((await app.request("/api/languages")).status).toBe(404);
+
+		await expect(
+			readJsonWithLimit(
+				{ headers: new Headers(), text: async () => "😀".repeat(8) } as Response,
+				20,
+			),
+		).rejects.toThrow("Upstream response exceeded size limit");
 
 		const headRes = await app.request("/api/audio/JHN/3", { method: "HEAD" });
 		expect(headRes.status).toBe(200);
@@ -254,6 +269,7 @@ describe("Worker API & Security Boundaries", () => {
 
 		const emptyRes = await app.request("/api/commentary/tyndale/JDG/1");
 		expect(emptyRes.status).toBe(200);
+		expect(emptyRes.headers.get("cache-control")).toBe("public, max-age=3600");
 		expect(((await emptyRes.json()) as ChapterCommentaryResponse).entries).toEqual([]);
 
 		expect((await app.request("/api/commentary/tyndale/EXO/1")).status).toBe(502);
@@ -324,21 +340,26 @@ describe("Worker API & Security Boundaries", () => {
 		});
 		const app = createApp();
 
-		bucket.resetCounts();
-		const badRef = await app.request("/api/audio/krv/GEN/999", undefined, { AUDIO_BUCKET: bucket });
+		const requestR2 = async (
+			path: string,
+			init?: RequestInit,
+			targetBucket: R2BucketLike & { resetCounts(): void } = bucket,
+		) => {
+			targetBucket.resetCounts();
+			const res = await app.request(path, init, { AUDIO_BUCKET: targetBucket });
+			assertSecurityHeaders(res);
+			return res;
+		};
+
+		const badRef = await requestR2("/api/audio/krv/GEN/999");
 		expect(badRef.status).toBe(400);
-		assertSecurityHeaders(badRef);
 		expect(bucket.totalOps()).toBe(0);
 
-		const traversalRef = await app.request("/api/audio/krv/..%2FGEN/1", undefined, {
-			AUDIO_BUCKET: bucket,
-		});
+		const traversalRef = await requestR2("/api/audio/krv/..%2FGEN/1");
 		expect(traversalRef.status).toBe(400);
 		expect(bucket.totalOps()).toBe(0);
 
-		const nonNumericChapter = await app.request("/api/audio/krv/GEN/1abc", undefined, {
-			AUDIO_BUCKET: bucket,
-		});
+		const nonNumericChapter = await requestR2("/api/audio/krv/GEN/1abc");
 		expect(nonNumericChapter.status).toBe(400);
 		expect(bucket.totalOps()).toBe(0);
 
@@ -354,29 +375,18 @@ describe("Worker API & Security Boundaries", () => {
 			"bytes=-",
 			"",
 		]) {
-			bucket.resetCounts();
-			const res = await app.request(
-				"/api/audio/krv/GEN/1",
-				{ headers: { Range: malformed } },
-				{ AUDIO_BUCKET: bucket },
-			);
+			const res = await requestR2("/api/audio/krv/GEN/1", { headers: { Range: malformed } });
 			expect(res.status).toBe(400);
-			assertSecurityHeaders(res);
 			expect(bucket.totalOps()).toBe(0);
 		}
 
-		bucket.resetCounts();
-		const zeroSuffixRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ headers: { Range: "bytes=-0" } },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const zeroSuffixRes = await requestR2("/api/audio/krv/GEN/1", {
+			headers: { Range: "bytes=-0" },
+		});
 		expect(zeroSuffixRes.status).toBe(416);
-		assertSecurityHeaders(zeroSuffixRes);
 		expect(bucket.totalOps()).toBe(0);
 
-		bucket.resetCounts();
-		const fullRes = await app.request("/api/audio/krv/gen/1", undefined, { AUDIO_BUCKET: bucket });
+		const fullRes = await requestR2("/api/audio/krv/gen/1");
 		expect(fullRes.status).toBe(200);
 		expect(await fullRes.text()).toBe("0123456789");
 		expect(fullRes.headers.get("content-type")).toBe("audio/mpeg");
@@ -385,38 +395,25 @@ describe("Worker API & Security Boundaries", () => {
 		expect(fullRes.headers.get("content-disposition")).toBe("inline");
 		expect(fullRes.headers.get("etag")).toBe('"etag-gen-1"');
 		expect(fullRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
-		assertSecurityHeaders(fullRes);
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		bucket.resetCounts();
-		const mimeRes = await app.request("/api/audio/krv/EXO/1", undefined, { AUDIO_BUCKET: bucket });
+		const mimeRes = await requestR2("/api/audio/krv/EXO/1");
 		expect(mimeRes.status).toBe(200);
 		expect(mimeRes.headers.get("content-type")).toBe("audio/mpeg");
 		expect(bucket.totalOps()).toBe(1);
 
-		bucket.resetCounts();
-		const rangeRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ headers: { Range: "bytes=0-3" } },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const rangeRes = await requestR2("/api/audio/krv/GEN/1", { headers: { Range: "bytes=0-3" } });
 		expect(rangeRes.status).toBe(206);
 		expect(await rangeRes.text()).toBe("0123");
 		expect(rangeRes.headers.get("content-range")).toBe("bytes 0-3/10");
 		expect(rangeRes.headers.get("content-length")).toBe("4");
 		expect(rangeRes.headers.get("accept-ranges")).toBe("bytes");
 		expect(rangeRes.headers.get("etag")).toBe('"etag-gen-1"');
-		assertSecurityHeaders(rangeRes);
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		bucket.resetCounts();
-		const suffixRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ headers: { Range: "bytes=-4" } },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const suffixRes = await requestR2("/api/audio/krv/GEN/1", { headers: { Range: "bytes=-4" } });
 		expect(suffixRes.status).toBe(206);
 		expect(await suffixRes.text()).toBe("6789");
 		expect(suffixRes.headers.get("content-range")).toBe("bytes 6-9/10");
@@ -424,42 +421,30 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		bucket.resetCounts();
-		const notModifiedRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ headers: { "If-None-Match": 'W/"etag-gen-1"' } },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const notModifiedRes = await requestR2("/api/audio/krv/GEN/1", {
+			headers: { "If-None-Match": 'W/"etag-gen-1"' },
+		});
 		expect(notModifiedRes.status).toBe(304);
 		expect(await notModifiedRes.text()).toBe("");
 		expect(notModifiedRes.headers.get("etag")).toBe('"etag-gen-1"');
 		expect(notModifiedRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
-		assertSecurityHeaders(notModifiedRes);
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		bucket.resetCounts();
-		const headRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ method: "HEAD" },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const headRes = await requestR2("/api/audio/krv/GEN/1", { method: "HEAD" });
 		expect(headRes.status).toBe(200);
 		expect(await headRes.text()).toBe("");
 		expect(headRes.headers.get("content-length")).toBe("10");
 		expect(headRes.headers.get("content-type")).toBe("audio/mpeg");
 		expect(headRes.headers.get("accept-ranges")).toBe("bytes");
 		expect(headRes.headers.get("etag")).toBe('"etag-gen-1"');
-		assertSecurityHeaders(headRes);
 		expect(bucket.headCalls).toBe(1);
 		expect(bucket.getCalls).toBe(0);
 
-		bucket.resetCounts();
-		const headRangeRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ method: "HEAD", headers: { Range: "bytes=0-3" } },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const headRangeRes = await requestR2("/api/audio/krv/GEN/1", {
+			method: "HEAD",
+			headers: { Range: "bytes=0-3" },
+		});
 		expect(headRangeRes.status).toBe(206);
 		expect(await headRangeRes.text()).toBe("");
 		expect(headRangeRes.headers.get("content-range")).toBe("bytes 0-3/10");
@@ -471,10 +456,10 @@ describe("Worker API & Security Boundaries", () => {
 			{ "GEN/1.mp3": { data: "0123456789", contentType: "audio/mpeg", httpEtag: '"etag-gen-1"' } },
 			{ omitHead: true },
 		);
-		const headFallbackRes = await app.request(
+		const headFallbackRes = await requestR2(
 			"/api/audio/krv/GEN/1",
 			{ method: "HEAD" },
-			{ AUDIO_BUCKET: getOnlyBucket },
+			getOnlyBucket,
 		);
 		expect(headFallbackRes.status).toBe(200);
 		expect(await headFallbackRes.text()).toBe("");
@@ -482,25 +467,15 @@ describe("Worker API & Security Boundaries", () => {
 		expect(getOnlyBucket.getCalls).toBe(1);
 		expect(getOnlyBucket.cancelledStreams).toBe(1);
 
-		bucket.resetCounts();
-		const missingRes = await app.request("/api/audio/krv/GEN/2", undefined, {
-			AUDIO_BUCKET: bucket,
-		});
+		const missingRes = await requestR2("/api/audio/krv/GEN/2");
 		expect(missingRes.status).toBe(404);
 		expect(missingRes.headers.get("cache-control")).toBe("no-store");
-		assertSecurityHeaders(missingRes);
 		expect(bucket.totalOps()).toBe(1);
 
-		bucket.resetCounts();
-		const oobRes = await app.request(
-			"/api/audio/krv/GEN/1",
-			{ headers: { Range: "bytes=10-" } },
-			{ AUDIO_BUCKET: bucket },
-		);
+		const oobRes = await requestR2("/api/audio/krv/GEN/1", { headers: { Range: "bytes=10-" } });
 		expect(oobRes.status).toBe(416);
 		expect(await oobRes.text()).toBe("");
 		expect(oobRes.headers.get("content-range")).toBe("bytes */10");
-		assertSecurityHeaders(oobRes);
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
@@ -509,13 +484,12 @@ describe("Worker API & Security Boundaries", () => {
 			{ "GEN/1.mp3": { data: "0123456789", contentType: "audio/mpeg", httpEtag: '"etag-gen-1"' } },
 			{ throwOnOobRange: true },
 		);
-		const r2ThrowRes = await app.request(
+		const r2ThrowRes = await requestR2(
 			"/api/audio/krv/GEN/1",
 			{ headers: { Range: "bytes=99-120" } },
-			{ AUDIO_BUCKET: throwingBucket },
+			throwingBucket,
 		);
 		expect(r2ThrowRes.status).toBe(416);
-		assertSecurityHeaders(r2ThrowRes);
 		expect(throwingBucket.totalOps()).toBe(1);
 	});
 });

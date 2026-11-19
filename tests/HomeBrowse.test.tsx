@@ -8,13 +8,14 @@ import { clearLoaderCaches } from "../src/react-app/lib/bible-loader";
 import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
 import { BIBLICAL_GLOSSARY, KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
 import {
+	createReaderFetchHandler,
 	fireClick,
 	flushAsync,
 	getButton,
 	getByText,
 	installMockAudio,
+	makeBookResponse,
 	mockMatchMedia,
-	noop,
 	render,
 	setInputValue,
 	waitUntil,
@@ -301,25 +302,16 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 		const onOpenPassage = mock(() => {});
 
 		await withMockFetch(
-			(url) => {
-				if (url.includes("/data/lexicon.json")) {
-					return Response.json({
-						평안: { gloss: "peace / well-being", hanja: "平安", pos: "noun" },
-						찬송가: { gloss: "hymnal / hymn", pos: "noun" },
-					});
-				}
-				if (url.includes("/data/bibles/krv/GEN.json")) {
-					return Response.json({
-						translationId: "krv",
-						bookNumber: 1,
-						usfm: "GEN",
-						chapters: {
-							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
-						},
-					});
-				}
-				return new Response(null, { status: 404 });
-			},
+			createReaderFetchHandler({
+				lexicon: {
+					평안: { gloss: "peace / well-being", hanja: "平安", pos: "noun" },
+					찬송가: { gloss: "hymnal / hymn", pos: "noun" },
+				},
+				krv: () =>
+					makeBookResponse("krv", 1, "GEN", {
+						"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+					}),
+			}),
 			async () => {
 				const { container } = render(
 					<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
@@ -379,27 +371,17 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 
 		try {
 			await withMockFetch(
-				(url) => {
-					if (url.includes("/data/lexicon.json")) return Response.json({});
-					if (url.includes("/data/bibles/esv/GEN.json")) {
-						return Response.json({
-							translationId: "esv",
-							bookNumber: 1,
-							usfm: "GEN",
-							chapters: { "1": [{ verse: 1, text: "In the beginning, God created." }] },
-						});
-					}
-					if (url.includes("/data/bibles/krv/GEN.json")) {
-						return Response.json({
-							translationId: "krv",
-							bookNumber: 1,
-							usfm: "GEN",
-							chapters: { "1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }] },
-						});
-					}
-					if (url.startsWith("/api/audio/")) return Response.json({ tracks: [] });
-					if (url.startsWith("/api/commentary/")) {
-						return Response.json({
+				createReaderFetchHandler({
+					esv: () =>
+						makeBookResponse("esv", 1, "GEN", {
+							"1": [{ verse: 1, text: "In the beginning, God created." }],
+						}),
+					krv: () =>
+						makeBookResponse("krv", 1, "GEN", {
+							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+						}),
+					commentary: () =>
+						Response.json({
 							entries: [
 								{
 									id: "tyndale:GEN:1:1",
@@ -407,10 +389,8 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 									paragraphs: ["Genesis 1:1 commentary note."],
 								},
 							],
-						});
-					}
-					return new Response(null, { status: 404 });
-				},
+						}),
+				}),
 				async () => {
 					const { container } = render(<App />);
 					const browseSection = container.querySelector(
@@ -435,7 +415,6 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 			);
 		} finally {
 			restoreMatchMedia();
-			noop();
 		}
 	});
 });
