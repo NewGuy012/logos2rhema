@@ -18,6 +18,7 @@
 	},
 	"private": true,
 	"scripts": {
+		"audio:align-krv": "uv run scripts/align-krv-audio.py",
 		"build": "bun check -b --no-script && vite build",
 		"check": "bun fmt --check --no-script && bun check -b --no-script",
 		"data:build": "bun run scripts/build-bible-data.ts",
