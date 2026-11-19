@@ -164,6 +164,131 @@ describe("korean-morphology", () => {
 		expect(analyzeKoreanWord("비취라", extraLex).lemma).toBe("비취다");
 	});
 
+	it("handles phonological allomorphy, KRV archaic endings, irregulars, and multi-source biblical senses", async () => {
+		const rootDir = join(import.meta.dir, "..");
+		const lexicon: LexiconMap = await Bun.file(join(rootDir, "public/data/lexicon.json")).json();
+
+		// Regular-before-irregular & phonological triggers (prevents 마시고 -> 말다, 들고 -> 듣다, 남아 -> 나다, 자와 -> 잡다)
+		const expectedLemmas: ReadonlyArray<readonly [string, string]> = [
+			["마시고", "마시다"],
+			["마시지", "마시다"],
+			["마시는", "마시다"],
+			["마실", "마시다"],
+			["드리라", "드리다"],
+			["드릴", "드리다"],
+			["버리라", "버리다"],
+			["보이는", "보이다"],
+			["이기는", "이기다"],
+			["그치니라", "그치다"],
+			["거두는", "거두다"],
+			["기울이라", "기울이다"],
+			["입은", "입다"],
+			["입고", "입다"],
+			["입지", "입다"],
+			["입을", "입"],
+			["남은", "남다"],
+			["남아", "남다"],
+			["삼아", "삼다"],
+			["참아", "참다"],
+			["들고", "들다"],
+			["들으라", "듣다"],
+			["들으소서", "듣다"],
+			["물고", "물다"],
+			["부음을", "붓다"],
+			["돌아", "돌다"],
+			["살아", "살다"],
+			["달아", "달다"],
+			["도와", "돕다"],
+			["나와", "나"],
+			["자와", "자"],
+			["이와", "이"],
+			["자니라", "자"],
+			["자나", "자"],
+			["자여", "자"],
+			["것이라", "것"],
+			["것임이니라", "것"],
+			["것인즉", "것"],
+			["함이라", "하다"],
+			["한지라", "하다"],
+			["하셨도다", "하다"],
+			["하셨음이라", "하다"],
+			["할꼬", "하다"],
+			["하고자", "하다"],
+			["마옵소서", "말다"],
+			["계신", "계시다"],
+			["젊은", "젊다"],
+			["섰는", "서다"],
+			["선", "서다"],
+			["선을", "선"],
+			["가서", "가다"],
+			["가는", "가다"],
+			["사는", "살다"],
+			["오는", "오다"],
+			["제자들에게", "제자"],
+			["성읍들에", "성읍"],
+			["하나님이시라", "하나님"],
+			["여호와께로", "여호와"],
+			["일렀으되", "이르다"],
+			["이른즉", "이르다"],
+			["따라서", "따르다"],
+			["모아", "모으다"],
+			["썼고", "쓰다"],
+			["싸서", "싸다"],
+			["여시고", "열다"],
+			["앎이라", "알다"],
+			["아니라", "아니다"],
+			["두려워", "두렵다"],
+			["아름다와", "아름답다"],
+			["무엇이관대", "무엇"],
+			["찬송할찌로다", "찬송하다"],
+			["같으니이다", "같다"],
+			["있으리이까", "있다"],
+			["딸이더라", "딸"],
+			["무엇인지", "무엇"],
+			["지나갔음이러라", "지나가다"],
+			["마른", "마르다"],
+			["마르다가", "마르다"],
+			["악인의", "악인"],
+			["나귀의", "나귀"],
+			["갈고", "갈다"],
+			["맞고", "맞다"],
+			["일월", "일월"],
+		];
+		for (const [surface, expected] of expectedLemmas) {
+			expect(analyzeKoreanWord(surface, lexicon).lemma).toBe(expected);
+		}
+
+		// Biblical disambiguations against secular homographs
+		expect(analyzeKoreanWord("보좌에", lexicon).gloss).toContain("throne");
+		expect(analyzeKoreanWord("우편에", lexicon).gloss).toContain("right");
+		expect(analyzeKoreanWord("소제와", lexicon).gloss).toContain("grain offering");
+		expect(analyzeKoreanWord("공의를", lexicon).gloss).toContain("righteousness");
+		expect(analyzeKoreanWord("허물을", lexicon).gloss).toContain("transgression");
+		expect(analyzeKoreanWord("그룹들이", lexicon).gloss).toContain("cherub");
+		expect(analyzeKoreanWord("제비를", lexicon).gloss).toContain("lot");
+		expect(analyzeKoreanWord("교회의", lexicon).gloss).toContain("church");
+		expect(analyzeKoreanWord("장사하고", lexicon).gloss).toContain("bury");
+		expect(analyzeKoreanWord("수양의", lexicon).gloss).toContain("ram");
+		expect(analyzeKoreanWord("이적을", lexicon).gloss).toContain("miracle");
+		expect(analyzeKoreanWord("지체가", lexicon).gloss).toContain("member");
+		expect(analyzeKoreanWord("하수를", lexicon).gloss).toContain("river");
+		expect(analyzeKoreanWord("중수하였고", lexicon).gloss).toContain("repair");
+		expect(analyzeKoreanWord("중수를", lexicon).gloss).toContain("weight");
+		expect(analyzeKoreanWord("수금을", lexicon).gloss).toContain("lyre");
+		expect(analyzeKoreanWord("자색", lexicon).gloss).toContain("purple");
+		expect(analyzeKoreanWord("사정을", lexicon).gloss).toContain("circumstances");
+		expect(analyzeKoreanWord("외식하는", lexicon).gloss).toContain("hypocritical");
+		expect(analyzeKoreanWord("투기하는", lexicon).gloss).toContain("envy");
+		expect(analyzeKoreanWord("배부를", lexicon).gloss).toContain("full");
+		expect(analyzeKoreanWord("곡하는", lexicon).gloss).toContain("wail");
+		expect(analyzeKoreanWord("에서의", lexicon).gloss).toBe("Esau");
+		expect(analyzeKoreanWord("예후가", lexicon).gloss).toBe("Jehu");
+		expect(analyzeKoreanWord("아사가", lexicon).gloss).toBe("Asa");
+		expect(analyzeKoreanWord("수산에", lexicon).gloss).toBe("Susa");
+		expect(analyzeKoreanWord("시바가", lexicon).gloss).toBe("Ziba");
+		expect(analyzeKoreanWord("누가", lexicon).pos).toBe("pronoun");
+	});
+
 	it("validates public lexicon formatting and 66-book Bible data integrity", async () => {
 		const rootDir = join(import.meta.dir, "..");
 		const lexicon: LexiconMap = await Bun.file(join(rootDir, "public/data/lexicon.json")).json();
@@ -171,9 +296,15 @@ describe("korean-morphology", () => {
 		for (const [key, entry] of Object.entries(lexicon)) {
 			expect(containsHangul(key)).toBe(true);
 			expect(entry.gloss.length).toBeGreaterThanOrEqual(2);
+			expect(entry.pos).toBeDefined();
 			expect(entry.gloss.includes("`")).toBe(false);
 			expect(containsHangul(entry.gloss)).toBe(false);
 			expect(/^\d+$/.test(entry.gloss)).toBe(false);
+			expect(
+				/\b(sth|sb|what the hell|napoo|ejaculation|petuntse|sharpbelly|heavy water|license plate|aiding the enemy)\b|\(English\)/i.test(
+					entry.gloss,
+				),
+			).toBe(false);
 			expect(entry.gloss.match(/\(/g)?.length ?? 0).toBe(entry.gloss.match(/\)/g)?.length ?? 0);
 		}
 

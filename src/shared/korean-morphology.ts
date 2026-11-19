@@ -2,8 +2,11 @@ import { BIBLICAL_GLOSSARY, detectKrvGrammarNotes } from "./biblical-glossary";
 import {
 	containsHangul,
 	endsWithOpenAEoVowel,
+	getFirstInitialConsonant,
 	hasFinalConsonant,
 	replaceLastFinalConsonant,
+	restoreEuIrregularStem,
+	startsWithOpenOVowel,
 	stripLastFinalConsonant,
 } from "./hangul";
 import type {
@@ -15,61 +18,82 @@ import type {
 	VerseEntry,
 } from "./types";
 
+type CodaReq = "consonant" | "vowel" | "vowelOrRieul";
+
 interface SuffixRule {
 	suffix: string;
 	note: string;
 	kind: "particle" | "copula" | "verb";
 	/** Partial stem restored after stripping (e.g. "했" -> "하"). */
 	stemPatch?: string;
+	/** Phonological 받침 requirement on the preceding stem (for particles/copulas). */
+	codaReq?: CodaReq;
 }
 
-type RuleSpec = readonly [suffix: string, note: string, stemPatch?: string];
+type RuleSpec = readonly [suffix: string, note: string, stemPatch?: string, codaReq?: CodaReq];
 
 function toRules(kind: SuffixRule["kind"], specs: readonly RuleSpec[]): SuffixRule[] {
-	return specs.map(([suffix, note, stemPatch]) => ({ suffix, note, kind, stemPatch }));
+	return specs.map(([suffix, note, stemPatch, codaReq]) => ({
+		suffix,
+		note,
+		kind,
+		stemPatch,
+		codaReq,
+	}));
 }
 
 const PARTICLE_RULES: readonly SuffixRule[] = toRules("particle", [
+	["께로부터", "'from (honorific person)'"],
+	["에게로부터", "'from (person)'"],
 	["께서는", "honorific subject + topic"],
 	["께서도", "honorific subject + 'also'"],
 	["께로서", "'from (honorific person)'"],
+	["께로", "'toward (honorific person)'"],
 	["에게는", "'to (person)' + topic"],
 	["에게도", "'to (person)' + 'also'"],
 	["에게로", "'toward (person)'"],
 	["에게서", "'from (person)'"],
+	["게서", "'from (person)'"],
+	["게로", "'toward (person)'"],
 	["에서는", "'in/from' + topic"],
 	["에서도", "'in/from' + 'also'"],
-	["으로부터", "'from'"],
-	["로부터", "'from'"],
-	["으로는", "'with/toward' + topic"],
-	["으로도", "'with/toward' + 'also'"],
-	["으로나", "'whether by / or by'"],
-	["로나", "'whether by / or by'"],
-	["으로써", "'by means of'"],
-	["으로서", "'as / in capacity of'"],
-	["로써", "'by means of'"],
-	["로서", "'as / in capacity of'"],
-	["이라도", "'even'"],
+	["에서만", "'only in/from'"],
+	["에서야", "'only in/at/from'"],
+	["에야", "'only at/in'"],
+	["에나", "'even at/in / or at'"],
+	["에라", "'at/in' + emphatic"],
+	["에라도", "'even at/in'"],
+	["서부터", "'from (place)'"],
+	["서도", "'from (place)' + 'also'"],
+	["서는", "'from (place)' + topic"],
+	["으로부터", "'from'", undefined, "consonant"],
+	["로부터", "'from'", undefined, "vowelOrRieul"],
+	["으로는", "'with/toward' + topic", undefined, "consonant"],
+	["으로도", "'with/toward' + 'also'", undefined, "consonant"],
+	["으로나", "'whether by / or by'", undefined, "consonant"],
+	["으로만", "'only by/toward'", undefined, "consonant"],
+	["로는", "'with/toward' + topic", undefined, "vowelOrRieul"],
+	["로도", "'with/toward' + 'also'", undefined, "vowelOrRieul"],
+	["로나", "'whether by / or by'", undefined, "vowelOrRieul"],
+	["로만", "'only by/toward'", undefined, "vowelOrRieul"],
+	["으로써", "'by means of'", undefined, "consonant"],
+	["으로서", "'as / in capacity of'", undefined, "consonant"],
+	["로써", "'by means of'", undefined, "vowelOrRieul"],
+	["로서", "'as / in capacity of'", undefined, "vowelOrRieul"],
+	["이라도", "'even'", undefined, "consonant"],
+	["라도", "'even'", undefined, "vowel"],
+	["까지라도", "'even up to'"],
 	["까지도", "'even up to'"],
-	["자들에게는", "plural 'those who' + 'to'"],
-	["자들에게", "plural 'those who' + 'to'"],
-	["들이니라", "plural + 'are' (declarative)"],
-	["들에게서", "plural + 'from (persons)'"],
-	["들에게는", "plural + 'to' + topic"],
-	["들에게도", "plural + 'to' + 'also'"],
-	["들에게", "plural + 'to'"],
-	["들의", "plural + possessive 'of'"],
-	["들이", "plural + subject"],
-	["들을", "plural + object"],
-	["들은", "plural + topic"],
-	["들도", "plural + 'also'"],
-	["들과", "plural + 'and/with'"],
-	["들아", "plural vocative ('O ...')"],
+	["까지는", "'up to' + topic"],
+	["까지나", "'even up to'"],
+	["부터는", "'from' + topic"],
+	["대로는", "'according to' + topic"],
+	["보다는", "'than' + topic"],
 	["께서", "honorific subject marker"],
 	["에서", "'in / at / from' (location)"],
 	["에게", "'to / for' (person)"],
 	["한테", "'to / from' (person)"],
-	["으로", "'toward / by / as'"],
+	["으로", "'toward / by / as'", undefined, "consonant"],
 	["부터", "'from / since'"],
 	["까지", "'until / to / even'"],
 	["대로", "'according to / as'"],
@@ -79,32 +103,34 @@ const PARTICLE_RULES: readonly SuffixRule[] = toRules("particle", [
 	["밖에", "'except / only'"],
 	["에도", "'in/at/to' + 'also'"],
 	["에는", "'in/at/to' + topic"],
-	["이나", "'or / even / though'"],
+	["에만", "'only in/at/to'"],
+	["이나", "'or / even / though'", undefined, "consonant"],
+	["이여", "archaic vocative ('O ...')", undefined, "consonant"],
 	["들", "plural marker"],
 	["께", "'to' (honorific)"],
-	["로", "'toward / by / as'"],
-	["와", "'and / with'"],
-	["과", "'and / with'"],
-	["은", "topic marker"],
-	["는", "topic marker"],
-	["이", "subject marker"],
-	["가", "subject marker"],
-	["을", "object marker"],
-	["를", "object marker"],
+	["로", "'toward / by / as'", undefined, "vowelOrRieul"],
+	["와", "'and / with'", undefined, "vowel"],
+	["과", "'and / with'", undefined, "consonant"],
+	["은", "topic marker", undefined, "consonant"],
+	["는", "topic marker", undefined, "vowel"],
+	["이", "subject marker", undefined, "consonant"],
+	["가", "subject marker", undefined, "vowel"],
+	["을", "object marker", undefined, "consonant"],
+	["를", "object marker", undefined, "vowel"],
 	["에", "'in / at / to'"],
 	["의", "possessive ('of')"],
 	["도", "'also / even'"],
 	["만", "'only'"],
-	["나", "'or / as for'"],
-	["야", "vocative / emphatic"],
-	["아", "vocative ('O ...')"],
-	["여", "archaic vocative ('O ...')"],
-	["이여", "archaic vocative ('O ...')"],
+	["나", "'or / as for'", undefined, "vowel"],
+	["야", "vocative / emphatic", undefined, "vowel"],
+	["아", "vocative ('O ...')", undefined, "consonant"],
+	["여", "archaic vocative ('O ...')", undefined, "vowel"],
 ]);
 
 const BARE_COPULA_SPECS: readonly RuleSpec[] = [
 	["시니이다", "'you are / it is' (polite hon.)"],
 	["시니라", "'is / are' (hon. declarative)"],
+	["시리라", "'shall be' (hon. declarative)"],
 	["시로다", "'is indeed!' (hon. exclamatory)"],
 	["시며", "'is ... and' (hon.)"],
 	["시고", "'is ... and' (hon.)"],
@@ -112,72 +138,232 @@ const BARE_COPULA_SPECS: readonly RuleSpec[] = [
 	["시되", "'though / is' (hon.)"],
 	["시니", "'because [it] is' (hon.)"],
 	["시요", "'is' (hon.)"],
+	["시라", "'is' (hon. declarative)"],
+	["시냐", "'is ...?' (hon. question)"],
+	["시뇨", "'is ...?' (hon. archaic question)"],
+	["시랴", "'would ... be?' (hon. rhetorical)"],
 	["니이다", "'is' (polite KRV declarative)"],
 	["니라", "'is' (declarative)"],
+	["더라", "'was' (observed past)"],
 	["로다", "'is indeed!' (exclamatory)"],
 	["로라", "'am / is' (literary)"],
 	["로되", "'though / is ... yet'"],
+	["관대", "'what/who ... that' (archaic KRV)"],
+	["오며", "'is ... and' (humble KRV)"],
+	["오니", "'since [it] is' (humble KRV)"],
+	["오매", "'when/since [it] is' (humble KRV)"],
+	["오되", "'though [it] is' (humble KRV)"],
 	["며", "'is ... and'"],
 	["요", "'is ... and'"],
 	["라", "'is / called'"],
+	["냐", "'is it ...?' (question)"],
+	["뇨", "'is it ...?' (archaic KRV question)"],
+	["랴", "'would it be ...?' (rhetorical)"],
 ];
 
 const COPULA_RULES: readonly SuffixRule[] = toRules("copula", [
-	...BARE_COPULA_SPECS,
+	...BARE_COPULA_SPECS.map(([suffix, note]): RuleSpec => [suffix, note, undefined, "vowel"]),
 	...BARE_COPULA_SPECS.map(([suffix, note]): RuleSpec => [`이${suffix}`, note]),
 	["이리로다", "'will surely be!'"],
 	["이리라", "'shall be' (declarative)"],
+	["임이니이다", "copula nominalizer + polite 'is'"],
+	["임이니라", "copula nominalizer + 'is'"],
+	["임이라", "copula nominalizer + 'is'"],
+	["임이여", "copula nominalizer + exclamatory"],
+	["임이로다", "copula nominalizer + 'is indeed!'"],
+	["임이니", "copula nominalizer + 'for / since'"],
+	["임이며", "copula nominalizer + 'and'"],
+	["임이요", "copula nominalizer + 'is ... and'"],
+	["임을", "copula nominalizer + object"],
+	["임이", "copula nominalizer + subject"],
+	["임은", "copula nominalizer + topic"],
+	["이러라", "'was / indeed' (literary)"],
 	["인지라", "'since [it] is'"],
+	["인지", "'whether / what [it] is'"],
+	["인즉", "'since/if [it] is' (archaic KRV)"],
 	["이라서", "'because [it] is'"],
 	["이면", "'if [it] is'"],
 	["인줄", "'that [it] is'"],
 	["이고", "'is ... and'"],
 	["이니", "'because [it] is'"],
-	["시라", "'is' (hon. declarative)"],
-	["러라", "'was / indeed' (literary)"],
-	["냐", "'is it ...?' (question)"],
-	["인", "'who/which is' (copula modifier)"],
+	["러라", "'was / indeed' (literary)", undefined, "vowel"],
+	["인", "'who/which is' (copula modifier)", undefined, "consonant"],
 ]);
 
 const PAST_ENDINGS: readonly RuleSpec[] = [
+	["음이니이다", "past nominalizer + polite 'is'"],
+	["음이니라", "past nominalizer + 'is'"],
+	["음이러라", "past nominalizer + literary 'was'"],
 	["음이라", "past nominalizer + 'is'"],
+	["음이요", "past nominalizer + 'is ... and'"],
+	["음이며", "past nominalizer + 'is ... and'"],
+	["음은", "past nominalizer + topic"],
+	["음을", "past nominalizer + object"],
+	["음이", "past nominalizer + subject"],
 	["으므로", "past + 'because'"],
+	["는지라", "past + 'because / since'"],
+	["는데", "past + 'while / and'"],
+	["거니와", "past + 'indeed, yet'"],
+	["은즉", "past + 'since / when'"],
+	["으매", "past + 'when / since'"],
+	["으되", "past + 'though / saying'"],
+	["으리이다", "past + polite future/presumption"],
+	["으리요", "past + rhetorical ('would ...?')"],
+	["었노라", "double-past 1st-person declarative"],
+	["사오니", "past humble + 'for / since'"],
+	["사오며", "past humble + 'and'"],
+	["사오매", "past humble + 'when / since'"],
+	["사오되", "past humble + 'though / saying'"],
 	["나이다", "past polite declarative"],
 	["나이까", "past polite question"],
 	["도다", "past exclamatory"],
 	["느니라", "past declarative"],
 	["느냐", "past question"],
+	["느뇨", "past archaic question"],
 	["느니", "past + 'since'"],
 	["거늘", "past + 'when / since'"],
 	["노라", "1st-person past declarative"],
 	["나니", "past + 'for / since'"],
 	["더라", "past observed"],
 	["더니", "past + 'and then'"],
+	["다가", "past + 'and then'"],
 	["으니", "past + 'so / since'"],
 	["으나", "past + 'but / though'"],
 	["으며", "past + 'and'"],
+	["던", "past retrospective modifier"],
+	["는", "past modifier (KRV)"],
+	["을", "past future/conditional modifier"],
 	["고", "past + 'and'"],
 	["다", "past tense"],
 ];
 
-const EPENTHETIC_EU_ENDINGS: readonly RuleSpec[] = [
+const HONORIFIC_SI_ENDINGS: readonly RuleSpec[] = [
+	["셨음이니이다", "-시- (hon.) + past nominalizer + polite 'is'"],
+	["셨음이니라", "-시- (hon.) + past nominalizer + 'is'"],
+	["셨음이러라", "-시- (hon.) + past nominalizer + literary 'was'"],
+	["셨음이라", "-시- (hon.) + past nominalizer + 'is'"],
+	["셨음이며", "-시- (hon.) + past nominalizer + 'and'"],
+	["셨음은", "-시- (hon.) + past nominalizer + topic"],
+	["셨음을", "-시- (hon.) + past nominalizer + object"],
+	["셨음이", "-시- (hon.) + past nominalizer + subject"],
+	["셨나이다", "-시- (hon.) + past polite declarative"],
+	["셨나이까", "-시- (hon.) + past polite question"],
+	["셨느니라", "-시- (hon.) + past + -느니라"],
+	["셨느냐", "-시- (hon.) + past question"],
+	["셨느뇨", "-시- (hon.) + past archaic question"],
+	["셨도다", "-시- (hon.) + past exclamatory"],
+	["셨나니", "-시- (hon.) + past + 'for / since'"],
+	["셨거늘", "-시- (hon.) + past + 'when / since'"],
+	["셨거니와", "-시- (hon.) + past + 'indeed, yet'"],
+	["셨는데", "-시- (hon.) + past + 'while / and'"],
+	["셨으므로", "-시- (hon.) + past + 'because'"],
+	["셨으매", "-시- (hon.) + past + 'when / since'"],
+	["셨으되", "-시- (hon.) + past + 'though / saying'"],
+	["셨으니", "-시- (hon.) + past + 'so / since'"],
+	["셨으나", "-시- (hon.) + past + 'but / though'"],
+	["셨으며", "-시- (hon.) + past + 'and'"],
+	["셨은즉", "-시- (hon.) + past + 'since / when'"],
+	["셨는지라", "-시- (hon.) + past + 'because / since'"],
+	["셨사오니", "-시- (hon.) + past humble + 'for / since'"],
+	["셨사오며", "-시- (hon.) + past humble + 'and'"],
+	["셨더라", "-시- (hon.) + past observed"],
+	["셨더니", "-시- (hon.) + past + 'and then'"],
+	["셨던", "-시- (hon.) + past retrospective modifier"],
+	["셨는", "-시- (hon.) + past modifier"],
+	["셨고", "-시- (hon.) + past + 'and'"],
+	["셨다", "-시- (hon.) + past"],
+	["시옵소서", "-시- (hon.) + humble request ('please')"],
+	["시옵나이다", "-시- (hon.) + humble polite declarative"],
+	["시옵나이까", "-시- (hon.) + humble polite question"],
+	["시오니", "-시- (hon.) + humble 'for / since'"],
+	["시오며", "-시- (hon.) + humble 'and'"],
+	["시오매", "-시- (hon.) + humble 'when / since'"],
+	["시오되", "-시- (hon.) + humble 'though / saying'"],
+	["시나이다", "-시- (hon.) + polite declarative"],
+	["시나이까", "-시- (hon.) + polite question"],
+	["시나니", "-시- (hon.) + 'for / since'"],
+	["시느니라", "-시- (hon.) + timeless declarative"],
+	["시느뇨", "-시- (hon.) + archaic question"],
+	["시느냐", "-시- (hon.) + question"],
+	["시는지라", "-시- (hon.) + 'because / since'"],
+	["신지라", "-시- (hon.) + 'because / since'"],
+	["신즉", "-시- (hon.) + 'since / when'"],
+	["신대", "-시- (hon.) + 'when / as'"],
+	["시므로", "-시- (hon.) + 'because / since'"],
+	["시려고", "-시- (hon.) + 'in order to'"],
+	["심이니이다", "-시- (hon.) + nominalizer + polite 'is'"],
+	["심이니라", "-시- (hon.) + nominalizer + 'is'"],
+	["심이라", "-시- (hon.) + nominalizer + 'is'"],
+	["심으로", "-시- (hon.) + 'by doing'"],
+	["심을", "-시- (hon.) + nominalizer + object"],
+	["심이", "-시- (hon.) + nominalizer + subject"],
+	["시는도다", "-시- (hon.) + exclamatory"],
+	["시도다", "-시- (hon.) + exclamatory"],
 	["시니라", "-시- (hon.) + -니라 (declarative)"],
+	["시리이다", "-시- (hon.) + polite future declarative"],
+	["시리라", "-시- (hon.) + future declarative"],
+	["시리니", "-시- (hon.) + future connective"],
+	["시리로다", "-시- (hon.) + future exclamatory"],
+	["시리요", "-시- (hon.) + rhetorical future"],
+	["시랴", "-시- (hon.) + rhetorical question"],
+	["시냐", "-시- (hon.) + question"],
+	["시뇨", "-시- (hon.) + archaic question"],
+	["시던", "-시- (hon.) + past modifier"],
+	["시더라", "-시- (hon.) + past observed"],
+	["시더니", "-시- (hon.) + 'and then'"],
+	["시는데", "-시- (hon.) + 'while / when'"],
 	["시면", "-시- (hon.) + 'if / when'"],
-	["시매", "-시- (hon.) + 'when / since'"],
-	["시며", "-시- (hon.) + 'and'"],
+	["시매", "-시- (hon.) + -매 ('when / since')"],
+	["시며", "-시- (hon.) + 'and / while'"],
 	["시고", "-시- (hon.) + 'and'"],
-	["시니", "-시- (hon.) + 'so / since'"],
-	["신", "-시- (hon.) + past modifier"],
+	["시니", "-시- (hon.) + 'so / as'"],
+	["시나", "-시- (hon.) + 'but / though'"],
+	["시되", "-시- (hon.) + 'saying / but'"],
+	["시사", "-시- (hon.) + archaic connective"],
+	["시게", "-시- (hon.) + 'so that'"],
+	["시지", "-시- (hon.) + negative/connective"],
+	["시기에", "-시- (hon.) + 'when / to do'"],
+	["시기를", "-시- (hon.) + 'to do'"],
+	["시기로", "-시- (hon.) + 'to do'"],
+	["시는", "-시- (hon.) + present modifier"],
+	["신대로", "-시- (hon.) + 'according to'"],
+	["신바", "-시- (hon.) + 'that which'"],
+	["실지라", "-시- (hon.) + 'shall'"],
+	["실찌라", "-시- (hon.) + 'shall' (KRV)"],
+	["실찌니라", "-시- (hon.) + 'shall' (KRV)"],
 	["실", "-시- (hon.) + future modifier"],
+	["신", "-시- (hon.) + past modifier"],
 	["심", "-시- (hon.) + nominalizer"],
+];
+
+const EPENTHETIC_EU_ENDINGS: readonly RuleSpec[] = [
+	["소서", "polite request ('please')"],
+	["니이다", "polite declarative ('indeed')"],
+	["나이다", "polite archaic declarative"],
+	["나이까", "polite archaic question"],
 	["리로다", "future exclamatory ('will surely')"],
+	["리이다", "polite future declarative ('shall / will')"],
+	["리이까", "polite future question ('shall ...?')"],
 	["리라", "future declarative ('shall / will')"],
 	["리니", "future connective ('for ... will')"],
+	["리요", "rhetorical future ('would ...?')"],
+	["리야", "rhetorical future ('would ...?')"],
+	["랴", "rhetorical question ('would ...?')"],
+	["려니와", "'indeed, yet'"],
+	["려거든", "'if intending to'"],
+	["려다가", "'while intending to'"],
+	["려고", "'in order to'"],
+	["려면", "'if intending to'"],
+	["려", "'intending to / in order to'"],
+	["러", "'in order to'"],
+	["므로", "'because / since'"],
 	["니라", "declarative ('indeed')"],
 	["매", "archaic connective ('when / since')"],
 	["며", "'and / while'"],
 	["니", "'so / since / when'"],
 	["나", "'but / though'"],
+	["냐", "question ('do ...?')"],
+	["뇨", "archaic question ('do ...?')"],
 	["면", "'if / when'"],
 	["라", "imperative ('command')"],
 	["사", "archaic connective ('having ...')"],
@@ -229,59 +415,43 @@ const STEM_CONTRACTIONS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 const VERB_ENDING_RULES: readonly SuffixRule[] = [
+	...toRules("verb", HONORIFIC_SI_ENDINGS),
+	...toRules(
+		"verb",
+		HONORIFIC_SI_ENDINGS.map(([tail, note]): RuleSpec => [`으${tail}`, note]),
+	),
 	...toRules("verb", [
-		["셨나이다", "-시- (hon.) + past polite declarative"],
-		["셨나이까", "-시- (hon.) + past polite question"],
-		["셨느니라", "-시- (hon.) + past + -느니라"],
-		["셨느냐", "-시- (hon.) + past question"],
-		["셨거늘", "-시- (hon.) + past + 'when / since'"],
-		["셨으매", "-시- (hon.) + past + 'when / since'"],
-		["셨으니", "-시- (hon.) + past + 'so/since'"],
-		["셨더라", "-시- (hon.) + past observed"],
-		["셨고", "-시- (hon.) + past + 'and'"],
-		["셨다", "-시- (hon.) + past"],
-		["셨으며", "-시- (hon.) + past + 'and'"],
-		["시옵소서", "-시- (hon.) + humble request ('please')"],
-		["시나이다", "-시- (hon.) + polite declarative"],
-		["시나이까", "-시- (hon.) + polite question"],
-		["시나니", "-시- (hon.) + 'for / since'"],
-		["심이니이다", "-시- (hon.) + nominalizer + polite 'is'"],
-		["심이니라", "-시- (hon.) + nominalizer + 'is'"],
-		["심이라", "-시- (hon.) + nominalizer + 'is'"],
-		["심으로", "-시- (hon.) + 'by doing'"],
-		["심을", "-시- (hon.) + nominalizer + object"],
-		["심이", "-시- (hon.) + nominalizer + subject"],
-		["시는도다", "-시- (hon.) + exclamatory"],
-		["시니라", "-시- (hon.) + -니라 (declarative)"],
-		["시리라", "-시- (hon.) + future declarative"],
-		["시리로다", "-시- (hon.) + future exclamatory"],
-		["시던", "-시- (hon.) + past modifier"],
-		["시더라", "-시- (hon.) + past observed"],
-		["시면", "-시- (hon.) + 'if / when'"],
-		["시매", "-시- (hon.) + -매 ('when/since')"],
-		["시며", "-시- (hon.) + 'and / while'"],
-		["시고", "-시- (hon.) + 'and'"],
-		["시니", "-시- (hon.) + 'so / as'"],
-		["시되", "-시- (hon.) + 'saying / but'"],
-		["시사", "-시- (hon.) + archaic connective"],
-		["시게", "-시- (hon.) + 'so that'"],
-		["시지", "-시- (hon.) + negative/connective"],
-		["시기에", "-시- (hon.) + 'when / to see'"],
-		["시기를", "-시- (hon.) + 'to do'"],
-		["시기로", "-시- (hon.) + 'to do'"],
-		["시는", "-시- (hon.) + present modifier"],
-		["신대로", "-시- (hon.) + 'according to'"],
-		["신바", "-시- (hon.) + 'that which'"],
-		["실", "-시- (hon.) + future modifier"],
-		["신", "-시- (hon.) + past modifier"],
-		["심", "-시- (hon.) + nominalizer"],
+		["사옵나이다", "humble archaic polite declarative"],
+		["사옵나이까", "humble archaic polite question"],
+		["사옵소서", "humble polite request ('please')"],
+		["사오리이다", "humble polite future declarative"],
+		["사오리라", "humble future declarative"],
+		["사오니", "humble archaic 'for / since'"],
+		["사오며", "humble archaic 'and'"],
+		["사오매", "humble archaic 'when / since'"],
+		["사오되", "humble archaic 'though / saying'"],
+		["옵시며", "humble -시- (hon.) + 'and'"],
+		["옵시고", "humble -시- (hon.) + 'and'"],
+		["옵시되", "humble -시- (hon.) + 'though / saying'"],
+		["옵시니", "humble -시- (hon.) + 'so / since'"],
+		["옵시매", "humble -시- (hon.) + 'when / since'"],
+		["옵나이다", "humble polite declarative"],
+		["옵나이까", "humble polite question"],
 		["옵소서", "humble polite request ('please')"],
+		["오리이다", "humble polite future declarative"],
+		["오리라", "humble future declarative"],
+		["오니", "humble 'for / since'"],
+		["오며", "humble 'and'"],
+		["오매", "humble 'when / since'"],
+		["오되", "humble 'though / saying'"],
 		["소서", "polite request ('please')"],
 		["삽나이까", "humble archaic question"],
 		["나이다", "polite archaic declarative"],
 		["나이까", "polite archaic question"],
 		["이니이다", "polite KRV declarative"],
 		["음이니이다", "nominalizer + polite 'is'"],
+		["리이다", "polite future declarative ('shall / will')"],
+		["리이까", "polite future question ('shall ...?')"],
 	]),
 	...toRules(
 		"verb",
@@ -290,6 +460,7 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	...toRules("verb", [
 		["겠느니라", "future/certainty declarative"],
 		["겠느냐", "future/certainty question"],
+		["겠느뇨", "future/certainty archaic question"],
 		["겠나이다", "polite future declarative"],
 		["겠노라", "1st-person resolve ('I will')"],
 		["겠으니", "future + 'so / since'"],
@@ -304,19 +475,31 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	),
 	...toRules(
 		"verb",
-		["나이다", "나이까", "도다", "느니라", "느냐", "거늘", "더라", "으니", "으며", "고", "다"].map(
-			(tail): RuleSpec => [
-				`했${tail}`,
-				PAST_ENDINGS.find(([t]) => t === tail)?.[1] ?? "past tense",
-				"하",
-			],
-		),
+		PAST_ENDINGS.map(([tail, note]): RuleSpec => [`했${tail}`, note, "하"]),
 	),
 	...toRules("verb", [
-		["었으매", "past + 'when / since'"],
-		["었으되", "past + 'though'"],
-		["았다가", "past + 'and then'"],
-		["었다가", "past + 'and then'"],
+		["하옵시며", "humble -시- (hon.) + 'and'", "하"],
+		["하옵시고", "humble -시- (hon.) + 'and'", "하"],
+		["하옵시되", "humble -시- (hon.) + 'though / saying'", "하"],
+		["하옵시니", "humble -시- (hon.) + 'so / since'", "하"],
+		["하옵소서", "humble polite request ('please')", "하"],
+		["하옵나이다", "humble polite declarative", "하"],
+		["하옵나이까", "humble polite question", "하"],
+		["하오리이다", "humble polite future declarative", "하"],
+		["하오니", "humble 'for / since'", "하"],
+		["하오며", "humble 'and'", "하"],
+		["하오매", "humble 'when / since'", "하"],
+		["하오되", "humble 'though / saying'", "하"],
+		["한지라", "'because / since'", "하"],
+		["한즉", "'since / when'", "하"],
+		["한대", "'when / as'", "하"],
+		["한대로", "'according to'", "하"],
+		["한바", "'that which'", "하"],
+		["한것", "'the thing that'", "하"],
+		["할것", "'that which will'", "하"],
+		["하냐", "question ('do ...?')", "하"],
+		["하므로", "'because / since'", "하"],
+		["된바", "'that which is'", "되"],
 		["을찌라도", "'even though' (archaic KRV)"],
 		["찌라도", "'even though' (archaic KRV)"],
 		["지라도", "'even though'"],
@@ -326,22 +509,41 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 		["을찌니라", "solemn command / 'shall' (archaic KRV)"],
 		["찌니라", "solemn command / 'shall' (archaic KRV)"],
 		["지니라", "solemn command / 'shall'"],
+		["을찌니", "solemn connective ('shall ... for') (KRV)"],
+		["찌니", "solemn connective ('shall ... for') (KRV)"],
+		["지니", "solemn connective ('shall ... for')"],
+		["을찌라", "solemn declarative ('shall') (KRV)"],
+		["찌라", "solemn declarative ('shall') (KRV)"],
+		["을지라", "solemn declarative ('shall')"],
 		["을찌어다", "blessing / imperative (archaic KRV)"],
 		["찌어다", "blessing / imperative (archaic KRV)"],
 		["지어다", "blessing / imperative ('let there be')"],
+		["을찌로다", "solemn praise / blessing (archaic KRV)"],
+		["찌로다", "solemn praise / blessing (archaic KRV)"],
+		["지로다", "solemn praise / blessing"],
+		["는지라", "'because / since'"],
+		["은지라", "'because / since'"],
+		["은즉", "'since / when'"],
+		["는즉", "'since / when'"],
+		["은대", "'when / as'"],
 		["느니라", "timeless declarative"],
 		["는도다", "poetic exclamatory"],
 		["리로다", "future exclamatory"],
 		["리라", "future declarative ('shall / will')"],
 		["리니", "future connective"],
 		["리요", "rhetorical future ('would ...?')"],
+		["리야", "rhetorical future ('would ...?')"],
 		["노라", "1st-person declarative"],
 		["노니", "1st-person 'for I ...'"],
 		["느냐", "question ('do you ...?')"],
+		["느뇨", "archaic question ('do ...?')"],
 		["거니와", "'indeed, yet / besides'"],
+		["거나", "'whether ... or'"],
 		["거든", "'if / when'"],
 		["거늘", "archaic connective ('when / since')"],
 		["건대", "'when considering'"],
+		["는다", "present declarative"],
+		["한다", "present declarative", "하"],
 		["더이다", "polite past observed"],
 		["더라", "observed past"],
 		["더니", "'and then / since'"],
@@ -351,13 +553,34 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 		["나니", "'for / since'"],
 		["는데", "'while / when / and'"],
 		["는대로", "'as / according to'"],
+		["은대로", "'as / according to'"],
+		["는바", "'that which'"],
 		["은바", "'that which'"],
-		["한바", "'that which'", "하"],
+		["는것", "'the thing that'"],
 		["은것", "'the thing that'"],
+		["을것", "'that which will'"],
 		["기가", "nominalized subject"],
 		["기에", "'for / at doing'"],
 		["기를", "nominalized object"],
 		["기로", "'by / to do'"],
+		["기는", "nominalized topic"],
+		["기도", "nominalized + 'also'"],
+		["기만", "nominalized + 'only'"],
+		["기까지", "nominalized + 'until'"],
+		["지도", "'nor / even'"],
+		["지는", "negative/connective + topic"],
+		["고자", "'wishing to / intending to'"],
+		["고도", "'even after / although'"],
+		["고는", "'after doing'"],
+		["는구나", "exclamatory ('how ...!')"],
+		["구나", "exclamatory ('how ...!')"],
+		["을꼬", "archaic question ('what shall ...?')"],
+		["꼬", "archaic question ('what shall ...?')"],
+		["려니와", "'indeed, yet'"],
+		["려거든", "'if intending to'"],
+		["려다가", "'while intending to'"],
+		["려고", "'in order to'"],
+		["려면", "'if intending to'"],
 		["므로", "'because / since'"],
 		["매", "'when / since'"],
 		["며", "'and / while'"],
@@ -365,6 +588,9 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 		["고", "'and / then'"],
 		["니", "'so / since'"],
 		["나", "'but / though'"],
+		["냐", "question ('do ...?')"],
+		["뇨", "archaic question ('do ...?')"],
+		["랴", "rhetorical question ('would ...?')"],
 		["되", "'saying / though'"],
 		["도", "'even / though'"],
 	]),
@@ -377,6 +603,7 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 	...toRules("verb", [
 		["다가", "'while doing, then'"],
 		["라고", "quotative ('to / saying')"],
+		["지라", "'because / since'"],
 		["지", "negative / auxiliary connective"],
 		["치", "contracted -하지 ('not / do')", "하"],
 		["케", "contracted -하게 (causative)", "하"],
@@ -387,6 +614,8 @@ const VERB_ENDING_RULES: readonly SuffixRule[] = [
 		["자", "hortative ('let us ...')"],
 		["을까", "'lest / might'"],
 		["까", "'lest / might'"],
+		["즉", "'when / since' (after -ㄴ)"],
+		["대", "'when / as' (after -ㄴ)"],
 		["는", "present modifier"],
 		["은", "past/adj modifier"],
 		["을", "future modifier"],
@@ -416,15 +645,79 @@ const RIEUL_MODIFIER_ENDINGS = new Set([
 	"찐저",
 	"찌니라",
 	"지니라",
+	"찌니",
+	"지니",
+	"찌라",
+	"지라",
 	"찌어다",
 	"지어다",
+	"찌로다",
+	"지로다",
 	"까",
+	"꼬",
+	"것",
 ]);
+
+const NIEUN_MODIFIER_ENDINGS = new Set(["지라", "즉", "대", "바", "대로", "것"]);
+
+/** Endings that only attach after a -ㄹ/-ㄴ modifier coda, never directly to a bare verb stem. */
+const MODIFIER_ONLY_ENDINGS = new Set(["까", "즉", "대"]);
+
 const CODA_MODIFIER_NOTES: Readonly<Record<string, string>> = {
 	ㄴ: "-ㄴ (modifier)",
 	ㄹ: "-ㄹ (future modifier)",
 	ㅁ: "-ㅁ (nominalizer)",
 };
+
+/** Pre-noun determiners that never take case particles or copulas. */
+const DETERMINER_ONLY = new Set([
+	"한",
+	"두",
+	"세",
+	"온",
+	"각",
+	"첫",
+	"내",
+	"네",
+	"옛",
+	"뭇",
+	"모든",
+	"어느",
+	"어떤",
+	"무슨",
+]);
+
+/** Bare 1-char surface forms that are overwhelmingly verb modifiers (e.g. 선 = 서다 "standing") while inflected forms (선을) are nouns. */
+const BARE_VERB_MODIFIER_PREFER = new Set(["선"]);
+
+/** 1-char noun + particle surfaces that are overwhelmingly predicate forms in KRV (keeps 나와 = "with me"). */
+const ONE_CHAR_VERB_PREFER = new Set([
+	"입은",
+	"숨은",
+	"낮은",
+	"남은",
+	"벗은",
+	"검은",
+	"굽은",
+	"품은",
+	"가는",
+	"사는",
+	"오는",
+	"대는",
+	"매는",
+	"도와",
+]);
+
+/** Suffixes on 1-char nouns where a direct predicate parse should take precedence (e.g. 돌아 -> 돌다, 살아 -> 살다, 속이고 -> 속이다). */
+const AMBIGUOUS_ONE_CHAR_NOMINAL_SUFFIXES = new Set(["아", "가", "들", "이고", "이며", "이니"]);
+
+/** Surface forms where a high-frequency ㄹ-deletion verb beats a rare regular homograph in KRV (사는 = 살다 11:1 over 사다). */
+const PREFERRED_VERB_SURFACE: Readonly<Record<string, readonly [lemma: string, note: string]>> = {
+	사는: ["살다", "-는 (present modifier)"],
+};
+
+/** 1-char high-frequency nouns whose bare copula forms (자니라, 자니, 때라) must not yield to homograph verbs (자다, 때다). */
+const BARE_COPULA_NOUN_PREFER = new Set(["자", "때"]);
 
 type EntryLookup = (key: string) => LexiconEntry | undefined;
 
@@ -442,8 +735,39 @@ function isPredicateHit(entry: LexiconEntry): boolean {
 	return !entry.pos || entry.pos === "verb" || entry.pos === "adj";
 }
 
-function isNominalHit(entry: LexiconEntry): boolean {
-	return entry.pos !== "verb" && entry.pos !== "adj";
+function isNominalHit(entry: LexiconEntry, stem: string): boolean {
+	if (DETERMINER_ONLY.has(stem)) return false;
+	return (
+		entry.pos !== "verb" &&
+		entry.pos !== "adj" &&
+		entry.pos !== "adv" &&
+		entry.pos !== "interj" &&
+		entry.pos !== "particle"
+	);
+}
+
+function matchesCodaReq(stem: string, req?: CodaReq): boolean {
+	if (!req) return true;
+	const coda = stripLastFinalConsonant(stem);
+	if (req === "consonant") return coda !== null;
+	if (req === "vowel") return coda === null;
+	// vowelOrRieul (로/로부터/로서/로써 attach after open vowels or ㄹ)
+	return coda === null || coda.final === "ㄹ";
+}
+
+function startsWithVowelEnding(suffix: string): boolean {
+	return getFirstInitialConsonant(suffix) === "ㅇ";
+}
+
+function allowsRieulDeletion(suffix: string): boolean {
+	const lead = getFirstInitialConsonant(suffix);
+	return lead === "ㄴ" || lead === "ㅅ" || lead === "ㅂ" || startsWithOpenOVowel(suffix);
+}
+
+function isEuInitialEnding(suffix: string): boolean {
+	if (!suffix) return false;
+	const first = suffix[0];
+	return first === "으" || first === "은" || first === "을" || first === "음";
 }
 
 function makeToken(
@@ -465,19 +789,191 @@ function makeToken(
 	};
 }
 
+function getBIrregularLemma(stem: string): string | null {
+	if (stem.length < 2) return null;
+	const last = stem[stem.length - 1];
+	// Modern 우/워/웠 plus 1961 KRV archaic 와/왔 (아름다와, 두려와, 괴로와, 도와, 가까와)
+	if (last !== "우" && last !== "워" && last !== "와" && last !== "웠" && last !== "왔") {
+		return null;
+	}
+	// Only 돕다 (도와) and 곱다 (고와) are 1-syllable ㅂ-irregular stems taking -와; prevents 자와 -> 잡다, 이와 -> 입다.
+	const prefix = stem.slice(0, -1);
+	// Preceding syllable must have lost its ㅂ coda (open vowel); prevents 일월 -> 입다.
+	if (hasFinalConsonant(prefix)) return null;
+	if (
+		(last === "와" || last === "왔") &&
+		prefix.length === 1 &&
+		prefix !== "도" &&
+		prefix !== "고"
+	) {
+		return null;
+	}
+	const patched = replaceLastFinalConsonant(prefix, "ㅂ");
+	return patched ? `${patched}다` : null;
+}
+
+function generateRegularPredicateCandidates(
+	rawStem: string,
+	suffix: string,
+	allowHaSuffix = false,
+): string[] {
+	if (!rawStem) return [];
+	const candidates: string[] = [];
+	const push = (val: string | null | undefined) => {
+		if (val && !candidates.includes(val)) candidates.push(val);
+	};
+
+	// Korean 으/은/을/음 endings only attach directly to consonant-final (non-ㄹ) stems:
+	// open-vowel stems (지다 -> 지으신 X) and ㄹ-stems (말다 -> 말은 X, 들다 -> 들으라 X) are irregulars (짓다, 듣다).
+	const lastCoda = stripLastFinalConsonant(rawStem);
+	const blockedBeforeEu =
+		isEuInitialEnding(suffix) && (lastCoda === null || lastCoda.final === "ㄹ");
+	if (!blockedBeforeEu) {
+		push(`${rawStem}다`);
+	}
+
+	for (const [tail, replacement] of STEM_CONTRACTIONS) {
+		if (rawStem.endsWith(tail)) push(`${rawStem.slice(0, -tail.length)}${replacement}`);
+	}
+
+	// Contracted past stem ending in ㅆ: check ㅡ-irregular (썼 -> 쓰다, 컸 -> 크다) before open-vowel (섰 -> 서다, 갔 -> 가다)
+	if (lastCoda?.final === "ㅆ") {
+		const euRestored = restoreEuIrregularStem(rawStem);
+		if (euRestored) push(`${euRestored}다`);
+		push(`${lastCoda.stem}다`);
+	}
+
+	if (allowHaSuffix && !rawStem.endsWith("하")) push(`${rawStem}하다`);
+	return candidates;
+}
+
+function generateIrregularPredicateCandidates(rawStem: string, suffix: string): string[] {
+	if (!rawStem) return [];
+	const candidates: string[] = [];
+	const push = (val: string | null | undefined) => {
+		if (val && !candidates.includes(val)) candidates.push(val);
+	};
+
+	const vowelEnding = startsWithVowelEnding(suffix);
+	const lastCoda = stripLastFinalConsonant(rawStem);
+
+	// ㅂ-irregular (어두운 -> 어둡다, 두려워 -> 두렵다, 아름다와 -> 아름답다, 도왔 -> 돕다)
+	push(getBIrregularLemma(rawStem));
+
+	// 르-irregular, present & past (일러/일렀 -> 이르다, 불러/불렀 -> 부르다, 올라/올랐 -> 오르다)
+	const lastChar = rawStem[rawStem.length - 1];
+	if (lastChar === "러" || lastChar === "라" || lastChar === "렀" || lastChar === "랐") {
+		const prev = stripLastFinalConsonant(rawStem.slice(0, -1));
+		if (prev && prev.final === "ㄹ") push(`${prev.stem}르다`);
+	}
+
+	// 러-irregular (이르러/이르렀 -> 이르다, 푸르러 -> 푸르다)
+	if (
+		rawStem.length >= 3 &&
+		(lastChar === "러" || lastChar === "렀") &&
+		rawStem[rawStem.length - 2] === "르"
+	) {
+		push(`${rawStem.slice(0, -1)}다`);
+	}
+
+	// ㅡ-irregular: vowel dropped before -아/-어/-았/-었 (따라 -> 따르다, 써/썼 -> 쓰다, 모아 -> 모으다)
+	if (
+		vowelEnding ||
+		lastCoda?.final === "ㅆ" ||
+		suffix === "" ||
+		suffix.startsWith("서") ||
+		suffix.startsWith("도") ||
+		suffix.startsWith("야") ||
+		suffix.startsWith("다가")
+	) {
+		const euRestored = restoreEuIrregularStem(rawStem);
+		if (euRestored) push(`${euRestored}다`);
+		if (!hasFinalConsonant(rawStem) && vowelEnding) {
+			push(`${rawStem}으다`);
+		}
+	}
+
+	// ㄷ-irregular ONLY before vowel-initial endings (들으라 -> 듣다, 물어 -> 묻다, 깨달아 -> 깨닫다)
+	if (vowelEnding && lastCoda?.final === "ㄹ") {
+		const withDigeut = replaceLastFinalConsonant(rawStem, "ㄷ");
+		if (withDigeut) push(`${withDigeut}다`);
+	}
+
+	// ㅅ-irregular ONLY before vowel-initial endings (지으신 -> 짓다, 부어 -> 붓다, 이어 -> 잇다)
+	if (vowelEnding && !hasFinalConsonant(rawStem)) {
+		const withSiot = replaceLastFinalConsonant(rawStem, "ㅅ");
+		if (withSiot) push(`${withSiot}다`);
+	}
+
+	// ㄹ-deletion ONLY before ㄴ/ㅅ/ㅂ/오 endings (아시고 -> 알다, 만드시는 -> 만들다, 마소서 -> 말다)
+	if (allowsRieulDeletion(suffix) && !hasFinalConsonant(rawStem)) {
+		const withRieul = replaceLastFinalConsonant(rawStem, "ㄹ");
+		if (withRieul) push(`${withRieul}다`);
+	}
+
+	return candidates;
+}
+
 function findPredicateToken(
 	raw: string,
 	parts: TokenParts,
 	stem: string,
+	suffix: string,
 	lookup: EntryLookup,
 	grammarNote: string,
+	mode: "regular" | "irregular" | "both",
 	allowHaSuffix = false,
-	allowIrregular = true,
 ): GlossToken | null {
-	for (const candidate of generatePredicateLemmaCandidates(stem, allowHaSuffix, allowIrregular)) {
-		const hit = lookup(candidate);
-		if (hit && isPredicateHit(hit)) return makeToken(parts, raw, candidate, hit, grammarNote);
+	if (mode === "regular" || mode === "both") {
+		for (const candidate of generateRegularPredicateCandidates(stem, suffix, allowHaSuffix)) {
+			const hit = lookup(candidate);
+			if (hit && isPredicateHit(hit)) return makeToken(parts, raw, candidate, hit, grammarNote);
+		}
 	}
+	if (mode === "irregular" || mode === "both") {
+		for (const candidate of generateIrregularPredicateCandidates(stem, suffix)) {
+			const hit = lookup(candidate);
+			if (hit && isPredicateHit(hit)) return makeToken(parts, raw, candidate, hit, grammarNote);
+		}
+	}
+	return null;
+}
+
+function lookupNominalStem(
+	raw: string,
+	parts: TokenParts,
+	stem: string,
+	rule: SuffixRule,
+	lookup: EntryLookup,
+	allowSingleCharNoun: boolean,
+	combinedLookup: EntryLookup,
+): GlossToken | null {
+	const checkDirect = (candidateStem: string, notePrefix = ""): GlossToken | null => {
+		if (!allowSingleCharNoun && !isSafeLexiconNounStem(candidateStem)) return null;
+		const hit = lookup(candidateStem);
+		if (!hit || !isNominalHit(hit, candidateStem)) return null;
+
+		// Prevent 1-char nouns + ambiguous suffixes (아/가/들/이고/...) from stealing valid verbs
+		if (
+			candidateStem.length === 1 &&
+			!notePrefix &&
+			(AMBIGUOUS_ONE_CHAR_NOMINAL_SUFFIXES.has(rule.suffix) || ONE_CHAR_VERB_PREFER.has(parts.word))
+		) {
+			if (matchVerbOrModifier(raw, parts, combinedLookup)) return null;
+		}
+		return makeToken(parts, raw, candidateStem, hit, `${notePrefix}${rule.suffix} (${rule.note})`);
+	};
+
+	const direct = checkDirect(stem);
+	if (direct) return direct;
+
+	// Generic plural 들 + any particle/copula (성읍들에, 자들로, 방백들이, 제자들에게)
+	if (stem.endsWith("들") && stem.length >= 2) {
+		const singular = stem.slice(0, -1);
+		const pluralHit = checkDirect(singular, "들 (plural) + ");
+		if (pluralHit) return pluralHit;
+	}
+
 	return null;
 }
 
@@ -486,57 +982,133 @@ function matchNominalRules(
 	parts: TokenParts,
 	lookup: EntryLookup,
 	allowSingleCharNoun: boolean,
+	combinedLookup: EntryLookup,
 ): GlossToken | null {
 	const { word } = parts;
 	for (const rule of SORTED_NOMINAL_RULES) {
 		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
 		const stem = word.slice(0, -rule.suffix.length);
+		if (!matchesCodaReq(stem, rule.codaReq)) continue;
+
 		const isBareVowelCopula = rule.kind === "copula" && !rule.suffix.startsWith("이");
-
-		// Copula forms without leading "이" (e.g. -라, -니라, -로다) only attach after an open vowel;
-		// for 1-char stems (e.g. 주니라, 보라), let predicate matching win when a verb exists.
-		if (isBareVowelCopula) {
-			if (hasFinalConsonant(stem)) continue;
-			if (stem.length === 1 && matchVerbOrModifier(raw, parts, lookup)) continue;
+		if (
+			isBareVowelCopula &&
+			stem.length === 1 &&
+			!BARE_COPULA_NOUN_PREFER.has(stem) &&
+			matchVerbOrModifier(raw, parts, combinedLookup)
+		) {
+			continue;
 		}
 
-		if (allowSingleCharNoun || isSafeLexiconNounStem(stem)) {
-			const directStem = lookup(stem);
-			if (directStem && isNominalHit(directStem))
-				return makeToken(parts, raw, stem, directStem, `${rule.suffix} (${rule.note})`);
+		// Prevent obscure lexicon homograph nouns (보이, 이기, 거두, 그치, 기울) + copula/는 from stealing regular verbs
+		if (!allowSingleCharNoun && (rule.kind === "copula" || rule.suffix === "는")) {
+			const directVerb =
+				combinedLookup(`${stem}다`) ??
+				(rule.suffix.startsWith("이") ? combinedLookup(`${stem}이다`) : undefined);
+			if (directVerb && isPredicateHit(directVerb)) continue;
 		}
 
-		// Nominalized verb + particle/copula (e.g. 부족함이, 함이라)
+		const nominalHit = lookupNominalStem(
+			raw,
+			parts,
+			stem,
+			rule,
+			lookup,
+			allowSingleCharNoun,
+			combinedLookup,
+		);
+		if (nominalHit) return nominalHit;
+
+		// Honorific nominalized verb + particle/copula (하심은, 하심이니, 도우심을, 보내심으로)
+		if (stem.endsWith("으심") && stem.length >= 3) {
+			const hit = findPredicateToken(
+				raw,
+				parts,
+				stem.slice(0, -2),
+				"으심",
+				lookup,
+				`-으심 (-시- hon. nominalizer) + ${rule.suffix} (${rule.note})`,
+				"both",
+			);
+			if (hit) return hit;
+		}
+		if (stem.endsWith("심") && stem.length >= 2) {
+			const hit = findPredicateToken(
+				raw,
+				parts,
+				stem.slice(0, -1),
+				"심",
+				lookup,
+				`-심 (-시- hon. nominalizer) + ${rule.suffix} (${rule.note})`,
+				"both",
+			);
+			if (hit) return hit;
+		}
+
+		// Nominalized verb -음 + particle/copula (부족함이, 죽음을, 지으심을)
 		if (stem.endsWith("음") && stem.length >= 2) {
 			const hit = findPredicateToken(
 				raw,
 				parts,
 				stem.slice(0, -1),
+				"음",
 				lookup,
 				`-음 (nominalizer) + ${rule.suffix} (${rule.note})`,
+				"both",
 			);
 			if (hit) return hit;
 		}
 
-		// Require 2+ char stems for particle -ㄴ/-ㄹ so 1-char nouns (전에는, 단을) don't mis-parse as verbs.
+		// Coda nominalizer/modifier (-ㅁ, -ㄻ, and 2+ char -ㄴ/-ㄹ) + particle/copula
 		const coda = stripLastFinalConsonant(stem);
+		if (coda?.final === "ㄻ") {
+			// Skip when stem itself is a real ㄻ-final verb/adj (e.g. 젊은 -> 젊다, not 절다 + -ㅁ + 은)
+			const directLmPred = combinedLookup(`${stem}다`);
+			if (!directLmPred || !isPredicateHit(directLmPred)) {
+				// ㄹ-stem nominalizer (앎이라 -> 알다, 삶이 -> 살다, 베풂을 -> 베풀다)
+				const withRieul = replaceLastFinalConsonant(stem, "ㄹ");
+				if (withRieul) {
+					const hit = findPredicateToken(
+						raw,
+						parts,
+						withRieul,
+						"ㅁ",
+						lookup,
+						`-ㅁ (nominalizer) + ${rule.suffix} (${rule.note})`,
+						"regular",
+					);
+					if (hit) return hit;
+				}
+			}
+		}
+
 		const allowCoda =
 			coda &&
 			coda.final in CODA_MODIFIER_NOTES &&
+			rule.suffix !== "아" &&
 			(rule.kind === "particle"
 				? coda.stem.length >= 2 || (allowSingleCharNoun && coda.final === "ㅁ")
 				: coda.final === "ㅁ" && (coda.stem.length >= 2 || allowSingleCharNoun));
 		if (coda && allowCoda) {
-			const hit = findPredicateToken(
-				raw,
-				parts,
-				coda.stem,
-				lookup,
-				`-${coda.final} + ${rule.suffix} (${rule.note})`,
-				false,
-				false,
-			);
-			if (hit) return hit;
+			// Skip -ㅁ nominalizer when the unstripped stem itself is a real predicate (남은 -> 남다, 삼아 -> 삼다, 참아 -> 참다)
+			const directStemPred = combinedLookup(`${stem}다`);
+			const blocksCodaNominal =
+				coda.final === "ㅁ" &&
+				directStemPred &&
+				isPredicateHit(directStemPred) &&
+				(rule.suffix === "은" || rule.suffix === "을" || rule.suffix === "아");
+			if (!blocksCodaNominal) {
+				const hit = findPredicateToken(
+					raw,
+					parts,
+					coda.stem,
+					coda.final,
+					lookup,
+					`-${coda.final} + ${rule.suffix} (${rule.note})`,
+					"regular",
+				);
+				if (hit) return hit;
+			}
 		}
 	}
 	return null;
@@ -564,6 +1136,21 @@ function matchBareConnectivePredicate(
 			return makeToken(parts, raw, directCandidate, directHit, "-아/-어 (connective)");
 		}
 	}
+	// Bare ㅂ-irregular connective (아름다와 -> 아름답다, 두려워 -> 두렵다, 도와 -> 돕다)
+	const bLemma = getBIrregularLemma(word);
+	if (bLemma) {
+		const hit = lookup(bLemma);
+		if (hit && isPredicateHit(hit)) {
+			return makeToken(parts, raw, bLemma, hit, "-아/-어 (ㅂ-irregular connective)");
+		}
+	}
+	// Bare 르-irregular / 러-irregular / ㅡ-irregular connective (일러 -> 이르다, 불러 -> 부르다, 올라 -> 오르다, 따라 -> 따르다, 써 -> 쓰다)
+	for (const candidate of generateIrregularPredicateCandidates(word, "")) {
+		const hit = lookup(candidate);
+		if (hit && isPredicateHit(hit)) {
+			return makeToken(parts, raw, candidate, hit, "-아/-어 (connective)");
+		}
+	}
 	return null;
 }
 
@@ -574,13 +1161,21 @@ function matchVerbOrModifier(
 ): GlossToken | null {
 	const { word } = parts;
 
+	if (Object.hasOwn(PREFERRED_VERB_SURFACE, word)) {
+		const [prefLemma, prefNote] = PREFERRED_VERB_SURFACE[word];
+		const prefHit = lookup(prefLemma);
+		if (prefHit && isPredicateHit(prefHit)) {
+			return makeToken(parts, raw, prefLemma, prefHit, prefNote);
+		}
+	}
+
 	const bareConnective = matchBareConnectivePredicate(raw, parts, lookup);
 	if (bareConnective) return bareConnective;
 
-	// Check direct -ㄴ/-ㄹ/-ㅁ modifier/nominalizer on vowel/ㅂ-irregular stems before -은/-을 strips to 1 char.
+	// Check direct -ㄴ/-ㄹ/-ㅁ modifier/nominalizer on vowel/ㅂ-irregular stems (including 시-final lemmas like 계시다, 마시다, 모시다)
 	const strippedTail = stripLastFinalConsonant(word);
 	const tailModNote = strippedTail ? CODA_MODIFIER_NOTES[strippedTail.final] : undefined;
-	if (strippedTail && tailModNote && !/(?:으?시|었|았|였|겠|했|던)$/.test(strippedTail.stem)) {
+	if (strippedTail && tailModNote && !/(?:었|았|였|겠|했|던)$/.test(strippedTail.stem)) {
 		for (const candidate of [`${strippedTail.stem}다`, getBIrregularLemma(strippedTail.stem)]) {
 			if (!candidate) continue;
 			const hit = lookup(candidate);
@@ -588,23 +1183,45 @@ function matchVerbOrModifier(
 		}
 	}
 
+	// Pass A: Try ALL regular (exact stem + vowel/past contractions) verb suffix splits first,
+	// so regular verbs (마시고 -> 마시다, 드리라 -> 드리다, 버리라 -> 버리다) beat irregular steals.
 	for (const rule of SORTED_VERB_ENDING_RULES) {
 		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
 		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
 
-		if (rule.suffix !== "까") {
+		if (!MODIFIER_ONLY_ENDINGS.has(rule.suffix)) {
 			const hit = findPredicateToken(
 				raw,
 				parts,
 				stem,
+				rule.suffix,
 				lookup,
 				`-${rule.suffix} (${rule.note})`,
+				"regular",
 				rule.suffix === "지",
 			);
 			if (hit) return hit;
 		}
+	}
 
-		// Handle -ㄹ찌라도 / -ㄹ지니라 / -ㄹ지어다 / -ㄹ찐대 / -ㄹ찐저 / -ㄹ까 where ㄹ is the stem coda
+	// Pass B: Irregular stems (ㅂ/르/러/ㅡ/ㄷ/ㅅ/ㄹ-deletion) and -ㄹ/-ㄴ modifier-taking endings
+	for (const rule of SORTED_VERB_ENDING_RULES) {
+		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
+		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
+
+		if (!MODIFIER_ONLY_ENDINGS.has(rule.suffix)) {
+			const hit = findPredicateToken(
+				raw,
+				parts,
+				stem,
+				rule.suffix,
+				lookup,
+				`-${rule.suffix} (${rule.note})`,
+				"irregular",
+			);
+			if (hit) return hit;
+		}
+
 		if (RIEUL_MODIFIER_ENDINGS.has(rule.suffix)) {
 			const strippedRieul = stripLastFinalConsonant(stem);
 			if (strippedRieul && strippedRieul.final === "ㄹ") {
@@ -612,79 +1229,51 @@ function matchVerbOrModifier(
 					raw,
 					parts,
 					strippedRieul.stem,
+					"ㄹ",
 					lookup,
 					`-ㄹ${rule.suffix} (${rule.note})`,
+					"both",
+				);
+				if (hit) return hit;
+			}
+		}
+
+		if (NIEUN_MODIFIER_ENDINGS.has(rule.suffix)) {
+			const strippedNieun = stripLastFinalConsonant(stem);
+			if (strippedNieun && strippedNieun.final === "ㄴ") {
+				const hit = findPredicateToken(
+					raw,
+					parts,
+					strippedNieun.stem,
+					"ㄴ",
+					lookup,
+					`-ㄴ${rule.suffix} (${rule.note})`,
+					"both",
 				);
 				if (hit) return hit;
 			}
 		}
 	}
 
-	// Fallback bare consonant modifier/nominalizer including ㄹ-deletion (만든 -> 만들다, 큰 -> 크다)
+	// Fallback bare consonant modifier/nominalizer including ㄹ-deletion (만든 -> 만들다, 먼 -> 멀다, 앎 -> 알다)
+	if (strippedTail?.final === "ㄻ") {
+		const withRieul = replaceLastFinalConsonant(word, "ㄹ");
+		if (withRieul) {
+			const hit = lookup(`${withRieul}다`);
+			if (hit && isPredicateHit(hit))
+				return makeToken(parts, raw, `${withRieul}다`, hit, "-ㅁ (nominalizer)");
+		}
+	}
 	if (strippedTail && tailModNote) {
-		const hit = findPredicateToken(raw, parts, strippedTail.stem, lookup, tailModNote);
-		if (hit) return hit;
+		const withRieul = replaceLastFinalConsonant(strippedTail.stem, "ㄹ");
+		if (withRieul) {
+			const hit = lookup(`${withRieul}다`);
+			if (hit && isPredicateHit(hit))
+				return makeToken(parts, raw, `${withRieul}다`, hit, tailModNote);
+		}
 	}
 
 	return null;
-}
-
-function getBIrregularLemma(stem: string): string | null {
-	if (!stem.endsWith("우") || stem.length < 2) return null;
-	const patched = replaceLastFinalConsonant(stem.slice(0, -1), "ㅂ");
-	return patched ? `${patched}다` : null;
-}
-
-function generatePredicateLemmaCandidates(
-	rawStem: string,
-	allowHaSuffix = true,
-	allowIrregular = true,
-): string[] {
-	if (!rawStem) return [];
-	const candidates: string[] = [];
-	const push = (val: string | null | undefined) => {
-		if (val && !candidates.includes(val)) candidates.push(val);
-	};
-
-	push(`${rawStem}다`);
-
-	for (const [tail, replacement] of STEM_CONTRACTIONS) {
-		if (rawStem.endsWith(tail)) push(`${rawStem.slice(0, -tail.length)}${replacement}`);
-	}
-	if (allowHaSuffix && !rawStem.endsWith("하")) push(`${rawStem}하다`);
-
-	if (!allowIrregular) return candidates;
-
-	push(getBIrregularLemma(rawStem));
-
-	// 르-irregular: 일러 -> 이르다, 불러 -> 부르다
-	if (rawStem.endsWith("러") || rawStem.endsWith("라")) {
-		const stripped = stripLastFinalConsonant(rawStem.slice(0, -1));
-		if (stripped && stripped.final === "ㄹ") push(`${stripped.stem}르다`);
-	}
-
-	// ㄹ-deletion & ㅅ-irregular only when surface stem ends in an open vowel
-	if (!hasFinalConsonant(rawStem)) {
-		const withRieul = replaceLastFinalConsonant(rawStem, "ㄹ");
-		if (withRieul) push(`${withRieul}다`);
-		const withSiot = replaceLastFinalConsonant(rawStem, "ㅅ");
-		if (withSiot) push(`${withSiot}다`);
-	}
-
-	// ㄷ-irregular (들으라 -> 듣다)
-	const strippedCoda = stripLastFinalConsonant(rawStem);
-	if (strippedCoda && strippedCoda.final === "ㄹ") {
-		const withDigeut = replaceLastFinalConsonant(rawStem, "ㄷ");
-		if (withDigeut) push(`${withDigeut}다`);
-	}
-
-	// Single-coda modifier/nominalizer (-ㄴ, -ㄹ, -ㅁ) on vowel stem (큰 -> 크다, 어두운 -> 어둡다)
-	if (strippedCoda && strippedCoda.final in CODA_MODIFIER_NOTES) {
-		push(`${strippedCoda.stem}다`);
-		push(getBIrregularLemma(strippedCoda.stem));
-	}
-
-	return candidates;
 }
 
 function findNounHaFallback(
@@ -700,7 +1289,7 @@ function findNounHaFallback(
 		const nounRoot = stem.slice(0, -1);
 		for (const { lookup } of passes) {
 			const hit = lookup(nounRoot);
-			if (hit && isNominalHit(hit)) {
+			if (hit && isNominalHit(hit, nounRoot)) {
 				return makeToken(parts, raw, nounRoot, hit, `-${rule.suffix} (${rule.note})`);
 			}
 		}
@@ -733,10 +1322,20 @@ export function analyzeKoreanWord(raw: string, lexicon: LexiconMap = {}): GlossT
 		return { raw, ...parts, lemma: word, gloss: "", matched: false };
 	}
 
+	const glossaryLookup = ownEntry(BIBLICAL_GLOSSARY);
+	const lexiconLookup = ownEntry(lexicon);
+	const combinedLookup: EntryLookup = (key) => glossaryLookup(key) ?? lexiconLookup(key);
+
+	// Bare modifier forms like "선" (standing, 서다 + -ㄴ) prefer predicate parse over 1-char noun "선" (goodness).
+	if (BARE_VERB_MODIFIER_PREFER.has(word)) {
+		const bareMod = matchVerbOrModifier(raw, parts, combinedLookup);
+		if (bareMod) return bareMod;
+	}
+
 	// Curated biblical glossary takes priority (including 1-char stems); general lexicon skips 1-char exact homograph noise.
 	const passes: ReadonlyArray<{ lookup: EntryLookup; allowSingleChar: boolean }> = [
-		{ lookup: ownEntry(BIBLICAL_GLOSSARY), allowSingleChar: true },
-		{ lookup: ownEntry(lexicon), allowSingleChar: false },
+		{ lookup: glossaryLookup, allowSingleChar: true },
+		{ lookup: lexiconLookup, allowSingleChar: false },
 	];
 
 	for (const { lookup, allowSingleChar } of passes) {
@@ -744,7 +1343,7 @@ export function analyzeKoreanWord(raw: string, lexicon: LexiconMap = {}): GlossT
 			const exact = lookup(word);
 			if (exact) return makeToken(parts, raw, word, exact);
 		}
-		const nominal = matchNominalRules(raw, parts, lookup, allowSingleChar);
+		const nominal = matchNominalRules(raw, parts, lookup, allowSingleChar, combinedLookup);
 		if (nominal) return nominal;
 		const verb = matchVerbOrModifier(raw, parts, lookup);
 		if (verb) return verb;
@@ -758,6 +1357,7 @@ export function analyzeKoreanWord(raw: string, lexicon: LexiconMap = {}): GlossT
 	for (const rule of SORTED_PARTICLE_RULES) {
 		if (word.endsWith(rule.suffix) && word.length > rule.suffix.length) {
 			const stem = word.slice(0, -rule.suffix.length);
+			if (!matchesCodaReq(stem, rule.codaReq)) continue;
 			return {
 				raw,
 				...parts,

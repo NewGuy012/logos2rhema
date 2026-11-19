@@ -14,3 +14,5 @@ dist/
 # Re-fetched by `bun run data:build`
 data-sources/krv_1961.json
 data-sources/kengdic.tsv
+data-sources/krdict-en.zip
+data-sources/kaikki-ko.jsonl.gz

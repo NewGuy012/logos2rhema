@@ -6,7 +6,7 @@ import App from "../src/react-app/App";
 import { HomePage } from "../src/react-app/components/HomePage";
 import { clearLoaderCaches } from "../src/react-app/lib/bible-loader";
 import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
-import { KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
+import { BIBLICAL_GLOSSARY, KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
 import {
 	fireClick,
 	flushAsync,
@@ -328,8 +328,11 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				const browseSection = container.querySelector('section[aria-label="Browse"]') as ParentNode;
 				fireClick(getButton(browseSection, "Dictionary"));
 
+				const expectedCount = Object.keys(BIBLICAL_GLOSSARY).length + 1;
+				const expectedFormatted = expectedCount.toLocaleString();
+
 				await waitUntil(() => {
-					expect(getByText(browseSection, "678 words")).toBeDefined();
+					expect(getByText(browseSection, `${expectedFormatted} words`)).toBeDefined();
 				});
 
 				const dictSearch = browseSection.querySelector("input[type='search']") as HTMLInputElement;
@@ -346,7 +349,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				fireClick(getButton(browseSection, "Clear dictionary search"));
 
 				fireClick(getButton(browseSection, "Show more"));
-				expect(getByText(browseSection, /Showing 120 of 678/)).toBeDefined();
+				expect(getByText(browseSection, `Showing 120 of ${expectedFormatted}`)).toBeDefined();
 
 				fireClick(getButton(browseSection, "Verbs"));
 				expect(getByText(browseSection, "창조하다")).toBeDefined();

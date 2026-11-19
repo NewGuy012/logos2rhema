@@ -1,5 +1,6 @@
 const HANGUL_START = 0xac00;
 const HANGUL_END = 0xd7a3;
+const INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
 const FINALS = "ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ";
 
 const ROMAN_INITIALS = [
@@ -243,4 +244,35 @@ export function stripLastFinalConsonant(word: string): { stem: string; final: st
 		stem: `${word.slice(0, -1)}${String.fromCharCode(info.code - info.finalIdx)}`,
 		final: FINALS[info.finalIdx - 1],
 	};
+}
+
+export function getFirstInitialConsonant(word: string): string | null {
+	if (!word) return null;
+	const code = word.charCodeAt(0);
+	if (code < HANGUL_START || code > HANGUL_END) return null;
+	return INITIALS[Math.floor((code - HANGUL_START) / 588)];
+}
+
+/** True when the first syllable starts with silent ㅇ + vowel ㅗ (e.g. 오, 옵). */
+export function startsWithOpenOVowel(word: string): boolean {
+	if (!word) return false;
+	const code = word.charCodeAt(0);
+	if (code < HANGUL_START || code > HANGUL_END) return false;
+	const sIdx = code - HANGUL_START;
+	return Math.floor(sIdx / 588) === 11 && Math.floor((sIdx % 588) / 28) === 8;
+}
+
+/**
+ * Restores an ㅡ-irregular syllable whose vowel dropped before -아/-어/-았/-었
+ * (e.g. 따라 -> 따르, 써 -> 쓰, 썼 -> 쓰, 기뻐 -> 기쁘).
+ */
+export function restoreEuIrregularStem(word: string): string | null {
+	const info = getLastFinalIndex(word);
+	if (!info || (info.finalIdx !== 0 && info.finalIdx !== 20)) return null;
+	const sIdx = info.code - HANGUL_START;
+	const leadIdx = Math.floor(sIdx / 588);
+	const vowelIdx = Math.floor((sIdx % 588) / 28);
+	// ㅏ (0) or ㅓ (4) -> ㅡ (18)
+	if (vowelIdx !== 0 && vowelIdx !== 4) return null;
+	return `${word.slice(0, -1)}${String.fromCharCode(HANGUL_START + leadIdx * 588 + 18 * 28)}`;
 }
