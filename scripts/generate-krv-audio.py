@@ -3,20 +3,10 @@
 # dependencies = [
 #   "lameenc>=1.7",
 #   "numpy>=1.26",
-#   "soundfile>=0.12",
 #   "supertonic>=1.3",
 # ]
 # ///
-"""Offline Supertonic 3 (Daniel / M5) KRV chapter audio + sample-accurate verse timing generator.
-
-Reads bundled Korean Revised Version (개역한글) chapter JSONs from
-`public/data/bibles/krv/{USFM}.json` and Korean book names from `src/shared/books.ts`.
-Synthesizes each chapter with a spoken Korean header at t=0.0 (`시편 {chapter}편.` for Psalms,
-`{book.ko} {chapter}장.` otherwise), trims excess leading/trailing silence while preserving
-consonant attack/release padding, tracks exact sample cursors for every verse, masters chapter
-loudness, encodes once to 96 kbps CBR 44.1 kHz Mono MP3 in `.cache/krv-supertonic-audio/`, and
-writes compact per-book timing JSONs to `public/data/timings/krv-supertonic/{USFM}.json`.
-"""
+"""Offline Supertonic 3 (Daniel / M5) KRV chapter audio and verse timing generator."""
 
 from __future__ import annotations
 
@@ -110,17 +100,13 @@ def normalize_krv_text(raw_text: str) -> str | None:
     if not text or OMITTED_VERSE_RE.match(text):
         return None
 
-    # Strip musical notation `(셀라)` / `(힉가욘, 셀라)` without touching proper nouns (`므두셀라`, `셀라`).
+    # Strip musical notation `(셀라)` without touching proper nouns (`므두셀라`, `셀라`).
     text = SELAH_RE.sub(" ", text)
-
-    # Remove editorial square brackets and normalize legacy quotation marks/dashes/ellipses.
-    text = text.replace("[", " ").replace("]", " ")
-    text = text.replace("「", "'").replace("」", "'")
+    text = text.replace("[", " ").replace("]", " ").replace("「", "'").replace("」", "'")
     text = TRAILING_DASH_ELLIPSIS_RE.sub(".", text)
     text = INLINE_DASH_ELLIPSIS_RE.sub(", ", text)
 
-    # Convert inline parentheticals into natural spoken pauses while handling attached particles
-    # (e.g. `1SA 6:19` `(오만)칠십인을`, `JHN 19:13` `박석(히브리 말로 가바다)이란`).
+    # Convert inline parentheticals into spoken pauses while preserving attached particles.
     def _replace_paren(match: re.Match[str]) -> str:
         inner = match.group(1).strip()
         if not inner:
@@ -134,12 +120,11 @@ def normalize_krv_text(raw_text: str) -> str | None:
         elif after.isspace():
             suffix = ", "
         else:
-            # Attached Hangul (particle or compound noun like `(오만)칠십인을`): separate cleanly without comma.
+            # Separate attached Hangul particles cleanly without injecting a comma.
             suffix = " "
         return f"{prefix}{inner}{suffix}"
 
-    # Iterate in case of nested/multiple parens, then clean any unmatched multi-verse parens
-    # (e.g. `1CH 5:1-2`, `2CH 9:10-11`, `JDG 20:27-28`).
+    # Loop for nested parens, then clear unmatched multi-verse parens.
     prev = None
     while prev != text:
         prev = text
@@ -152,7 +137,6 @@ def normalize_krv_text(raw_text: str) -> str | None:
         text,
     )
 
-    # Tidy punctuation spacing and stray duplicate commas.
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"\s*,\s*", ", ", text)
     text = re.sub(r"(?:,\s*){2,}", ", ", text)
@@ -178,24 +162,19 @@ def split_korean_chunks(text: str, max_len: int = MAX_KO_CHUNK_CHARS) -> list[st
         window = remaining[: soft_limit + 1]
         split_at = -1
 
-        # 1. Prefer punctuation boundary (comma / sentence end + space)
+        # Prefer punctuation, then Korean clause endings, then whitespace.
         for m in re.finditer(r"[,.;!?]\s+", window):
             if m.end() >= 28:
                 split_at = m.end()
 
-        # 2. Otherwise prefer natural Korean clause-ending boundary
         if split_at == -1:
             for m in CLAUSE_END_RE.finditer(window):
                 if m.end() >= 28:
                     split_at = m.end()
 
-        # 3. Last resort: whitespace boundary
         if split_at == -1:
             ws = window.rfind(" ")
-            if ws >= 20:
-                split_at = ws + 1
-            else:
-                split_at = soft_limit
+            split_at = ws + 1 if ws >= 20 else soft_limit
 
         head = remaining[:split_at].strip()
         remaining = remaining[split_at:].strip()
@@ -299,7 +278,7 @@ def synthesize_text_utterance(
     sample_rate = int(tts.sample_rate)
     chunk_pause = np.zeros(int(round(chunk_pause_sec * sample_rate)), dtype=np.float32)
     parts: list[np.ndarray] = []
-    for idx, chunk in enumerate(chunks):
+    for chunk in chunks:
         wav, _dur = tts.synthesize(
             text=chunk,
             voice_style=voice_style,
@@ -338,7 +317,7 @@ def master_chapter_audio(
         gain = ceiling / max(peak, 1e-6)
 
     mastered = np.clip(combined * gain, -ceiling, ceiling)
-    final_rms_db = 20.0 * float(np.log10(max(float(np.sqrt(np.mean(active * active))) * gain, 1e-9)))
+    final_rms_db = 20.0 * float(np.log10(max(rms * gain, 1e-9)))
     final_peak_db = 20.0 * float(np.log10(max(float(np.max(np.abs(mastered))), 1e-9)))
     return mastered, round(final_rms_db, 2), round(final_peak_db, 2)
 
@@ -822,11 +801,17 @@ def main() -> int:
         if remaining_by_book[usfm] == 0 or completed % 10 == 0:
             atomic_write_json(REPORT_PATH, report, compact=False)
 
+    def record_error(idx_done: int, usfm: str, ch_num: int, err: Exception) -> None:
+        nonlocal errors
+        errors += 1
+        remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
+        chapters_report[f"{usfm}:{ch_num}"] = {"status": "error", "error": str(err)}
+        print(f"[{idx_done}/{len(jobs)}] {usfm}:{ch_num} — ERROR: {err}", file=sys.stderr)
+
     try:
         if worker_count == 1:
             voice_style = tts.get_voice_style(resolved_voice)
             for idx, (usfm, book_ko, ch_num, verses, total_verses) in enumerate(jobs):
-                ref = f"{usfm}:{ch_num}"
                 mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
                 t0 = time.time()
                 try:
@@ -854,10 +839,7 @@ def main() -> int:
                         time.time() - t0,
                     )
                 except Exception as err:  # noqa: BLE001
-                    errors += 1
-                    remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
-                    chapters_report[ref] = {"status": "error", "error": str(err)}
-                    print(f"[{idx + 1}/{len(jobs)}] {ref} — ERROR: {err}", file=sys.stderr)
+                    record_error(idx + 1, usfm, ch_num, err)
                 finally:
                     gc.collect()
         else:
@@ -883,7 +865,6 @@ def main() -> int:
                 }
                 for done_idx, future in enumerate(as_completed(future_to_ref), start=1):
                     usfm, ch_num = future_to_ref[future]
-                    ref = f"{usfm}:{ch_num}"
                     try:
                         (
                             res_usfm,
@@ -903,13 +884,7 @@ def main() -> int:
                             elapsed,
                         )
                     except Exception as err:  # noqa: BLE001
-                        errors += 1
-                        remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
-                        chapters_report[ref] = {"status": "error", "error": str(err)}
-                        print(
-                            f"[{done_idx}/{len(jobs)}] {ref} — ERROR: {err}",
-                            file=sys.stderr,
-                        )
+                        record_error(done_idx, usfm, ch_num, err)
     finally:
         for dirty_usfm in list(dirty_books):
             flush_book(dirty_usfm)
