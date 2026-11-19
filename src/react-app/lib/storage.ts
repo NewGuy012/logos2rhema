@@ -22,7 +22,7 @@ export function writeJsonStorage(key: string, value: unknown): void {
 	}
 }
 
-export function parseStoredBookChapter(
+function parseStoredBookChapter(
 	rec: Record<string, unknown>,
 ): { book: BookMeta; chapter: number } | null {
 	const book = typeof rec.bookNumber === "number" ? getBookByNumber(rec.bookNumber) : undefined;
