@@ -157,7 +157,13 @@ async function loadCheckpoint(): Promise<CheckpointData> {
 	}
 	try {
 		const parsed = (await file.json()) as Partial<CheckpointData>;
-		if (parsed && parsed.version === 1 && parsed.buckets && typeof parsed.buckets === "object") {
+		if (
+			parsed &&
+			parsed.version === 1 &&
+			parsed.buckets &&
+			typeof parsed.buckets === "object" &&
+			!Array.isArray(parsed.buckets)
+		) {
 			return { version: 1, buckets: parsed.buckets };
 		}
 	} catch {

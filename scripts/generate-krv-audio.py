@@ -20,7 +20,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import lameenc
 import numpy as np
@@ -337,7 +337,7 @@ def encode_cbr_mp3(
     encoder.silence()
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = out_path.with_suffix(".mp3.tmp")
+    tmp_path = out_path.with_suffix(f".{os.getpid()}.mp3.tmp")
     total_bytes = 0
     chunk_samples = 524_288
 
@@ -446,7 +446,7 @@ def synthesize_chapter(
 
 def atomic_write_json(path: Path, data: Any, *, compact: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    tmp_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
     try:
         with tmp_path.open("w", encoding="utf-8") as fh:
             if compact:
@@ -834,27 +834,39 @@ def main() -> int:
         chapters_report[f"{usfm}:{ch_num}"] = {"status": "error", "error": str(err)}
         print(f"[{idx_done}/{len(jobs)}] {usfm}:{ch_num} — ERROR: {err}", file=sys.stderr)
 
+    def run_job_step(
+        idx_done: int,
+        usfm: str,
+        ch_num: int,
+        fn: Callable[[], tuple[str, int, int, dict[str, float], dict[str, Any], float]],
+    ) -> None:
+        try:
+            res_usfm, res_ch, total_verses, timings, metrics, elapsed = fn()
+            record_success(
+                idx_done, res_usfm, res_ch, total_verses, timings, metrics, elapsed
+            )
+        except Exception as err:  # noqa: BLE001
+            record_error(idx_done, usfm, ch_num, err)
+
     try:
         if worker_count == 1:
             voice_style = tts.get_voice_style(resolved_voice)
-            for idx, job in enumerate(jobs):
-                usfm, _, ch_num, _, _ = job
-                try:
-                    res_usfm, res_ch, total_verses, timings, metrics, elapsed = _synthesize_job(
+            for idx, job in enumerate(jobs, start=1):
+                run_job_step(
+                    idx,
+                    job[0],
+                    job[2],
+                    lambda j=job: _synthesize_job(
                         tts,
                         voice_style,
-                        job,
+                        j,
                         args.steps,
                         args.speed,
                         args.pause,
                         args.header_pause,
                         args.bitrate,
-                    )
-                    record_success(
-                        idx + 1, res_usfm, res_ch, total_verses, timings, metrics, elapsed
-                    )
-                except Exception as err:  # noqa: BLE001
-                    record_error(idx + 1, usfm, ch_num, err)
+                    ),
+                )
         else:
             # Release main-process ONNX model memory before spawning worker processes.
             del tts
@@ -878,26 +890,7 @@ def main() -> int:
                 }
                 for done_idx, future in enumerate(as_completed(future_to_ref), start=1):
                     usfm, ch_num = future_to_ref[future]
-                    try:
-                        (
-                            res_usfm,
-                            res_ch,
-                            total_verses,
-                            timings,
-                            metrics,
-                            elapsed,
-                        ) = future.result()
-                        record_success(
-                            done_idx,
-                            res_usfm,
-                            res_ch,
-                            total_verses,
-                            timings,
-                            metrics,
-                            elapsed,
-                        )
-                    except Exception as err:  # noqa: BLE001
-                        record_error(done_idx, usfm, ch_num, err)
+                    run_job_step(done_idx, usfm, ch_num, future.result)
     finally:
         for dirty_usfm in list(dirty_books):
             flush_book(dirty_usfm)

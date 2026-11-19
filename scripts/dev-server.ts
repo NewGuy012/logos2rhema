@@ -105,10 +105,12 @@ async function serveStaticFile(
 	method = "GET",
 	contentType?: string,
 ): Promise<Response | null> {
-	const file = Bun.file(filePath);
-	if (!(await file.exists())) {
+	try {
+		if (!(await stat(filePath)).isFile()) return null;
+	} catch {
 		return null;
 	}
+	const file = Bun.file(filePath);
 	const headers = applyHeaders(new Headers(), staticHeaders);
 	if (contentType) {
 		headers.set("Content-Type", contentType);
@@ -206,7 +208,8 @@ function createLocalAudioBucket(baseDir: string): R2BucketLike {
 
 const isPreview = process.argv.includes("--preview");
 const hostname = process.env.HOST?.trim() || "127.0.0.1";
-const loopbackHost = hostname === "0.0.0.0" || hostname === "::" ? "127.0.0.1" : hostname;
+const rawLoopbackHost = hostname === "0.0.0.0" || hostname === "::" ? "127.0.0.1" : hostname;
+const loopbackHost = rawLoopbackHost.includes(":") ? `[${rawLoopbackHost}]` : rawLoopbackHost;
 const port = Number.parseInt(process.env.PORT ?? "", 10) || (isPreview ? 4173 : 5173);
 const devVars = await loadDevVars();
 if (!devVars.AUDIO_BASE_URL?.trim() && (await isDirectory(LOCAL_AUDIO_DIR))) {

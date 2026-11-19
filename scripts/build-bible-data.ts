@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
 
@@ -49,6 +49,8 @@ interface EsvLemmaContext {
 	words: Map<string, number>;
 }
 
+const MAX_ZIP_ENTRY_BYTES = 64 * 1024 * 1024;
+
 async function ensureSourceFile(filename: string, url?: string): Promise<string> {
 	const targetPath = join(DATA_SOURCES_DIR, filename);
 	const file = Bun.file(targetPath);
@@ -64,7 +66,14 @@ async function ensureSourceFile(filename: string, url?: string): Promise<string>
 		throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
 	}
 	await mkdir(DATA_SOURCES_DIR, { recursive: true });
-	await Bun.write(targetPath, await res.arrayBuffer());
+	const tmpPath = `${targetPath}.${process.pid}.tmp`;
+	try {
+		await Bun.write(tmpPath, await res.arrayBuffer());
+		await rename(tmpPath, targetPath);
+	} catch (err) {
+		await rm(tmpPath, { force: true }).catch(() => {});
+		throw err;
+	}
 	return targetPath;
 }
 
@@ -92,23 +101,38 @@ function readZipJsonEntries(
 	const results: Array<{ name: string; text: string }> = [];
 
 	for (let i = 0; i < entryCount; i++) {
-		if (view.getUint32(cdOffset, true) !== 0x02014b50) break;
+		if (cdOffset + 46 > eocdOffset || view.getUint32(cdOffset, true) !== 0x02014b50) break;
 		const method = view.getUint16(cdOffset + 10, true);
 		const compSize = view.getUint32(cdOffset + 20, true);
 		const nameLen = view.getUint16(cdOffset + 28, true);
 		const extraLen = view.getUint16(cdOffset + 30, true);
 		const commentLen = view.getUint16(cdOffset + 32, true);
 		const localHeaderOffset = view.getUint32(cdOffset + 42, true);
+		if (cdOffset + 46 + nameLen + extraLen + commentLen > eocdOffset) break;
 		const name = decoder.decode(bytes.subarray(cdOffset + 46, cdOffset + 46 + nameLen));
 		cdOffset += 46 + nameLen + extraLen + commentLen;
 
 		if (!name.startsWith(prefix) || !name.endsWith(".json")) continue;
-		if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) continue;
+		if (method !== 0 && method !== 8) {
+			throw new Error(`Unsupported ZIP compression method ${method} for ${name}`);
+		}
+		if (
+			localHeaderOffset + 30 > bytes.length ||
+			view.getUint32(localHeaderOffset, true) !== 0x04034b50
+		) {
+			continue;
+		}
 		const localNameLen = view.getUint16(localHeaderOffset + 26, true);
 		const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
 		const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+		if (dataStart + compSize > bytes.length || compSize > MAX_ZIP_ENTRY_BYTES) {
+			throw new Error(`ZIP entry ${name} exceeds bounds or size limit`);
+		}
 		const compressed = bytes.subarray(dataStart, dataStart + compSize);
-		const raw = method === 0 ? compressed : inflateRawSync(compressed);
+		const raw =
+			method === 0
+				? compressed
+				: inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_ENTRY_BYTES });
 		results.push({ name, text: decoder.decode(raw) });
 	}
 	return results;
@@ -233,8 +257,13 @@ function isRomanizationOnly(hangul: string, gloss: string): boolean {
 	return rom.length >= 2 && clean === rom;
 }
 
-const MODERN_SECULAR_PENALTY_RE =
-	/\b(bus|train|subway|railway|airplane|car|rocket|movie|film|radio|television|TV|NASA|Samsung|software|computer|computing|internet|smartphone|baseball|soccer|golf|croquet|company|corporation|stock|dividend|parliament|communist|nazi|kimchi|hanbok|taekwondo|won|dollar|yen|euro|sewage|sewerage|postal|mail|postage|drill|reggae|heavy water|license plate|office boy|bellboy|footboy|ph\.?d|Korean language|March 1|Chengdu|shakedown|trepang|Windsor chair|rack monster|materfamilias|propria|cacod|ecdysis|handsel|imbrue|beefy|progeniture|thereat|archenemy|obversation|footdraggng|buring|mangily|sacrarium|grapery|northing|joss|specie|overweening|asinine|guileless|wive|bale|aiding the enemy|cold latitude|long tongue|baby in the oven|at loggerhead|what the hell|gizzard|glottis|softshell|librarian|emasculate|nonsuit|demimondaine|bedtick|calyptra|voiceprint|samadhi|asthenosphere|bivalence|tinnitus|dementia|calcination|microcopy|acidity|backhaul|dehotative|mach one|apt complex|garage|register|slang|ejaculation|petuntse|sharpbelly|Hemiculter|big-time thief|napoo|notabene|whatsis|quoth|kisaeng|gisaeng|demonstrators|protestors|gift-wrapping|warehousing|warehouse|eat out|applause|marine goods|marching music|death by starvation|obituary|prognosis|prominent person|my gentleman|smack one's lips|to smash|to burn oneself)\b/i;
+const SHARED_NOISY_SENSE_TERMS =
+	"what the hell|obversation|footdraggng|buring|materfamilias|propria|cacod|ecdysis|handsel|imbrue|trepang|Windsor chair|rack monster|reggae|heavy water|license plate|bellboy|footboy|office boy|long tongue|aiding the enemy|shakedown|cold latitude|baby in the oven|at loggerhead|Korean language|ph\\.?d|mangily|overweening|asinine|guileless|sacrarium|grapery|northing|joss|specie|thereat|progeniture|wive|beefy|napoo|notabene|whatsis|quoth|ejaculation|petuntse|sharpbelly";
+
+const MODERN_SECULAR_PENALTY_RE = new RegExp(
+	`\\b(${SHARED_NOISY_SENSE_TERMS}|bus|train|subway|railway|airplane|car|rocket|movie|film|radio|television|TV|NASA|Samsung|software|computer|computing|internet|smartphone|baseball|soccer|golf|croquet|company|corporation|stock|dividend|parliament|communist|nazi|kimchi|hanbok|taekwondo|won|dollar|yen|euro|sewage|sewerage|postal|mail|postage|drill|March 1|Chengdu|archenemy|bale|gizzard|glottis|softshell|librarian|emasculate|nonsuit|demimondaine|bedtick|calyptra|voiceprint|samadhi|asthenosphere|bivalence|tinnitus|dementia|calcination|microcopy|acidity|backhaul|dehotative|mach one|apt complex|garage|register|slang|Hemiculter|big-time thief|kisaeng|gisaeng|demonstrators|protestors|gift-wrapping|warehousing|warehouse|eat out|applause|marine goods|marching music|death by starvation|obituary|prognosis|prominent person|my gentleman|smack one's lips|to smash|to burn oneself)\\b`,
+	"i",
+);
 
 /** Inflected forms, homograph traps, and obscure headwords that must decompose morphologically instead of exact-matching. */
 const BLOCKED_LEXICON_HEADWORDS = new Set([
@@ -311,6 +340,26 @@ const BLOCKED_LEXICON_HEADWORDS = new Set([
 	"오려",
 ]);
 
+function isValidHeadword(term: string): boolean {
+	return (
+		term.length >= 2 &&
+		containsHangul(term) &&
+		!term.includes(" ") &&
+		!/^[-~]|[-~]$/.test(term) &&
+		!BLOCKED_LEXICON_HEADWORDS.has(term)
+	);
+}
+
+function addCandidate(
+	candidates: Map<string, DictCandidate[]>,
+	term: string,
+	candidate: DictCandidate,
+): void {
+	const list = candidates.get(term);
+	if (list) list.push(candidate);
+	else candidates.set(term, [candidate]);
+}
+
 function extractStructuredText(node: unknown): string {
 	if (typeof node === "string") return node;
 	if (Array.isArray(node)) return node.map(extractStructuredText).join("");
@@ -364,16 +413,7 @@ async function loadKrdictCandidates(zipPath: string): Promise<Map<string, DictCa
 		for (const row of rows) {
 			const term = String(row[0] ?? "").trim();
 			const rawPos = String(row[2] ?? "");
-			if (
-				!term ||
-				term.length < 2 ||
-				!containsHangul(term) ||
-				term.includes(" ") ||
-				/^[-~]|[-~]$/.test(term) ||
-				BLOCKED_LEXICON_HEADWORDS.has(term)
-			) {
-				continue;
-			}
+			if (!isValidHeadword(term)) continue;
 			const { pos, stars } = parseKrdictPos(rawPos);
 			if (!pos) continue;
 
@@ -414,10 +454,7 @@ async function loadKrdictCandidates(zipPath: string): Promise<Map<string, DictCa
 
 					const entry: LexiconEntry = { gloss, pos };
 					if (hanja) entry.hanja = hanja;
-					const list = candidates.get(term);
-					const cand: DictCandidate = { entry, source: "krdict", definition, stars };
-					if (list) list.push(cand);
-					else candidates.set(term, [cand]);
+					addCandidate(candidates, term, { entry, source: "krdict", definition, stars });
 				}
 			}
 		}
@@ -489,16 +526,7 @@ async function loadKaikkiCandidates(gzPath: string): Promise<Map<string, DictCan
 			continue;
 		}
 		const word = String(obj.word ?? "").trim();
-		if (
-			!word ||
-			word.length < 2 ||
-			!containsHangul(word) ||
-			word.includes(" ") ||
-			/^[-~]|[-~]$/.test(word) ||
-			BLOCKED_LEXICON_HEADWORDS.has(word)
-		) {
-			continue;
-		}
+		if (!isValidHeadword(word)) continue;
 		const pos = mapKaikkiPos(String(obj.pos ?? ""));
 		if (!pos) continue;
 
@@ -537,17 +565,16 @@ async function loadKaikkiCandidates(gzPath: string): Promise<Map<string, DictCan
 
 			const entry: LexiconEntry = { gloss, pos };
 			if (hanja) entry.hanja = hanja;
-			const list = candidates.get(word);
-			const cand: DictCandidate = { entry, source: "wiktionary", definition: rawGloss, tags };
-			if (list) list.push(cand);
-			else candidates.set(word, [cand]);
+			addCandidate(candidates, word, { entry, source: "wiktionary", definition: rawGloss, tags });
 		}
 	}
 	return candidates;
 }
 
-const KENGDIC_HARD_REJECT_RE =
-	/\bsth\b|\bsb\b|\(English\)|what the hell|\bs\b|p\.o\.w|obversation|footdraggng|buring|materfamilias|propria|cacod|ecdysis|handsel|imbrue|trepang|dugg|Windsor chair|rack monster|reggae|heavy water|license plate|bellboy|footboy|office boy|long tongue|aiding the enemy|shakedown|cold latitude|baby in the oven|at loggerhead|Korean language|ph\.?d|mangily|overweening|asinine|guileless|sacrarium|grapery|northing|joss|specie|thereat|progeniture|bale,|wive|beefy|in tear|napoo|notabene|whatsis|quoth|ejaculation|petuntse|sharpbelly/i;
+const KENGDIC_HARD_REJECT_RE = new RegExp(
+	`\\b(${SHARED_NOISY_SENSE_TERMS}|sth|sb|s|p\\.o\\.w|dugg|in tear)\\b|\\bbale,|\\(English\\)`,
+	"i",
+);
 
 function inferKengdicPos(surface: string, gloss: string): WordPos {
 	const lower = gloss.toLowerCase();
@@ -635,19 +662,11 @@ async function loadKengdicCandidates(
 	for (let i = 1; i < lines.length; i++) {
 		const cols = lines[i].split("\t");
 		if (cols.length < 4) continue;
-		const surface = cols[1]?.trim();
+		const surface = cols[1]?.trim() ?? "";
 		const rawHanja = cols[2]?.trim() ?? "";
 		const rawGloss = cols[3]?.trim() ?? "";
 		const grade = cols[4]?.trim() ?? "";
-		if (
-			!surface ||
-			surface.length < 2 ||
-			!rawGloss ||
-			!containsHangul(surface) ||
-			surface.includes(" ")
-		) {
-			continue;
-		}
+		if (!rawGloss || !isValidHeadword(surface)) continue;
 		if (isRedundantInflectedKengdicForm(surface, knownHeadwords)) continue;
 		if (KENGDIC_HARD_REJECT_RE.test(rawGloss)) continue;
 
@@ -658,10 +677,7 @@ async function loadKengdicCandidates(
 		const pos = inferKengdicPos(surface, cleaned);
 		const entry: LexiconEntry = { gloss: cleaned, pos };
 		if (rawHanja && !containsHangul(rawHanja)) entry.hanja = rawHanja;
-		const list = candidates.get(surface);
-		const cand: DictCandidate = { entry, source: "kengdic", grade };
-		if (list) list.push(cand);
-		else candidates.set(surface, [cand]);
+		addCandidate(candidates, surface, { entry, source: "kengdic", grade });
 	}
 	return candidates;
 }
