@@ -17,9 +17,9 @@ const DATA_SOURCES_DIR = join(ROOT_DIR, "data-sources");
 const PUBLIC_DATA_DIR = join(ROOT_DIR, "public", "data");
 
 const KRV_SOURCE_URL =
-	"https://raw.githubusercontent.com/bluesaurel/Korean-Bible-1961-KRV/main/bible_1961_krv.json";
+	"https://raw.githubusercontent.com/bluesaurel/Korean-Bible-1961-KRV/2fdb91e77d323b99bacaa9b61fc18f318b703240/bible_1961_krv.json";
 const KENGDIC_SOURCE_URL =
-	"https://raw.githubusercontent.com/garfieldnate/kengdic/master/kengdic.tsv";
+	"https://raw.githubusercontent.com/garfieldnate/kengdic/793de2369c9a98b944154eb4695d26854d2de59b/kengdic.tsv";
 
 interface RawKrvBook {
 	book: string;
@@ -42,7 +42,7 @@ async function ensureSourceFile(filename: string, url?: string): Promise<string>
 		throw new Error(`Required source file missing: ${targetPath}`);
 	}
 	console.log(`Downloading ${filename} from ${url}...`);
-	const res = await fetch(url);
+	const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
 	if (!res.ok) {
 		throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
 	}
