@@ -2,30 +2,27 @@
 	"name": "logos",
 	"description": "Bilingual English (ESV) & Korean (개역한글) Bible reader for learning Korean",
 	"dependencies": {
-		"hono": "4.11.1",
-		"react": "19.2.1",
-		"react-dom": "19.2.1"
+		"hono": "4.13.19",
+		"react": "19.3.1",
+		"react-dom": "19.3.1"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "1.52.1",
 		"@types/bun": "1.4.4",
-		"@types/react": "19.2.7",
-		"@types/react-dom": "19.2.3",
-		"@vitejs/plugin-react": "5.1.1",
-		"happy-dom": "17.6.3",
-		"vite": "7.3.8",
-		"wrangler": "4.136.1"
+		"@types/react": "19.3.0",
+		"@types/react-dom": "19.3.0",
+		"happy-dom": "21.0.4",
+		"wrangler": "4.165.0"
 	},
 	"private": true,
 	"scripts": {
 		"audio:generate-krv": "uv run scripts/generate-krv-audio.py",
-		"build": "bun check -b --no-script && vite build",
+		"build": "bun check -b --no-script && bun run scripts/build-client.ts",
 		"check": "bun fmt --check --no-script && bun check -b --no-script",
 		"data:build": "bun run scripts/build-bible-data.ts",
 		"deploy": "wrangler deploy",
-		"dev": "vite",
+		"dev": "bun --hot scripts/dev-server.ts",
 		"format": "bun fmt --no-script",
-		"preview": "bun run build && vite preview",
+		"preview": "bun run build && bun run scripts/dev-server.ts --preview",
 		"test": "bun test"
 	},
 	"type": "module"

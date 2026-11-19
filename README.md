@@ -34,12 +34,12 @@
 
 ## Tech Stack
 
-| Layer                  | Technology                                                                                                                                                                  |
-| :--------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Frontend**           | [React 19](https://react.dev/), [Vite](https://vite.dev/), custom editorial CSS (`Paper` / `Sepia` / `Dark`)                                                                |
-| **Edge API**           | [Hono](https://hono.dev/) on [Cloudflare Workers](https://workers.cloudflare.com/)                                                                                          |
-| **Language & Tooling** | [TypeScript](https://www.typescriptlang.org/), [Bun](https://bun.sh/) (`bun test`, `bun fmt`, `bun check`), [Wrangler](https://developers.cloudflare.com/workers/wrangler/) |
-| **Data & Audio**       | Bundled ESV/KRV JSON & Korean lexicon (`public/data/`), [HelloAO](https://bible.helloao.org/) commentaries, Crossway ESV & Supertonic 3 audio                               |
+| Layer                  | Technology                                                                                                                                                                               |
+| :--------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Frontend**           | [React 19](https://react.dev/), custom editorial CSS (`Paper` / `Sepia` / `Dark`)                                                                                                        |
+| **Edge API**           | [Hono](https://hono.dev/) on [Cloudflare Workers](https://workers.cloudflare.com/)                                                                                                       |
+| **Language & Tooling** | [TypeScript](https://www.typescriptlang.org/), [Bun](https://bun.sh/) (`bun build`, `bun test`, `bun fmt`, `bun check`), [Wrangler](https://developers.cloudflare.com/workers/wrangler/) |
+| **Data & Audio**       | Bundled ESV/KRV JSON & Korean lexicon (`public/data/`), [HelloAO](https://bible.helloao.org/) commentaries, Crossway ESV & Supertonic 3 audio                                            |
 
 ## Quick Start
 
@@ -54,11 +54,11 @@ Bundled Scripture text, Korean lexicon, and HelloAO commentaries work out of the
 
 | Command                      | Description                                               |
 | :--------------------------- | :-------------------------------------------------------- |
-| `bun run dev`                | Start Vite + Cloudflare Worker dev server                 |
+| `bun run dev`                | Start Bun dev server with HMR + local Hono API            |
 | `bun test`                   | Run unit, Worker API, and `happy-dom` React tests         |
 | `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking |
 | `bun run format`             | Format codebase with `bun fmt`                            |
-| `bun run build`              | Typecheck and build Worker + client bundle into `dist/`   |
+| `bun run build`              | Typecheck and build client SPA bundle into `dist/client/` |
 | `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                 |
 | `bun run data:build`         | Rebuild bundled ESV/KRV chapters and Korean lexicon       |
 | `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings         |
