@@ -109,6 +109,13 @@ export interface AudioTrackOption {
 	note?: string;
 }
 
+export interface BookAudioTimingsData {
+	translationId: string;
+	audioSource: string;
+	usfm: string;
+	chapters: Record<string, Record<string, number>>;
+}
+
 export interface ChapterAudioResponse {
 	bookUsfm: string;
 	chapter: number;

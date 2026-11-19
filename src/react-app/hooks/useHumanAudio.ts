@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { hasVerseTimings } from "../../shared/audio-timings";
 import type { AudioTrackOption } from "../../shared/types";
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
@@ -17,10 +18,10 @@ export function resolveVerseAtTime(
 	timings: Record<number, number> | undefined,
 	seconds: number,
 ): number | null {
-	if (!timings) return null;
+	if (!hasVerseTimings(timings)) return null;
 	let current: number | null = null;
 	let bestTime = -1;
-	for (const [vStr, startSec] of Object.entries(timings)) {
+	for (const [vStr, startSec] of Object.entries(timings!)) {
 		const vNum = Number.parseInt(vStr, 10);
 		if (!Number.isNaN(vNum) && startSec <= seconds + 0.25 && startSec >= bestTime) {
 			bestTime = startSec;
@@ -34,12 +35,13 @@ export function resolveTimeForVerse(
 	timings: Record<number, number> | undefined,
 	verseNumber: number,
 ): number | null {
-	if (!timings) return null;
-	if (typeof timings[verseNumber] === "number") return timings[verseNumber];
+	if (!hasVerseTimings(timings)) return null;
+	const map = timings!;
+	if (typeof map[verseNumber] === "number") return map[verseNumber];
 	// Walk backward to nearest preceding timed verse if a verse was merged in metadata.
 	let bestVerse = -1;
 	let bestTime: number | null = null;
-	for (const [vStr, startSec] of Object.entries(timings)) {
+	for (const [vStr, startSec] of Object.entries(map)) {
 		const vNum = Number.parseInt(vStr, 10);
 		if (!Number.isNaN(vNum) && vNum <= verseNumber && vNum > bestVerse) {
 			bestVerse = vNum;
@@ -121,8 +123,8 @@ export function useHumanAudio({
 		const applyPendingVerseSeek = () => {
 			const pendingVerse = pendingSyncVerseRef.current;
 			const track = activeTrackRef.current;
-			if (pendingVerse !== null && track?.verseTimings) {
-				const targetSec = resolveTimeForVerse(track.verseTimings, pendingVerse);
+			if (pendingVerse !== null && hasVerseTimings(track?.verseTimings)) {
+				const targetSec = resolveTimeForVerse(track?.verseTimings, pendingVerse);
 				if (targetSec !== null) {
 					audio.currentTime = targetSec;
 					setCurrentTime(targetSec);
@@ -136,7 +138,9 @@ export function useHumanAudio({
 				applyPendingVerseSeek();
 			},
 			timeupdate: () => {
-				setCurrentTime(audio.currentTime || 0);
+				if (pendingSyncVerseRef.current === null) {
+					setCurrentTime(audio.currentTime || 0);
+				}
 				syncDuration();
 			},
 			durationchange: () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0),
@@ -158,6 +162,7 @@ export function useHumanAudio({
 				onEndedRef.current?.();
 			},
 			error: () => {
+				pendingSyncVerseRef.current = null;
 				setIsPlaying(false);
 				setIsLoading(false);
 				setErrorMessage("Audio stream could not be loaded for this chapter.");
@@ -223,6 +228,7 @@ export function useHumanAudio({
 	const seekTo = useCallback((seconds: number) => {
 		const audio = audioRef.current;
 		if (!audio || !Number.isFinite(seconds)) return;
+		pendingSyncVerseRef.current = null;
 		const validDuration =
 			Number.isFinite(audio.duration) && audio.duration > 0
 				? audio.duration
@@ -231,6 +237,21 @@ export function useHumanAudio({
 		audio.currentTime = clamped;
 		setCurrentTime(clamped);
 	}, []);
+
+	const seekOrQueueVerse = useCallback(
+		(verseNumber: number, targetSec: number) => {
+			const audio = audioRef.current;
+			if (!audio) return;
+			// Queue seek for loadedmetadata/canplay when the audio element hasn't loaded metadata yet.
+			if (typeof audio.readyState === "number" && audio.readyState < 1) {
+				pendingSyncVerseRef.current = verseNumber;
+				setCurrentTime(targetSec);
+			} else {
+				seekTo(targetSec);
+			}
+		},
+		[seekTo],
+	);
 
 	const togglePlay = useCallback(() => {
 		const audio = audioRef.current;
@@ -243,7 +264,7 @@ export function useHumanAudio({
 
 		setIsFollowingAudio(true);
 
-		if (autoSyncRef.current && track.verseTimings) {
+		if (autoSyncRef.current && hasVerseTimings(track.verseTimings)) {
 			const targetVerse = visibleVerseRef.current;
 			const targetSec = resolveTimeForVerse(track.verseTimings, targetVerse);
 			const verseAtAudio = resolveVerseAtTime(track.verseTimings, audio.currentTime || 0);
@@ -251,7 +272,7 @@ export function useHumanAudio({
 				targetSec !== null &&
 				(((audio.currentTime || 0) < 0.5 && targetVerse > 1) ||
 					(verseAtAudio !== null && verseAtAudio !== targetVerse));
-			if (shouldSnap) seekTo(targetSec);
+			if (shouldSnap) seekOrQueueVerse(targetVerse, targetSec);
 		}
 
 		setErrorMessage(null);
@@ -261,7 +282,7 @@ export function useHumanAudio({
 			setIsPlaying(false);
 			setErrorMessage("Playback blocked or unavailable for this chapter.");
 		});
-	}, [seekTo]);
+	}, [seekOrQueueVerse]);
 
 	const pause = useCallback(() => {
 		const audio = audioRef.current;
@@ -309,13 +330,13 @@ export function useHumanAudio({
 			const startSec = resolveTimeForVerse(track?.verseTimings, verseNumber);
 			if (startSec === null) return false;
 			setIsFollowingAudio(true);
-			seekTo(startSec);
+			seekOrQueueVerse(verseNumber, startSec);
 			if (audioRef.current?.paused) {
 				audioRef.current.play().catch(() => {});
 			}
 			return true;
 		},
-		[seekTo],
+		[seekOrQueueVerse],
 	);
 
 	const selectPlaybackRate = useCallback((rate: number) => {

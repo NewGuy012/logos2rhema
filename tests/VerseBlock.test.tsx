@@ -16,7 +16,11 @@ import {
 	resolveVerseAtTime,
 	useHumanAudio,
 } from "../src/react-app/hooks/useHumanAudio";
-import { clearCommentaryCache } from "../src/react-app/lib/bible-loader";
+import {
+	clearAudioTimingsCache,
+	clearCommentaryCache,
+	loadSyncedChapterAudio,
+} from "../src/react-app/lib/bible-loader";
 import {
 	FAVORITES_STORAGE_KEY,
 	formatFavoriteLabel,
@@ -919,8 +923,114 @@ describe("Reader UI & audio hooks", () => {
 				}),
 			);
 			expect(unsafeHook.result.current.errorMessage).toBe("Audio stream URL was rejected.");
+
+			// Pre-metadata seek: queues target verse when readyState === 0 and seeks on loadedmetadata
+			mockCurrentTime = 0;
+			listeners.clear();
+			class DeferredMetadataAudio extends MockAudio {
+				readyState = 0;
+			}
+			globalThis.Audio = DeferredMetadataAudio as unknown as typeof Audio;
+			const deferredHook = renderHook(() =>
+				useHumanAudio({
+					tracks: [
+						{
+							id: "helloao:krv:wordproject",
+							label: "Wordproject Reader (KRV)",
+							language: "ko",
+							translationId: "krv",
+							url: "https://cdn.example.com/krv.mp3",
+							source: "helloao",
+							verseTimings: { 1: 1.2, 16: 48.2 },
+						},
+					],
+					visibleVerse: 16,
+					autoSync: true,
+				}),
+			);
+			await act(async () => {
+				deferredHook.result.current.togglePlay();
+			});
+			expect(mockCurrentTime).toBe(0);
+			expect(deferredHook.result.current.activeVerse).toBe(16);
+			await act(async () => {
+				for (const fn of listeners.get("loadedmetadata") ?? []) fn();
+			});
+			expect(mockCurrentTime).toBe(48.2);
+			expect(deferredHook.result.current.activeVerse).toBe(16);
 		} finally {
 			globalThis.Audio = originalAudio;
+		}
+	});
+
+	it("hydrates static KRV timings only for Wordproject fallback and preserves Bible Brain/ESV tracks", async () => {
+		clearAudioTimingsCache();
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "/api/audio/JHN/3") {
+				return Response.json({
+					bookUsfm: "JHN",
+					chapter: 3,
+					tracks: [
+						{
+							id: "helloao:krv:wordproject",
+							label: "Wordproject Reader (KRV)",
+							language: "ko",
+							translationId: "krv",
+							url: "https://audio.bible.helloao.org/api/kor_old/JHN/3/audio/wordproject.mp3",
+							source: "helloao",
+						},
+						{
+							id: "bb:KORKRVN1DA",
+							label: "KRV Bible Brain",
+							language: "ko",
+							translationId: "krv",
+							url: "https://cdn.example.com/bb-krv-jhn3.mp3",
+							source: "bible-brain",
+						},
+						{
+							id: "esv-api:JHN:3",
+							label: "David Cochran Heath (ESV)",
+							language: "en",
+							translationId: "esv",
+							url: "https://audio.esv.org/hw/jhn3.mp3",
+							source: "esv-api",
+						},
+					],
+				});
+			}
+			if (url === "/data/timings/krv-wordproject/JHN.json") {
+				return Response.json({
+					translationId: "krv",
+					audioSource: "helloao:krv:wordproject",
+					usfm: "JHN",
+					chapters: {
+						"3": { "1": 2.4, "16": 51.7, bad: "x" },
+					},
+				});
+			}
+			return new Response("Not Found", { status: 404 });
+		}) as unknown as typeof fetch;
+
+		try {
+			const res = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
+			const wpTrack = res.tracks.find((t) => t.id === "helloao:krv:wordproject");
+			const bbTrack = res.tracks.find((t) => t.id === "bb:KORKRVN1DA");
+			const esvTrack = res.tracks.find((t) => t.id === "esv-api:JHN:3");
+			expect(wpTrack?.verseTimings).toEqual({ 1: 2.4, 16: 51.7 });
+			expect(wpTrack?.note).toBe("Verse-synced (offline KRV alignment)");
+			expect(bbTrack?.verseTimings).toBeUndefined();
+			expect(esvTrack?.verseTimings).toBeUndefined();
+
+			// Gracefully handles missing timing JSON (404)
+			const missing = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 99 });
+			expect(
+				missing.tracks.find((t) => t.id === "helloao:krv:wordproject")?.verseTimings,
+			).toBeUndefined();
+		} finally {
+			globalThis.fetch = originalFetch;
+			clearAudioTimingsCache();
 		}
 	});
 

@@ -8,6 +8,7 @@ import type {
 	ReaderConfigResponse,
 } from "../src/shared/types";
 import { clearBibleBrainCache, selectAudioFilesetsForTestament } from "../src/worker/bible-brain";
+import { extractHelloAoAudioTracks } from "../src/worker/helloao";
 import { type FetchLike, isSafeHttpsUrl } from "../src/worker/http";
 import { createApp } from "../src/worker/index";
 
@@ -447,5 +448,31 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(failRes.status).toBe(502);
 		expect(failRes.headers.get("cache-control")).toBe("no-store");
 		expect(failRes.headers.get("x-content-type-options")).toBe("nosniff");
+	});
+
+	it("extracts HelloAO timings only when valid numeric verse entries exist", () => {
+		const tracks = extractHelloAoAudioTracks(
+			{
+				thisChapterAudioLinks: {
+					wordproject: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
+					reader2: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/reader2.mp3",
+					reader3: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/reader3.mp3",
+				},
+				thisChapterAudioTimings: {
+					wordproject:
+						"https://bible.helloao.org/api/kor_old/GEN/1.wordproject.json" as unknown as Record<
+							string,
+							number
+						>,
+					reader2: { "0": 0, bad: Number.NaN },
+					reader3: { "1": 1.2, "2": 6.8 },
+				},
+			},
+			{ translationId: "krv", language: "ko" },
+		);
+
+		expect(tracks[0]?.verseTimings).toBeUndefined();
+		expect(tracks[1]?.verseTimings).toBeUndefined();
+		expect(tracks[2]?.verseTimings).toEqual({ 1: 1.2, 2: 6.8 });
 	});
 });

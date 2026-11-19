@@ -1,3 +1,4 @@
+import { normalizeVerseTimings } from "../shared/audio-timings";
 import { getCommentaryMeta } from "../shared/commentaries";
 import type {
 	AudioTrackOption,
@@ -36,17 +37,7 @@ export function extractHelloAoAudioTracks(
 
 	for (const [readerKey, url] of Object.entries(links)) {
 		if (!url || !isSafeHttpsUrl(url)) continue;
-		const rawTimings = timingsByReader[readerKey];
-		let verseTimings: Record<number, number> | undefined;
-		if (rawTimings && Object.keys(rawTimings).length > 0) {
-			verseTimings = {};
-			for (const [vStr, sec] of Object.entries(rawTimings)) {
-				const vNum = Number.parseInt(vStr, 10);
-				if (!Number.isNaN(vNum) && vNum >= 1 && typeof sec === "number" && Number.isFinite(sec)) {
-					verseTimings[vNum] = sec;
-				}
-			}
-		}
+		const verseTimings = normalizeVerseTimings(timingsByReader[readerKey]);
 
 		tracks.push({
 			id: `helloao:${options.translationId}:${readerKey}`,

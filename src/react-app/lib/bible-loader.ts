@@ -1,8 +1,10 @@
+import { hasVerseTimings, normalizeVerseTimings } from "../../shared/audio-timings";
 import { getBookByNumber } from "../../shared/books";
 import { analyzeKoreanChapter, type ChapterAnalysisResult } from "../../shared/korean-morphology";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type {
 	AlignedVerse,
+	BookAudioTimingsData,
 	BookBibleData,
 	ChapterAudioResponse,
 	ChapterCommentaryResponse,
@@ -14,12 +16,20 @@ import type {
 } from "../../shared/types";
 
 const MAX_COMMENTARY_CACHE_ENTRIES = 50;
+const STATIC_TIMINGS_SOURCES: Readonly<Record<string, string>> = {
+	"helloao:krv:wordproject": "krv-wordproject",
+};
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
+const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>>();
 const commentaryCache = new Map<string, Promise<ChapterCommentaryResponse>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
 
 export function clearCommentaryCache(): void {
 	commentaryCache.clear();
+}
+
+export function clearAudioTimingsCache(): void {
+	bundledTimingsCache.clear();
 }
 
 export async function loadLexicon(): Promise<LexiconMap> {
@@ -86,15 +96,68 @@ export async function loadTranslationChapter(
 	return data.chapters[String(chapter)] ?? [];
 }
 
+function fetchStaticBookTimings(
+	timingsKey: string,
+	usfm: string,
+): Promise<BookAudioTimingsData | null> {
+	const cacheKey = `${timingsKey}:${usfm}`;
+	const existing = bundledTimingsCache.get(cacheKey);
+	if (existing) return existing;
+
+	const promise = fetch(
+		`/data/timings/${encodeURIComponent(timingsKey)}/${encodeURIComponent(usfm)}.json`,
+	)
+		.then((res) => {
+			if (!res.ok) return null;
+			return res.json() as Promise<BookAudioTimingsData>;
+		})
+		.catch(() => {
+			bundledTimingsCache.delete(cacheKey);
+			return null;
+		});
+	bundledTimingsCache.set(cacheKey, promise);
+	return promise;
+}
+
 export async function loadSyncedChapterAudio(options: {
 	usfm: string;
 	chapter: number;
 }): Promise<ChapterAudioResponse> {
 	try {
-		const res = await fetch(`/api/audio/${options.usfm}/${options.chapter}`);
-		if (res.ok) {
-			return (await res.json()) as ChapterAudioResponse;
+		const res = await fetch(`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`);
+		if (!res.ok) {
+			return {
+				bookUsfm: options.usfm,
+				chapter: options.chapter,
+				tracks: [],
+			};
 		}
+		const payload = (await res.json()) as ChapterAudioResponse;
+		const tracks = await Promise.all(
+			payload.tracks.map(async (track) => {
+				if (track.source !== "helloao" || hasVerseTimings(track.verseTimings)) {
+					return track;
+				}
+				const timingsKey = STATIC_TIMINGS_SOURCES[track.id];
+				if (!timingsKey) return track;
+
+				const bookTimings = await fetchStaticBookTimings(timingsKey, options.usfm);
+				const chapterTimings = normalizeVerseTimings(
+					bookTimings?.chapters?.[String(options.chapter)],
+				);
+				if (!chapterTimings) return track;
+
+				return {
+					...track,
+					verseTimings: chapterTimings,
+					note: "Verse-synced (offline KRV alignment)",
+				};
+			}),
+		);
+		return {
+			...payload,
+			tracks,
+		};
 	} catch {
 		// Fallback gracefully when running offline or in isolated DOM tests
 	}
