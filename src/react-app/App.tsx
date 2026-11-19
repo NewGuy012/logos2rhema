@@ -45,7 +45,6 @@ import {
 	alignChapterVerses,
 	loadChapterCommentary,
 	loadLexicon,
-	loadReaderConfig,
 	loadSyncedChapterAudio,
 	loadTranslationChapter,
 } from "./lib/bible-loader";
@@ -262,8 +261,6 @@ export default function App() {
 	const updatePref = useCallback(<K extends keyof DisplayPrefs>(key: K, value: DisplayPrefs[K]) => {
 		setPrefs((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
 	}, []);
-
-	const [krvSyncedAudioEnabled, setKrvSyncedAudioEnabled] = useState(false);
 
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [rawEnVerses, setRawEnVerses] = useState<VerseEntry[]>([]);
@@ -529,10 +526,6 @@ export default function App() {
 
 	useEffect(() => {
 		let cancelled = false;
-		loadReaderConfig().then((cfg) => {
-			if (cancelled) return;
-			setKrvSyncedAudioEnabled(cfg.krvSyncedAudioEnabled);
-		});
 		loadLexicon().then((lex) => {
 			if (!cancelled) setLexicon(lex);
 		});
@@ -982,7 +975,6 @@ export default function App() {
 					lastBookNumber={bookNumber}
 					lastChapter={chapter}
 					lastVerse={lastVerse}
-					krvSyncedAudioEnabled={krvSyncedAudioEnabled}
 					{...savedItemsProps}
 				/>
 			) : (

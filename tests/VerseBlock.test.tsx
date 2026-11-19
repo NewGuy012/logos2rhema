@@ -539,17 +539,42 @@ describe("Reader UI & audio hooks", () => {
 			getButton(topBar.container.querySelector(".top-nav") as ParentNode, "Genres"),
 		).toThrow();
 
+		// Settings icon is hidden on Home and reappears closed when returning to Read
+		fireClick(getButton(topBar.container, "Reader appearance settings"));
+		expect(topBar.container.querySelector(".settings-popover")).not.toBeNull();
+		const sharedTopBarProps = {
+			lastBookNumber: 8,
+			lastChapter: 4,
+			lastVerse: 12,
+			stackOrder: "en-first" as const,
+			theme: "paper" as const,
+			fontScale: 1,
+			enFontStyle: "newsreader" as const,
+			koFontStyle: "serif" as const,
+			studyMask: "none" as const,
+			onGoHome,
+			onContinueReading: onContinue,
+			onOpenPassage: onTopOpen,
+			onChangeStackOrder: onFlip,
+			onOpenSearch,
+			onChangeTheme: noop,
+			onChangeFontScale: noop,
+			onChangeEnFontStyle: onChangeEnFont,
+			onChangeKoFontStyle: noop,
+			onChangeStudyMask: noop,
+		};
+		topBar.rerender(<TopBar isHome={true} {...sharedTopBarProps} />);
+		expect(topBar.container.querySelectorAll(".appearance-btn")).toHaveLength(0);
+		expect(topBar.container.querySelector(".settings-popover")).toBeNull();
+		topBar.rerender(<TopBar isHome={false} {...sharedTopBarProps} />);
+		expect(topBar.container.querySelectorAll(".appearance-btn")).toHaveLength(1);
+		expect(topBar.container.querySelector(".settings-popover")).toBeNull();
+
 		const onOpenPassage = mock(() => {});
 		const home = render(
-			<HomePage
-				lastBookNumber={8}
-				lastChapter={4}
-				lastVerse={12}
-				krvSyncedAudioEnabled={true}
-				onOpenPassage={onOpenPassage}
-			/>,
+			<HomePage lastBookNumber={8} lastChapter={4} lastVerse={12} onOpenPassage={onOpenPassage} />,
 		);
-		expect(getByText(home.container, "Verse-Synced Korean Audio")).toBeDefined();
+		expect(getByText(home.container, "Audio Available")).toBeDefined();
 		const continueSection = home.container.querySelector(".home-continue-section") as ParentNode;
 		expect(getByText(continueSection, "Continue Where You Left Off")).toBeDefined();
 		expect(getByText(continueSection, "Ruth 4:12")).toBeDefined();
@@ -582,13 +607,7 @@ describe("Reader UI & audio hooks", () => {
 		})) as typeof window.matchMedia;
 		try {
 			const narrowHome = render(
-				<HomePage
-					lastBookNumber={8}
-					lastChapter={4}
-					lastVerse={12}
-					krvSyncedAudioEnabled={false}
-					onOpenPassage={noop}
-				/>,
+				<HomePage lastBookNumber={8} lastChapter={4} lastVerse={12} onOpenPassage={noop} />,
 			);
 			const narrowGrids =
 				narrowHome.container.querySelectorAll<HTMLElement>(".books-grid-vertical");
@@ -660,17 +679,12 @@ describe("Reader UI & audio hooks", () => {
 		clearCommentaryCache();
 		const restoreMatchMedia = mockDesktopMatchMedia();
 
-		let configLoaded = false;
 		let audioLoadCount = 0;
 		const commentaryFetchUrls: string[] = [];
 
 		try {
 			await withMockFetch(
 				(url) => {
-					if (url.includes("/api/config")) {
-						configLoaded = true;
-						return Response.json({ krvSyncedAudioEnabled: false });
-					}
 					if (url.includes("/data/lexicon.json")) return Response.json({});
 					if (url.includes("/data/bibles/krv/")) {
 						return Response.json({
@@ -722,8 +736,9 @@ describe("Reader UI & audio hooks", () => {
 				async () => {
 					const { container } = render(<App />);
 					await flushAsync();
-					expect(configLoaded).toBe(true);
+					expect(getByText(container, "Audio Available")).toBeDefined();
 					expect(getByText(container, "Continue Where You Left Off")).toBeDefined();
+					expect(container.querySelectorAll(".appearance-btn")).toHaveLength(0);
 
 					fireClick(
 						getButton(container.querySelector(".home-continue-section") as ParentNode, "Read"),
@@ -735,6 +750,7 @@ describe("Reader UI & audio hooks", () => {
 						expect(getByText(container, "In the beginning...")).toBeDefined();
 					});
 					await flushAsync();
+					expect(container.querySelectorAll(".appearance-btn")).toHaveLength(1);
 
 					// Word click -> Dictionary highlight -> rail minimize/expand
 					expect(commentaryFetchUrls).toEqual([]);

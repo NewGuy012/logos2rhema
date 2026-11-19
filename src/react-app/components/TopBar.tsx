@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
@@ -131,6 +131,12 @@ export function TopBar({
 		setOpenPopover((prev) => (prev === target ? null : target));
 	};
 
+	useEffect(() => {
+		if (isHome) {
+			setOpenPopover((prev) => (prev === "display" ? null : prev));
+		}
+	}, [isHome]);
+
 	useDismissListeners(Boolean(openPopover), {
 		refs: [navRef],
 		onDismiss: closePopovers,
@@ -251,84 +257,86 @@ export function TopBar({
 						{CANONICAL_BIBLES.en.code} / {CANONICAL_BIBLES.ko.code}
 					</span>
 
-					<div className="popover-anchor">
-						<button
-							type="button"
-							className={`icon-btn appearance-btn ${openPopover === "display" ? "active" : ""}`}
-							onClick={() => togglePopover("display")}
-							aria-expanded={openPopover === "display"}
-							aria-label="Reader appearance settings"
-							title="Reader appearance settings"
-						>
-							<Settings size={16} />
-						</button>
+					{!isHome && (
+						<div className="popover-anchor">
+							<button
+								type="button"
+								className={`icon-btn appearance-btn ${openPopover === "display" ? "active" : ""}`}
+								onClick={() => togglePopover("display")}
+								aria-expanded={openPopover === "display"}
+								aria-label="Reader appearance settings"
+								title="Reader appearance settings"
+							>
+								<Settings size={16} />
+							</button>
 
-						{openPopover === "display" && (
-							<div className="popover-card settings-popover">
-								<SegmentedSetting
-									title="Theme"
-									value={theme}
-									onChange={onChangeTheme}
-									options={[
-										{ label: "Paper", val: "paper" },
-										{ label: "Sepia", val: "sepia" },
-										{ label: "Dark", val: "dark" },
-									]}
-								/>
-								<SegmentedSetting
-									title="Text Size"
-									value={fontScale}
-									onChange={onChangeFontScale}
-									options={[
-										{ label: "S", val: 0.9 },
-										{ label: "M", val: 1 },
-										{ label: "L", val: 1.12 },
-										{ label: "XL", val: 1.24 },
-									]}
-								/>
-								<SegmentedSetting
-									title="English Font"
-									value={enFontStyle}
-									onChange={onChangeEnFontStyle}
-									options={[
-										{ label: "Newsreader", val: "newsreader" },
-										{ label: "Lora", val: "lora" },
-										{ label: "Inter", val: "inter" },
-									]}
-								/>
-								<SegmentedSetting
-									title="Korean Font"
-									value={koFontStyle}
-									onChange={onChangeKoFontStyle}
-									options={[
-										{ label: "Serif (명조)", val: "serif" },
-										{ label: "Sans (고딕)", val: "sans" },
-									]}
-								/>
-								<SegmentedSetting
-									title="Stack Order"
-									value={stackOrder}
-									onChange={onChangeStackOrder}
-									groupAriaLabel="Flip language stack order"
-									usePressed={true}
-									options={[
-										{ label: "EN / 한", val: "en-first" },
-										{ label: "한 / EN", val: "ko-first" },
-									]}
-								/>
-								<SegmentedSetting
-									title="Study Mode (Hover to Reveal)"
-									value={studyMask}
-									onChange={onChangeStudyMask}
-									options={[
-										{ label: "Both", val: "none" },
-										{ label: "Blur EN", val: "mask-en" },
-										{ label: "Blur KO", val: "mask-ko" },
-									]}
-								/>
-							</div>
-						)}
-					</div>
+							{openPopover === "display" && (
+								<div className="popover-card settings-popover">
+									<SegmentedSetting
+										title="Theme"
+										value={theme}
+										onChange={onChangeTheme}
+										options={[
+											{ label: "Paper", val: "paper" },
+											{ label: "Sepia", val: "sepia" },
+											{ label: "Dark", val: "dark" },
+										]}
+									/>
+									<SegmentedSetting
+										title="Text Size"
+										value={fontScale}
+										onChange={onChangeFontScale}
+										options={[
+											{ label: "S", val: 0.9 },
+											{ label: "M", val: 1 },
+											{ label: "L", val: 1.12 },
+											{ label: "XL", val: 1.24 },
+										]}
+									/>
+									<SegmentedSetting
+										title="English Font"
+										value={enFontStyle}
+										onChange={onChangeEnFontStyle}
+										options={[
+											{ label: "Newsreader", val: "newsreader" },
+											{ label: "Lora", val: "lora" },
+											{ label: "Inter", val: "inter" },
+										]}
+									/>
+									<SegmentedSetting
+										title="Korean Font"
+										value={koFontStyle}
+										onChange={onChangeKoFontStyle}
+										options={[
+											{ label: "Serif (명조)", val: "serif" },
+											{ label: "Sans (고딕)", val: "sans" },
+										]}
+									/>
+									<SegmentedSetting
+										title="Stack Order"
+										value={stackOrder}
+										onChange={onChangeStackOrder}
+										groupAriaLabel="Flip language stack order"
+										usePressed={true}
+										options={[
+											{ label: "EN / 한", val: "en-first" },
+											{ label: "한 / EN", val: "ko-first" },
+										]}
+									/>
+									<SegmentedSetting
+										title="Study Mode (Hover to Reveal)"
+										value={studyMask}
+										onChange={onChangeStudyMask}
+										options={[
+											{ label: "Both", val: "none" },
+											{ label: "Blur EN", val: "mask-en" },
+											{ label: "Blur KO", val: "mask-ko" },
+										]}
+									/>
+								</div>
+							)}
+						</div>
+					)}
 				</div>
 			</div>
 		</header>

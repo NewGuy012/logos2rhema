@@ -20,7 +20,6 @@ interface HomePageProps {
 	lastBookNumber: number;
 	lastChapter: number;
 	lastVerse?: number;
-	krvSyncedAudioEnabled: boolean;
 	favorites?: FavoriteItem[];
 	highlights?: HighlightItem[];
 	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
@@ -41,7 +40,6 @@ export function HomePage({
 	lastBookNumber,
 	lastChapter,
 	lastVerse = 1,
-	krvSyncedAudioEnabled,
 	favorites = [],
 	highlights = [],
 	onOpenPassage,
@@ -90,7 +88,7 @@ export function HomePage({
 				<div className="home-kicker">
 					<span className="home-sync-pill">
 						<Headphones size={12} />
-						<span>{krvSyncedAudioEnabled ? "Verse-Synced Korean Audio" : "Audio Available"}</span>
+						<span>Audio Available</span>
 					</span>
 				</div>
 				<p className="home-subtitle">

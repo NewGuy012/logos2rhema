@@ -142,7 +142,7 @@ export function StudyRightRail({
 							if (!isDictionary) onChangeTab("dictionary");
 						}}
 					>
-						<BookOpen size={13} />
+						<BookOpen size={12} />
 						<span>Dictionary</span>
 					</button>
 					<button
@@ -156,7 +156,7 @@ export function StudyRightRail({
 							if (isDictionary) onChangeTab("commentary");
 						}}
 					>
-						<BookText size={13} />
+						<BookText size={12} />
 						<span>Commentary</span>
 					</button>
 				</div>
