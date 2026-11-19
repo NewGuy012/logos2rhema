@@ -7,7 +7,7 @@ import {
 	useState,
 } from "react";
 
-export interface AnchorPos {
+interface AnchorPos {
 	left: number;
 	top: number;
 	placeBelow: boolean;
