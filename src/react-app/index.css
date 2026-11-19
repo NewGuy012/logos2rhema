@@ -123,6 +123,9 @@
 	--font-ko-serif: "Noto Serif KR", "Batang", "AppleMyungjo", serif;
 	--font-ko-sans: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 	--reader-scale: 1;
+	--ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+	--tooltip-accent: #d49a72;
+	--tooltip-accent-hover: #f3c49d;
 }
 
 *,
@@ -229,26 +232,10 @@ button {
 		background-color 140ms ease,
 		border-color 140ms ease,
 		color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
-.top-search-btn:focus,
-.chapter-favorite-btn:focus,
-.verse-favorite-btn:focus,
-.ko-tooltip-speak-btn:focus,
-.ko-tooltip-hint-btn:focus,
-.rail-minimized-pill:focus,
-.dict-disclosure-btn:focus,
-.vocab-speak-btn:focus,
-.verse-ref-chip:focus,
-.verse-ref-menu-item:focus,
-.speed-select:focus,
-.speed-menu-option:focus,
-.home-clear-btn:focus,
-.home-favorite-open:focus,
-.home-favorite-remove:focus,
-.home-disclosure-btn:focus,
-.rail-settings-btn:focus {
+button:focus:not(:focus-visible) {
 	outline: none;
 }
 
@@ -270,7 +257,7 @@ button {
 
 .ko-tooltip-speak-btn:focus-visible,
 .ko-tooltip-hint-btn:focus-visible {
-	outline: 1.5px solid #d49a72;
+	outline: 1.5px solid var(--tooltip-accent);
 	outline-offset: 1px;
 }
 
@@ -286,6 +273,36 @@ button {
 .verse-ref-menu-item:focus-visible {
 	outline: 1.5px solid var(--accent);
 	outline-offset: -1px;
+}
+
+.icon-btn.active,
+.chapter-favorite-btn.active,
+.verse-ref-chip:hover,
+.verse-ref-select.active,
+.verse-ref-menu-item:hover,
+.quick-inline-chip.active,
+.speed-select.active,
+.quick-dict-btn.active,
+.rail-sync-toggle.active {
+	background: var(--accent-soft);
+	border-color: var(--accent-border);
+	color: var(--accent);
+}
+
+.top-nav-caret,
+.verse-ref-caret,
+.speed-select-caret {
+	color: var(--text-muted);
+	transition:
+		transform 140ms ease,
+		color 140ms ease;
+}
+
+.icon-btn.active .top-nav-caret,
+.verse-ref-select.active .verse-ref-caret,
+.speed-select.active .speed-select-caret {
+	color: var(--accent);
+	transform: rotate(180deg);
 }
 
 .popover-title,
@@ -373,16 +390,6 @@ button {
 	font-size: 0.68rem;
 }
 
-.top-nav-caret {
-	color: var(--text-muted);
-	transition: transform 140ms ease;
-}
-
-.icon-btn.active .top-nav-caret {
-	color: var(--accent);
-	transform: rotate(180deg);
-}
-
 .brand-mark {
 	display: inline-flex;
 	align-items: center;
@@ -434,12 +441,6 @@ button {
 	color: var(--text-primary);
 }
 
-.icon-btn.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
-}
-
 .appearance-btn {
 	width: 34px;
 	height: 34px;
@@ -449,7 +450,7 @@ button {
 		background-color 140ms ease,
 		border-color 140ms ease,
 		color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .appearance-btn:not(.active):hover {
@@ -495,6 +496,7 @@ button {
 }
 
 .top-search-btn:focus-visible {
+	outline: none;
 	border-color: var(--accent);
 	box-shadow: 0 0 0 3px var(--accent-soft);
 }
@@ -685,12 +687,6 @@ button {
 	transform: scale(0.93);
 }
 
-.chapter-favorite-btn.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
-}
-
 .chapter-title-ko {
 	margin: 0;
 	font-family: var(--font-ko-serif);
@@ -816,7 +812,7 @@ button {
 		opacity 140ms ease,
 		color 140ms ease,
 		background-color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .verse-block:hover .verse-favorite-btn,
@@ -945,7 +941,7 @@ button {
 	transition:
 		background-color 140ms ease,
 		border-color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .selection-highlight-btn:hover {
@@ -1025,7 +1021,7 @@ button {
 
 .ko-tooltip-phonetics {
 	font-size: 0.75rem;
-	color: #d49a72;
+	color: var(--tooltip-accent);
 	margin-bottom: 0.24rem;
 	letter-spacing: 0.01em;
 }
@@ -1047,7 +1043,7 @@ button {
 .ko-tooltip-speak-btn:hover,
 .ko-tooltip-speak-btn.speaking {
 	background: rgba(212, 154, 114, 0.24);
-	color: #f3c49d;
+	color: var(--tooltip-accent-hover);
 }
 
 .ko-tooltip-speak-btn:active {
@@ -1082,7 +1078,7 @@ button {
 
 .ko-tooltip-root-phonetics {
 	margin-left: 0.2rem;
-	color: #d49a72;
+	color: var(--tooltip-accent);
 }
 
 .ko-tooltip-speech-note {
@@ -1101,16 +1097,16 @@ button {
 	gap: 0.28rem;
 	font-size: 0.72rem;
 	font-weight: 500;
-	color: #d49a72;
+	color: var(--tooltip-accent);
 	transition:
 		background-color 140ms ease,
 		color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .ko-tooltip-hint-btn:hover {
 	background: rgba(212, 154, 114, 0.16);
-	color: #f3c49d;
+	color: var(--tooltip-accent-hover);
 }
 
 .ko-tooltip-hint-btn:active {
@@ -1285,7 +1281,7 @@ button {
 		background-color 160ms ease,
 		color 160ms ease,
 		border-color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .audio-minimized-pill {
@@ -1364,8 +1360,8 @@ button {
 	flex-direction: column;
 }
 
-.commentary-card {
-	padding: 0.62rem 0.75rem;
+.commentary-card,
+.vocab-row {
 	border-bottom: 1px solid var(--border-hairline);
 	border-left: 2px solid transparent;
 	transition:
@@ -1373,15 +1369,26 @@ button {
 		border-color 200ms ease;
 }
 
-.commentary-card:hover {
+.commentary-card {
+	padding: 0.62rem 0.75rem;
+}
+
+.vocab-row {
+	padding: 0.52rem 0.75rem;
+}
+
+.commentary-card:hover,
+.vocab-row:hover {
 	background: color-mix(in srgb, var(--glass-control) 55%, transparent);
 }
 
-.commentary-card:last-child {
+.commentary-card:last-child,
+.vocab-row:last-child {
 	border-bottom: none;
 }
 
-.commentary-card.highlighted {
+.commentary-card.highlighted,
+.vocab-row.highlighted {
 	background: var(--accent-soft);
 	border-left-color: var(--accent);
 }
@@ -1502,9 +1509,9 @@ button {
 	font-weight: 500;
 	color: var(--text-secondary);
 	transition:
-		background-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 180ms var(--ease-spring),
 		color 180ms ease,
-		transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 140ms var(--ease-spring);
 }
 
 .dict-disclosure-btn {
@@ -1614,7 +1621,7 @@ button {
 	border-radius: 999px;
 	font-size: 0.74rem;
 	transition:
-		background-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 180ms var(--ease-spring),
 		border-color 180ms ease,
 		box-shadow 180ms ease;
 }
@@ -1670,28 +1677,6 @@ button {
 .dict-panel-sheet .dict-panel-scroll.both-open .vocab-list,
 .dict-panel-sheet .dict-panel-scroll.both-open .grammar-cards {
 	max-height: min(21vh, 175px);
-}
-
-.vocab-row {
-	padding: 0.52rem 0.75rem;
-	border-bottom: 1px solid var(--border-hairline);
-	border-left: 2px solid transparent;
-	transition:
-		background-color 200ms ease,
-		border-color 200ms ease;
-}
-
-.vocab-row:hover {
-	background: color-mix(in srgb, var(--glass-control) 55%, transparent);
-}
-
-.vocab-row:last-child {
-	border-bottom: none;
-}
-
-.vocab-row.highlighted {
-	background: var(--accent-soft);
-	border-left-color: var(--accent);
 }
 
 .vocab-main {
@@ -1797,13 +1782,7 @@ button {
 	transition:
 		background-color 160ms ease,
 		border-color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.verse-ref-chip:hover,
-.verse-ref-select.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
+		transform 120ms var(--ease-spring);
 }
 
 .verse-ref-chip:active {
@@ -1813,18 +1792,6 @@ button {
 .verse-ref-more {
 	font-size: 0.65rem;
 	color: var(--text-muted);
-}
-
-.verse-ref-caret {
-	color: var(--text-muted);
-	transition:
-		transform 140ms ease,
-		color 140ms ease;
-}
-
-.verse-ref-select.active .verse-ref-caret {
-	color: var(--accent);
-	transform: rotate(180deg);
 }
 
 .verse-ref-menu {
@@ -1864,12 +1831,7 @@ button {
 	transition:
 		background-color 140ms ease,
 		border-color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.verse-ref-menu-item:hover {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
+		transform 120ms var(--ease-spring);
 }
 
 .verse-ref-menu-item:active {
@@ -1952,7 +1914,7 @@ button {
 		background-color 160ms ease,
 		border-color 160ms ease,
 		color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .quick-inline-chip:hover {
@@ -1962,12 +1924,6 @@ button {
 
 .quick-inline-chip:active {
 	transform: scale(0.95);
-}
-
-.quick-inline-chip.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
 }
 
 .audio-range {
@@ -2001,7 +1957,7 @@ button {
 		0 0 0 1px var(--accent-border);
 	cursor: pointer;
 	transition:
-		transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		transform 160ms var(--ease-spring),
 		box-shadow 160ms ease;
 }
 
@@ -2041,9 +1997,9 @@ button {
 	justify-content: center;
 	color: var(--text-secondary);
 	transition:
-		background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 160ms var(--ease-spring),
 		color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .pill-nav-btn.skip-mode {
@@ -2096,8 +2052,8 @@ button {
 	text-overflow: ellipsis;
 	max-width: 210px;
 	transition:
-		background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		background-color 160ms var(--ease-spring),
+		transform 120ms var(--ease-spring);
 }
 
 .pill-chapter-btn:hover {
@@ -2126,10 +2082,10 @@ button {
 	box-shadow: var(--glass-control-specular);
 	color: var(--accent);
 	transition:
-		background-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 180ms var(--ease-spring),
 		box-shadow 180ms ease,
 		color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .pill-audio-btn {
@@ -2191,10 +2147,10 @@ button {
 	font-weight: 600;
 	color: var(--text-secondary);
 	transition:
-		background-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 180ms var(--ease-spring),
 		color 180ms ease,
 		box-shadow 180ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .quick-lang-btn:active {
@@ -2215,9 +2171,9 @@ button {
 	color: var(--text-primary);
 	flex-shrink: 0;
 	transition:
-		background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 160ms var(--ease-spring),
 		color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .speed-pill:hover {
@@ -2246,24 +2202,6 @@ button {
 	line-height: 1.2;
 }
 
-.speed-select.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
-}
-
-.speed-select-caret {
-	color: var(--text-muted);
-	transition:
-		transform 140ms ease,
-		color 140ms ease;
-}
-
-.speed-select.active .speed-select-caret {
-	color: var(--accent);
-	transform: rotate(180deg);
-}
-
 .speed-menu {
 	position: fixed;
 	z-index: 95;
@@ -2289,7 +2227,7 @@ button {
 	transition:
 		background-color 140ms ease,
 		color 140ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .speed-menu-option:hover {
@@ -2319,10 +2257,10 @@ button {
 	white-space: nowrap;
 	flex-shrink: 0;
 	transition:
-		background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 160ms var(--ease-spring),
 		color 160ms ease,
 		border-color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .quick-dict-btn:hover {
@@ -2332,12 +2270,6 @@ button {
 
 .quick-dict-btn:active {
 	transform: scale(0.95);
-}
-
-.quick-dict-btn.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
 }
 
 /* Modal (Passage Picker) */
@@ -2398,8 +2330,22 @@ button {
 	font-size: 0.9rem;
 }
 
-.modal-search-input:focus {
+.modal-search-input:focus,
+.home-search-input:focus {
 	outline: none;
+	border-color: var(--accent);
+}
+
+.book-cell:hover,
+.book-cell.current,
+.home-genre-chip:hover,
+.home-genre-chip.current {
+	border-color: var(--accent-border);
+	background: var(--accent-soft);
+}
+
+.book-cell.current,
+.home-genre-chip.current {
 	border-color: var(--accent);
 }
 
@@ -2429,16 +2375,6 @@ button {
 	transition:
 		border-color 120ms ease,
 		background-color 120ms ease;
-}
-
-.book-cell:hover,
-.book-cell.current {
-	border-color: var(--accent-border);
-	background: var(--accent-soft);
-}
-
-.book-cell.current {
-	border-color: var(--accent);
 }
 
 .book-cell-en {
@@ -2503,10 +2439,10 @@ button {
 	font-weight: 500;
 	color: var(--text-secondary);
 	transition:
-		background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 160ms var(--ease-spring),
 		color 160ms ease,
 		box-shadow 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .segmented-btn:active {
@@ -2677,11 +2613,6 @@ button {
 	border: 1px solid var(--border-strong);
 	background: var(--bg-surface);
 	font-size: 0.92rem;
-}
-
-.home-search-input:focus {
-	outline: none;
-	border-color: var(--accent);
 }
 
 .home-search-submit {
@@ -3031,16 +2962,6 @@ button {
 		background-color 120ms ease;
 }
 
-.home-genre-chip:hover,
-.home-genre-chip.current {
-	border-color: var(--accent-border);
-	background: var(--accent-soft);
-}
-
-.home-genre-chip.current {
-	border-color: var(--accent);
-}
-
 .home-genre-chip-ko {
 	font-size: 0.72rem;
 	color: var(--text-muted);
@@ -3228,9 +3149,9 @@ button {
 	color: var(--text-secondary);
 	white-space: nowrap;
 	transition:
-		background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+		background-color 160ms var(--ease-spring),
 		color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .rail-skip-btn:hover:not(:disabled) {
@@ -3266,14 +3187,9 @@ button {
 	color: var(--text-secondary);
 }
 
-.rail-time-row .speed-select:hover {
+.rail-time-row .speed-select:not(.active):hover {
 	background: var(--glass-control-hover);
 	color: var(--text-primary);
-}
-
-.rail-time-row .speed-select.active {
-	background: var(--accent-soft);
-	color: var(--accent);
 }
 
 .rail-duration {
@@ -3321,7 +3237,7 @@ button {
 		background-color 160ms ease,
 		border-color 160ms ease,
 		color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .rail-sync-toggle:active:not(:disabled) {
@@ -3331,12 +3247,6 @@ button {
 .rail-sync-toggle:disabled {
 	opacity: 0.55;
 	cursor: not-allowed;
-}
-
-.rail-sync-toggle.active {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
 }
 
 .rail-sync-status {
@@ -3378,7 +3288,7 @@ button {
 	box-shadow: var(--glass-control-specular);
 	transition:
 		background-color 160ms ease,
-		transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+		transform 120ms var(--ease-spring);
 }
 
 .rail-sync-btn:hover {
