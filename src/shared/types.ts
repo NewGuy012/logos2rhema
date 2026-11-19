@@ -12,7 +12,6 @@ export interface BookMeta {
 }
 
 export type TranslationLanguage = "en" | "ko";
-export type TranslationSource = "bundled" | "bible-brain";
 export type AudioStyle = "standard" | "drama";
 
 export interface TranslationMeta {
@@ -21,9 +20,6 @@ export interface TranslationMeta {
 	name: string;
 	nativeName: string;
 	language: TranslationLanguage;
-	languageLabel: string;
-	source: TranslationSource;
-	bibleBrainIso?: string;
 	bibleBrainBibleId?: string;
 	preferredAudioFilesets?: {
 		OT: readonly string[];
@@ -31,10 +27,9 @@ export interface TranslationMeta {
 	};
 	hasAudio: boolean;
 	audioLabel?: string;
-	description: string;
 }
 
-export type WordPos =
+type WordPos =
 	"noun" | "verb" | "adj" | "adv" | "pronoun" | "particle" | "name" | "numeral" | "interj";
 
 export interface LexiconEntry {
@@ -118,11 +113,6 @@ export interface ChapterAudioResponse {
 	bookUsfm: string;
 	chapter: number;
 	tracks: AudioTrackOption[];
-	providerStatus?: {
-		bibleBrainEnabled: boolean;
-		esvAudioEnabled: boolean;
-	};
-	unavailableReason?: string;
 }
 
 export interface ReaderConfigResponse {
@@ -148,14 +138,12 @@ export interface FavoriteItem {
 	createdAt: number;
 }
 
-export type HighlightLanguage = "en" | "ko";
-
 export interface HighlightItem {
 	id: string;
 	bookNumber: number;
 	chapter: number;
 	verse: number;
-	lang: HighlightLanguage;
+	lang: TranslationLanguage;
 	start: number;
 	end: number;
 	text: string;

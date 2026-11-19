@@ -1,7 +1,7 @@
 import { getBookByNumber } from "./books";
 import type { BookBibleData, VerseEntry } from "./types";
 
-export interface SpbParseResult {
+interface SpbParseResult {
 	title: string;
 	abbreviation: string;
 	books: Map<number, BookBibleData>;
@@ -9,24 +9,18 @@ export interface SpbParseResult {
 
 const PSALM_SUPERSCRIPTION_RE =
 	/^((?:[A-Z][A-Z0-9 ,:;'"\-()]*\.)(?:\s+[A-Z][A-Z0-9 ,:;'"\-()]*\.)*)\s*(.+)$/;
+const MINOR_WORDS = new Set(["of", "the", "to", "for", "with", "when", "after", "in", "on"]);
 
 function formatSuperscription(raw: string): string {
-	const cleaned = raw.trim().replace(/\.$/, "");
-	return cleaned
+	return raw
+		.trim()
+		.replace(/\.$/, "")
 		.toLowerCase()
-		.replace(/\b([a-z])/g, (ch) => ch.toUpperCase())
-		.replace(/\bOf\b/g, "of")
-		.replace(/\bThe\b/g, "the")
-		.replace(/\bTo\b/g, "to")
-		.replace(/\bFor\b/g, "for")
-		.replace(/\bWith\b/g, "with")
-		.replace(/\bWhen\b/g, "when")
-		.replace(/\bAfter\b/g, "after")
-		.replace(/\bIn\b/g, "in")
-		.replace(/\bOn\b/g, "on")
-		.replace(/\bA\b/g, "A")
-		.replace(/^to the/i, "To the")
-		.replace(/\blord\b/gi, "LORD");
+		.replace(/\b[a-z]+/g, (word, offset: number) => {
+			if (word === "lord") return "LORD";
+			if (offset > 0 && MINOR_WORDS.has(word)) return word;
+			return word.charAt(0).toUpperCase() + word.slice(1);
+		});
 }
 
 export function normalizeSpbText(rawText: string): string {
@@ -42,26 +36,19 @@ export function extractPsalmSuperscription(
 	verseNumber: number,
 	text: string,
 ): { heading?: string; text: string } {
-	if (bookNumber !== 19 || verseNumber !== 1) {
-		return { text };
-	}
+	if (bookNumber !== 19 || verseNumber !== 1) return { text };
 
 	const match = text.match(PSALM_SUPERSCRIPTION_RE);
-	if (!match) {
-		return { text };
-	}
+	if (!match) return { text };
 
 	const candidateHeading = match[1];
 	const remainder = match[2].trim();
-	// Only treat as a superscription if it contains zero lowercase letters and has at least 2 words.
+	// Only treat as a superscription if all-caps and at least 2 words.
 	if (/[a-z]/.test(candidateHeading) || !candidateHeading.includes(" ") || !remainder) {
 		return { text };
 	}
 
-	return {
-		heading: formatSuperscription(candidateHeading),
-		text: remainder,
-	};
+	return { heading: formatSuperscription(candidateHeading), text: remainder };
 }
 
 export function parseSpbContent(content: string, translationId = "esv"): SpbParseResult {
@@ -69,7 +56,6 @@ export function parseSpbContent(content: string, translationId = "esv"): SpbPars
 	let title = "English Standard Version";
 	let abbreviation = "ESV";
 	let inVerses = false;
-
 	const books = new Map<number, BookBibleData>();
 
 	for (const rawLine of lines) {
@@ -79,9 +65,7 @@ export function parseSpbContent(content: string, translationId = "esv"): SpbPars
 		if (!inVerses) {
 			if (line === "-----") {
 				inVerses = true;
-				continue;
-			}
-			if (line.startsWith("##Title:")) {
+			} else if (line.startsWith("##Title:")) {
 				title = line.replace("##Title:", "").trim();
 			} else if (line.startsWith("##Abbreviation:")) {
 				abbreviation = line.replace("##Abbreviation:", "").trim();
@@ -104,12 +88,7 @@ export function parseSpbContent(content: string, translationId = "esv"): SpbPars
 
 		let bookData = books.get(bookNumber);
 		if (!bookData) {
-			bookData = {
-				translationId,
-				bookNumber,
-				usfm: meta.usfm,
-				chapters: {},
-			};
+			bookData = { translationId, bookNumber, usfm: meta.usfm, chapters: {} };
 			books.set(bookNumber, bookData);
 		}
 
@@ -117,12 +96,7 @@ export function parseSpbContent(content: string, translationId = "esv"): SpbPars
 		const { heading, text } = extractPsalmSuperscription(bookNumber, verseNumber, normalized);
 
 		const chapterKey = String(chapterNumber);
-		let chapterVerses = bookData.chapters[chapterKey];
-		if (!chapterVerses) {
-			chapterVerses = [];
-			bookData.chapters[chapterKey] = chapterVerses;
-		}
-
+		const chapterVerses = (bookData.chapters[chapterKey] ??= []);
 		const entry: VerseEntry = heading
 			? { verse: verseNumber, text, heading }
 			: { verse: verseNumber, text };

@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { BIBLICAL_GLOSSARY } from "../src/shared/biblical-glossary";
-import { BIBLE_BOOKS, getBookByNumber, KRV_BOOK_NAME_TO_NUMBER } from "../src/shared/books";
+import { BIBLE_BOOKS, getBookByNumber } from "../src/shared/books";
 import {
 	containsHangul,
 	replaceLastFinalConsonant,
@@ -269,6 +269,10 @@ function selectBestKengdicLexicon(
 	}
 	return map;
 }
+
+const KRV_BOOK_NAME_TO_NUMBER: Record<string, number> = Object.fromEntries(
+	BIBLE_BOOKS.map((b) => [b.en.replace(/\s+/g, ""), b.number]),
+);
 
 function parseKrvBooks(rawBooks: RawKrvBook[]): Map<number, BookBibleData> {
 	const result = new Map<number, BookBibleData>();

@@ -91,7 +91,7 @@ export const BIBLE_BOOKS: readonly BookMeta[] = BOOK_ROWS.map(
 	}),
 );
 
-export interface BibleGenre {
+interface BibleGenre {
 	id: string;
 	nameEn: string;
 	nameKo: string;
@@ -175,23 +175,19 @@ export const BIBLE_GENRES: readonly BibleGenre[] = [
 const BOOKS_BY_NUMBER = new Map<number, BookMeta>(BIBLE_BOOKS.map((b) => [b.number, b]));
 const BOOKS_BY_USFM = new Map<string, BookMeta>(BIBLE_BOOKS.map((b) => [b.usfm, b]));
 
-export const KRV_BOOK_NAME_TO_NUMBER: Record<string, number> = Object.fromEntries(
-	BIBLE_BOOKS.map((b) => [b.en.replace(/\s+/g, ""), b.number]),
-);
-
-const ALIASES: Record<string, number> = {
-	psalm: 19,
-	sos: 22,
-	"song of songs": 22,
-	jn: 43,
-	mt: 40,
-	mk: 41,
-	lk: 42,
-	rm: 45,
-	요한1서: 62,
-	요한2서: 63,
-	요한3서: 64,
-};
+const ALIASES = new Map<string, number>([
+	["psalm", 19],
+	["sos", 22],
+	["song of songs", 22],
+	["jn", 43],
+	["mt", 40],
+	["mk", 41],
+	["lk", 42],
+	["rm", 45],
+	["요한1서", 62],
+	["요한2서", 63],
+	["요한3서", 64],
+]);
 
 export function getBookByNumber(bookNumber: number): BookMeta | undefined {
 	return BOOKS_BY_NUMBER.get(bookNumber);
@@ -241,7 +237,7 @@ export function findBookByQuery(rawQuery: string): BookMeta | undefined {
 	if (!normalized) return undefined;
 
 	const compact = normalized.replace(/\s+/g, "");
-	const aliasNum = ALIASES[normalized] ?? ALIASES[compact];
+	const aliasNum = ALIASES.get(normalized) ?? ALIASES.get(compact);
 	if (aliasNum) return getBookByNumber(aliasNum);
 
 	for (const book of BIBLE_BOOKS) {

@@ -12,7 +12,6 @@ import type {
 } from "../../shared/types";
 
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
-const remotePassageCache = new Map<string, Promise<VerseEntry[]>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
 
 export async function loadLexicon(): Promise<LexiconMap> {
@@ -75,31 +74,8 @@ export async function loadTranslationChapter(
 	const book = getBookByNumber(bookNumber);
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
 
-	if (translation.source === "bundled") {
-		const data = await fetchBundledBook(translation.id, book.usfm);
-		return data.chapters[String(chapter)] ?? [];
-	}
-
-	const cacheKey = `${translation.id}:${book.usfm}:${chapter}`;
-	const existing = remotePassageCache.get(cacheKey);
-	if (existing) return existing;
-
-	const promise = fetch(
-		`/api/passage/${encodeURIComponent(translation.id)}/${book.usfm}/${chapter}`,
-	)
-		.then(async (res) => {
-			if (!res.ok) {
-				throw new Error(`${translation.code} does not have ${book.en} ${chapter}`);
-			}
-			const payload = (await res.json()) as { verses?: VerseEntry[] };
-			return payload.verses ?? [];
-		})
-		.catch((err) => {
-			remotePassageCache.delete(cacheKey);
-			throw err;
-		});
-	remotePassageCache.set(cacheKey, promise);
-	return promise;
+	const data = await fetchBundledBook(translation.id, book.usfm);
+	return data.chapters[String(chapter)] ?? [];
 }
 
 export async function loadSyncedChapterAudio(options: {
@@ -118,7 +94,6 @@ export async function loadSyncedChapterAudio(options: {
 		bookUsfm: options.usfm,
 		chapter: options.chapter,
 		tracks: [],
-		unavailableReason: "Audio lookup failed for this chapter.",
 	};
 }
 

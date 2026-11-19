@@ -1,11 +1,11 @@
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
-import type { AlignedVerse, HighlightItem, HighlightLanguage } from "../../shared/types";
+import type { AlignedVerse, HighlightItem, TranslationLanguage } from "../../shared/types";
 
 export const HIGHLIGHTS_STORAGE_KEY = "logos.reader.highlights.v1";
 
 export interface SelectionHighlightSpan {
 	verse: number;
-	lang: HighlightLanguage;
+	lang: TranslationLanguage;
 	start: number;
 	end: number;
 	text: string;
@@ -20,14 +20,14 @@ export function makeHighlightId(
 	bookNumber: number,
 	chapter: number,
 	verse: number,
-	lang: HighlightLanguage,
+	lang: TranslationLanguage,
 	start: number,
 	end: number,
 ): string {
 	return `${bookNumber}:${chapter}:${verse}:${lang}:${start}-${end}`;
 }
 
-export function getVerseTextForLang(verse: AlignedVerse, lang: HighlightLanguage): string {
+export function getVerseTextForLang(verse: AlignedVerse, lang: TranslationLanguage): string {
 	if (lang === "en") return verse.enText ?? "";
 	if (verse.tokens.length > 0) {
 		return verse.tokens.map((t) => t.raw).join(" ");
@@ -232,7 +232,7 @@ export function toggleHighlightSpans(
 	bookNumber: number,
 	chapter: number,
 	spans: readonly SelectionHighlightSpan[],
-	getVerseText: (verse: number, lang: HighlightLanguage) => string,
+	getVerseText: (verse: number, lang: TranslationLanguage) => string,
 ): { next: HighlightItem[]; action: "added" | "removed" | "noop" } {
 	if (spans.length === 0) return { next: [...items], action: "noop" };
 

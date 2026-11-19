@@ -110,60 +110,28 @@ const DOUBLE_FINAL_LIAISON: Record<number, [string, string]> = {
 	18: ["p", "ss"],
 };
 
-const ASPIRATION_BY_LEAD: Record<number, string> = {
-	0: "k",
-	3: "t",
-	7: "p",
-	12: "ch",
-};
+const ASPIRATION_BY_LEAD: Record<number, string> = { 0: "k", 3: "t", 7: "p", 12: "ch" };
+const ASPIRATION_BY_FINAL: Record<number, string> = { 1: "k", 7: "t", 19: "t", 17: "p", 22: "ch" };
 
-const ASPIRATION_BY_FINAL: Record<number, string> = {
-	1: "k",
-	7: "t",
-	19: "t",
-	17: "p",
-	22: "ch",
-};
-
-interface RomanSyllable {
-	leadIdx: number;
-	vowelIdx: number;
-	trailIdx: number;
-	leadStr: string;
-	vowelStr: string;
-	trailStr: string;
-}
-
-function isKGroupFinal(idx: number): boolean {
-	return idx === 1 || idx === 2 || idx === 3 || idx === 9 || idx === 24;
-}
-
-function isTGroupFinal(idx: number): boolean {
-	return (
-		idx === 7 || idx === 19 || idx === 20 || idx === 22 || idx === 23 || idx === 25 || idx === 27
-	);
-}
-
-function isPGroupFinal(idx: number): boolean {
-	return idx === 17 || idx === 18 || idx === 26;
-}
+const K_GROUP_FINALS = new Set([1, 2, 3, 9, 24]);
+const T_GROUP_FINALS = new Set([7, 19, 20, 22, 23, 25, 27]);
+const P_GROUP_FINALS = new Set([17, 18, 26]);
 
 function romanizeHangulRun(run: string): string {
-	const syllables: RomanSyllable[] = [];
-	for (let i = 0; i < run.length; i++) {
-		const sIdx = run.charCodeAt(i) - HANGUL_START;
+	const syllables = Array.from(run, (ch) => {
+		const sIdx = ch.charCodeAt(0) - HANGUL_START;
 		const leadIdx = Math.floor(sIdx / 588);
 		const vowelIdx = Math.floor((sIdx % 588) / 28);
 		const trailIdx = sIdx % 28;
-		syllables.push({
+		return {
 			leadIdx,
 			vowelIdx,
 			trailIdx,
-			leadStr: ROMAN_INITIALS[leadIdx],
-			vowelStr: ROMAN_VOWELS[vowelIdx],
-			trailStr: ROMAN_FINALS[trailIdx],
-		});
-	}
+			leadStr: ROMAN_INITIALS[leadIdx] as string,
+			vowelStr: ROMAN_VOWELS[vowelIdx] as string,
+			trailStr: ROMAN_FINALS[trailIdx] as string,
+		};
+	});
 
 	for (let i = 0; i < syllables.length - 1; i++) {
 		const curr = syllables[i];
@@ -171,7 +139,6 @@ function romanizeHangulRun(run: string): string {
 		if (curr.trailIdx === 0) continue;
 
 		if (next.leadIdx === 11) {
-			// Liaison into silent initial ㅇ
 			if (curr.trailIdx === 21) continue;
 			if (curr.trailIdx === 27) {
 				curr.trailStr = "";
@@ -186,18 +153,16 @@ function romanizeHangulRun(run: string): string {
 			const moved = LIAISON_INITIAL_BY_FINAL[curr.trailIdx];
 			if (moved) {
 				curr.trailStr = "";
-				if (next.vowelIdx === 20 && curr.trailIdx === 7) {
-					next.leadStr = "j";
-				} else if (next.vowelIdx === 20 && curr.trailIdx === 25) {
-					next.leadStr = "ch";
-				} else {
-					next.leadStr = moved;
-				}
+				next.leadStr =
+					next.vowelIdx === 20 && curr.trailIdx === 7
+						? "j"
+						: next.vowelIdx === 20 && curr.trailIdx === 25
+							? "ch"
+							: moved;
 			}
 			continue;
 		}
 
-		// ㅎ aspiration with stops
 		if (
 			(curr.trailIdx === 27 || curr.trailIdx === 6 || curr.trailIdx === 15) &&
 			next.leadIdx in ASPIRATION_BY_LEAD
@@ -212,7 +177,6 @@ function romanizeHangulRun(run: string): string {
 			continue;
 		}
 
-		// Liquidization (ㄴ + ㄹ / ㄹ + ㄴ)
 		if (
 			(curr.trailIdx === 4 && next.leadIdx === 5) ||
 			(curr.trailIdx === 8 && next.leadIdx === 2)
@@ -222,11 +186,10 @@ function romanizeHangulRun(run: string): string {
 			continue;
 		}
 
-		// Nasalization before ㄴ (2) or ㅁ (6) or ㄹ (5, when final is not ㄴ/ㄹ)
 		if (next.leadIdx === 2 || next.leadIdx === 6 || next.leadIdx === 5) {
-			if (isKGroupFinal(curr.trailIdx)) curr.trailStr = "ng";
-			else if (isTGroupFinal(curr.trailIdx)) curr.trailStr = "n";
-			else if (isPGroupFinal(curr.trailIdx)) curr.trailStr = "m";
+			if (K_GROUP_FINALS.has(curr.trailIdx)) curr.trailStr = "ng";
+			else if (T_GROUP_FINALS.has(curr.trailIdx)) curr.trailStr = "n";
+			else if (P_GROUP_FINALS.has(curr.trailIdx)) curr.trailStr = "m";
 
 			if (next.leadIdx === 5 && curr.trailIdx !== 8 && curr.trailIdx !== 15) {
 				next.leadStr = "n";
@@ -238,39 +201,11 @@ function romanizeHangulRun(run: string): string {
 }
 
 export function romanizeHangul(text: string): string {
-	if (!text) return "";
-	let out = "";
-	let run = "";
-	for (let i = 0; i < text.length; i++) {
-		const ch = text[i];
-		if (isHangulSyllable(ch)) {
-			run += ch;
-		} else {
-			if (run) {
-				out += romanizeHangulRun(run);
-				run = "";
-			}
-			out += ch;
-		}
-	}
-	if (run) {
-		out += romanizeHangulRun(run);
-	}
-	return out;
-}
-
-export function isHangulSyllable(char: string): boolean {
-	if (!char) return false;
-	const code = char.charCodeAt(0);
-	return code >= HANGUL_START && code <= HANGUL_END;
+	return text ? text.replace(/[\uAC00-\uD7A3]+/g, romanizeHangulRun) : "";
 }
 
 export function containsHangul(text: string): boolean {
-	for (let i = 0; i < text.length; i++) {
-		const code = text.charCodeAt(i);
-		if (code >= HANGUL_START && code <= HANGUL_END) return true;
-	}
-	return false;
+	return /[\uAC00-\uD7A3]/.test(text);
 }
 
 function getLastFinalIndex(word: string): { code: number; finalIdx: number } | null {

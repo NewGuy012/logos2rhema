@@ -401,10 +401,6 @@ export function createApp(deps: WorkerDeps = {}) {
 			bookUsfm: usfm,
 			chapter,
 			tracks: [...koTracks, ...enTracks, ...extraTracks],
-			providerStatus: {
-				bibleBrainEnabled: Boolean(apiKey),
-				esvAudioEnabled: Boolean(apiKey || esvApiKey),
-			},
 		};
 
 		c.header("Cache-Control", "private, max-age=1800");
