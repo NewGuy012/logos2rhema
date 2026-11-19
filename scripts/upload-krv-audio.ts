@@ -1,5 +1,6 @@
 import { mkdir, rename, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { parseArgs as parseCliArgs } from "node:util";
 
 import { BIBLE_BOOKS, getBookByUsfm } from "../src/shared/books";
 
@@ -66,76 +67,51 @@ function parseIntInRange(raw: string, flag: string, min: number, max: number): n
 }
 
 function parseArgs(argv: string[]): UploadOptions | null {
-	const options: UploadOptions = {
-		bucket: DEFAULT_BUCKET,
-		concurrency: DEFAULT_CONCURRENCY,
-		retries: DEFAULT_RETRIES,
-		dryRun: false,
-		force: false,
-	};
-
-	const readFlagValue = (arg: string, idx: number): { value: string; nextIdx: number } => {
-		const eqIdx = arg.indexOf("=");
-		if (eqIdx !== -1) {
-			return { value: arg.slice(eqIdx + 1), nextIdx: idx };
-		}
-		const next = argv[idx + 1];
-		if (!next || next.startsWith("-")) {
-			throw new Error(`Missing value for ${arg}`);
-		}
-		return { value: next, nextIdx: idx + 1 };
-	};
-
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === "--help" || arg === "-h") {
-			printUsage();
-			return null;
-		}
-		if (arg === "--dry-run") {
-			options.dryRun = true;
-			continue;
-		}
-		if (arg === "--force") {
-			options.force = true;
-			continue;
-		}
-		if (arg === "--book" || arg.startsWith("--book=")) {
-			const { value, nextIdx } = readFlagValue(arg, i);
-			i = nextIdx;
-			const book = getBookByUsfm(value.trim());
-			if (!book) {
-				throw new Error(`Unknown book USFM code: "${value}"`);
-			}
-			options.book = book.usfm;
-			continue;
-		}
-		if (arg === "--bucket" || arg.startsWith("--bucket=")) {
-			const { value, nextIdx } = readFlagValue(arg, i);
-			i = nextIdx;
-			const bucket = value.trim();
-			if (!BUCKET_NAME_RE.test(bucket)) {
-				throw new Error(`Invalid R2 bucket name: "${bucket}"`);
-			}
-			options.bucket = bucket;
-			continue;
-		}
-		if (arg === "--concurrency" || arg.startsWith("--concurrency=")) {
-			const { value, nextIdx } = readFlagValue(arg, i);
-			i = nextIdx;
-			options.concurrency = parseIntInRange(value.trim(), "--concurrency", 1, 32);
-			continue;
-		}
-		if (arg === "--retries" || arg.startsWith("--retries=")) {
-			const { value, nextIdx } = readFlagValue(arg, i);
-			i = nextIdx;
-			options.retries = parseIntInRange(value.trim(), "--retries", 0, 10);
-			continue;
-		}
-		throw new Error(`Unknown option: ${arg}`);
+	const { values } = parseCliArgs({
+		args: argv,
+		options: {
+			help: { type: "boolean", short: "h" },
+			"dry-run": { type: "boolean" },
+			force: { type: "boolean" },
+			book: { type: "string" },
+			bucket: { type: "string" },
+			concurrency: { type: "string" },
+			retries: { type: "string" },
+		},
+		strict: true,
+		allowPositionals: false,
+	});
+	if (values.help) {
+		printUsage();
+		return null;
 	}
 
-	return options;
+	let book: string | undefined;
+	if (values.book !== undefined) {
+		const found = getBookByUsfm(values.book.trim());
+		if (!found) throw new Error(`Unknown book USFM code: "${values.book}"`);
+		book = found.usfm;
+	}
+
+	const bucket = values.bucket !== undefined ? values.bucket.trim() : DEFAULT_BUCKET;
+	if (!BUCKET_NAME_RE.test(bucket)) {
+		throw new Error(`Invalid R2 bucket name: "${bucket}"`);
+	}
+
+	return {
+		bucket,
+		book,
+		concurrency:
+			values.concurrency !== undefined
+				? parseIntInRange(values.concurrency.trim(), "--concurrency", 1, 32)
+				: DEFAULT_CONCURRENCY,
+		retries:
+			values.retries !== undefined
+				? parseIntInRange(values.retries.trim(), "--retries", 0, 10)
+				: DEFAULT_RETRIES,
+		dryRun: Boolean(values["dry-run"]),
+		force: Boolean(values.force),
+	};
 }
 
 function formatBytes(bytes: number): string {
@@ -166,9 +142,7 @@ async function scanAudioFiles(bookFilter?: string): Promise<{
 					items.push({ key, filePath, size: info.size, mtimeMs: Math.trunc(info.mtimeMs) });
 					continue;
 				}
-			} catch {
-				// File missing or unreadable
-			}
+			} catch {}
 			missingKeys.push(key);
 		}
 	}
@@ -195,12 +169,14 @@ async function loadCheckpoint(): Promise<CheckpointData> {
 let checkpointSaveChain: Promise<void> = Promise.resolve();
 
 function saveCheckpoint(data: CheckpointData): Promise<void> {
-	checkpointSaveChain = checkpointSaveChain.then(async () => {
-		await mkdir(CACHE_DIR, { recursive: true });
-		const tmpPath = `${CHECKPOINT_PATH}.tmp`;
-		await Bun.write(tmpPath, `${JSON.stringify(data, null, 2)}\n`);
-		await rename(tmpPath, CHECKPOINT_PATH);
-	});
+	checkpointSaveChain = checkpointSaveChain
+		.catch(() => {})
+		.then(async () => {
+			await mkdir(CACHE_DIR, { recursive: true });
+			const tmpPath = `${CHECKPOINT_PATH}.${process.pid}.tmp`;
+			await Bun.write(tmpPath, `${JSON.stringify(data, null, 2)}\n`);
+			await rename(tmpPath, CHECKPOINT_PATH);
+		});
 	return checkpointSaveChain;
 }
 

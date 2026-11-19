@@ -447,12 +447,26 @@ def synthesize_chapter(
 def atomic_write_json(path: Path, data: Any, *, compact: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(f"{path.suffix}.tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        if compact:
-            json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
-        else:
-            json.dump(data, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, path)
+    try:
+        with tmp_path.open("w", encoding="utf-8") as fh:
+            if compact:
+                json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+            else:
+                json.dump(data, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def empty_book_timings(usfm: str) -> dict[str, Any]:
+    return {
+        "translationId": "krv",
+        "audioSource": AUDIO_SOURCE_ID,
+        "usfm": usfm,
+        "chapters": {},
+    }
 
 
 def load_existing_book_timings(path: Path, usfm: str) -> dict[str, Any]:
@@ -461,12 +475,7 @@ def load_existing_book_timings(path: Path, usfm: str) -> dict[str, Any]:
             data = json.load(fh)
         if isinstance(data, dict) and isinstance(data.get("chapters"), dict):
             return data
-    return {
-        "translationId": "krv",
-        "audioSource": AUDIO_SOURCE_ID,
-        "usfm": usfm,
-        "chapters": {},
-    }
+    return empty_book_timings(usfm)
 
 
 def select_books(all_books: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -582,7 +591,9 @@ def _init_worker(resolved_voice: str, intra_threads: int) -> None:
     _WORKER_STYLE = _WORKER_TTS.get_voice_style(resolved_voice)
 
 
-def _process_chapter_job(
+def _synthesize_job(
+    tts: Any,
+    voice_style: Any,
     job: tuple[str, str, int, list[VerseJob], int],
     steps: int,
     speed: float,
@@ -595,8 +606,8 @@ def _process_chapter_job(
     t0 = time.time()
     try:
         timings, metrics = synthesize_chapter(
-            _WORKER_TTS,
-            _WORKER_STYLE,
+            tts,
+            voice_style,
             usfm=usfm,
             book_ko=book_ko,
             chapter=ch_num,
@@ -611,6 +622,26 @@ def _process_chapter_job(
         return usfm, ch_num, total_verses, timings, metrics, time.time() - t0
     finally:
         gc.collect()
+
+
+def _process_chapter_job(
+    job: tuple[str, str, int, list[VerseJob], int],
+    steps: int,
+    speed: float,
+    verse_pause_sec: float,
+    header_pause_sec: float,
+    bitrate_kbps: int,
+) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
+    return _synthesize_job(
+        _WORKER_TTS,
+        _WORKER_STYLE,
+        job,
+        steps,
+        speed,
+        verse_pause_sec,
+        header_pause_sec,
+        bitrate_kbps,
+    )
 
 
 def main() -> int:
@@ -742,12 +773,7 @@ def main() -> int:
         if usfm not in book_cache:
             out_path = TIMINGS_OUT_DIR / f"{usfm}.json"
             if args.force and usfm not in dirty_books and chapter_filter is None:
-                book_cache[usfm] = {
-                    "translationId": "krv",
-                    "audioSource": AUDIO_SOURCE_ID,
-                    "usfm": usfm,
-                    "chapters": {},
-                }
+                book_cache[usfm] = empty_book_timings(usfm)
             else:
                 book_cache[usfm] = load_existing_book_timings(out_path, usfm)
         return book_cache[usfm]
@@ -811,37 +837,24 @@ def main() -> int:
     try:
         if worker_count == 1:
             voice_style = tts.get_voice_style(resolved_voice)
-            for idx, (usfm, book_ko, ch_num, verses, total_verses) in enumerate(jobs):
-                mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
-                t0 = time.time()
+            for idx, job in enumerate(jobs):
+                usfm, _, ch_num, _, _ = job
                 try:
-                    timings, metrics = synthesize_chapter(
+                    res_usfm, res_ch, total_verses, timings, metrics, elapsed = _synthesize_job(
                         tts,
                         voice_style,
-                        usfm=usfm,
-                        book_ko=book_ko,
-                        chapter=ch_num,
-                        verses=verses,
-                        steps=args.steps,
-                        speed=args.speed,
-                        verse_pause_sec=args.pause,
-                        header_pause_sec=args.header_pause,
-                        bitrate_kbps=args.bitrate,
-                        mp3_path=mp3_path,
+                        job,
+                        args.steps,
+                        args.speed,
+                        args.pause,
+                        args.header_pause,
+                        args.bitrate,
                     )
                     record_success(
-                        idx + 1,
-                        usfm,
-                        ch_num,
-                        total_verses,
-                        timings,
-                        metrics,
-                        time.time() - t0,
+                        idx + 1, res_usfm, res_ch, total_verses, timings, metrics, elapsed
                     )
                 except Exception as err:  # noqa: BLE001
                     record_error(idx + 1, usfm, ch_num, err)
-                finally:
-                    gc.collect()
         else:
             # Release main-process ONNX model memory before spawning worker processes.
             del tts

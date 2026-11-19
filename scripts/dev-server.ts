@@ -89,6 +89,7 @@ function resolveSafeStaticPath(baseDir: string, requestPath: string): string | n
 	} catch {
 		return null;
 	}
+	if (decoded.includes("\0")) return null;
 	const rel = decoded.replace(/^\/+/, "");
 	const root = resolve(baseDir);
 	const candidate = resolve(root, rel);
@@ -204,6 +205,8 @@ function createLocalAudioBucket(baseDir: string): R2BucketLike {
 }
 
 const isPreview = process.argv.includes("--preview");
+const hostname = process.env.HOST?.trim() || "127.0.0.1";
+const loopbackHost = hostname === "0.0.0.0" || hostname === "::" ? "127.0.0.1" : hostname;
 const port = Number.parseInt(process.env.PORT ?? "", 10) || (isPreview ? 4173 : 5173);
 const devVars = await loadDevVars();
 if (!devVars.AUDIO_BASE_URL?.trim() && (await isDirectory(LOCAL_AUDIO_DIR))) {
@@ -241,6 +244,7 @@ if (isPreview) {
 		respondPreview(req, resolveSafeStaticPath(DIST_CLIENT_DIR, new URL(req.url).pathname));
 
 	const server = Bun.serve({
+		hostname,
 		port,
 		routes: {
 			"/api/*": (req) => workerApp.fetch(req, devVars),
@@ -257,6 +261,7 @@ if (isPreview) {
 } else {
 	let devPort = port;
 	const server = Bun.serve({
+		hostname,
 		port,
 		development: {
 			hmr: true,
@@ -281,7 +286,7 @@ if (isPreview) {
 				!url.pathname.startsWith("/data/") &&
 				!url.pathname.startsWith("/_bun/")
 			) {
-				return fetch(`http://127.0.0.1:${devPort}/`, { method: req.method });
+				return fetch(`http://${loopbackHost}:${devPort}/`, { method: req.method });
 			}
 			return new Response("Not Found", { status: 404 });
 		},
