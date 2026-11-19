@@ -12,6 +12,8 @@ import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
 import { TopBar } from "../src/react-app/components/TopBar";
 import { VerseBlock } from "../src/react-app/components/VerseBlock";
 import {
+	normalizePlaybackRate,
+	parseCustomPlaybackRate,
 	resolveTimeForVerse,
 	resolveVerseAtTime,
 	useHumanAudio,
@@ -924,7 +926,7 @@ describe("Reader UI & audio hooks", () => {
 		const onSkipBy = mock((_delta: number) => {});
 		const koTrack = {
 			id: SUPERTONIC_TRACK_ID,
-			label: "개역한글 · Daniel (AI)",
+			label: "개역한글",
 			language: "ko" as const,
 			url: "https://cdn.example.com/krv/GEN/1.mp3",
 		};
@@ -984,7 +986,7 @@ describe("Reader UI & audio hooks", () => {
 
 		const supertonicTrack = {
 			id: SUPERTONIC_TRACK_ID,
-			label: "개역한글 · Daniel (AI)",
+			label: "개역한글",
 			language: "ko" as const,
 			url: "https://cdn.example.com/JHN/3.mp3",
 			verseTimings: { 1: 2.3, 12: 34.5, 16: 48.2 },
@@ -1070,6 +1072,45 @@ describe("Reader UI & audio hooks", () => {
 			getButton(document.body.querySelector('.speed-menu[role="menu"]') as ParentNode, "1.25x"),
 		);
 		expect(onChangeSpeed).toHaveBeenCalledWith(1.25);
+
+		// Reopen speed menu, validate out-of-range input, then apply custom speed 0.85x
+		fireClick(
+			rail.container.querySelector('button[aria-label="Playback speed"]') as HTMLButtonElement,
+		);
+		let speedMenu = document.body.querySelector('.speed-menu[role="menu"]') as ParentNode;
+		let speedInput = speedMenu.querySelector(
+			'input[aria-label="Custom playback speed (0.1 to 2.0)"]',
+		) as HTMLInputElement;
+		let speedForm = speedMenu.querySelector("form.speed-menu-custom") as HTMLFormElement;
+		setInputValue(speedInput, "0.05");
+		submitForm(speedForm);
+		expect(onChangeSpeed).toHaveBeenCalledTimes(1);
+		expect(speedInput.getAttribute("aria-invalid")).toBe("true");
+		expect(getByText(speedMenu, "Enter 0.1–2.0")).toBeDefined();
+
+		setInputValue(speedInput, "2.5");
+		submitForm(speedForm);
+		expect(onChangeSpeed).toHaveBeenCalledTimes(1);
+
+		setInputValue(speedInput, "0.85");
+		expect(speedMenu.querySelector(".speed-custom-error")).toBeNull();
+		submitForm(speedForm);
+		expect(onChangeSpeed).toHaveBeenLastCalledWith(0.85);
+		expect(document.body.querySelector('.speed-menu[role="menu"]')).toBeNull();
+
+		// Lower boundary 0.1x
+		fireClick(
+			rail.container.querySelector('button[aria-label="Playback speed"]') as HTMLButtonElement,
+		);
+		speedMenu = document.body.querySelector('.speed-menu[role="menu"]') as ParentNode;
+		speedInput = speedMenu.querySelector(
+			'input[aria-label="Custom playback speed (0.1 to 2.0)"]',
+		) as HTMLInputElement;
+		speedForm = speedMenu.querySelector("form.speed-menu-custom") as HTMLFormElement;
+		setInputValue(speedInput, "0.1");
+		submitForm(speedForm);
+		expect(onChangeSpeed).toHaveBeenLastCalledWith(0.1);
+		expect(document.body.querySelector('.speed-menu[role="menu"]')).toBeNull();
 
 		const readSyncDetails = () =>
 			Array.from(rail.container.querySelectorAll(".rail-sync-status .rail-kv-row")).map((row) => [
@@ -1168,7 +1209,7 @@ describe("Reader UI & audio hooks", () => {
 					tracks: [
 						{
 							id: SUPERTONIC_TRACK_ID,
-							label: "개역한글 · Daniel (AI)",
+							label: "개역한글",
 							language: "ko",
 							url: "/api/audio/krv/JHN/3",
 							verseTimings: { 1: 2.3, 16: 48.2 },
@@ -1184,6 +1225,29 @@ describe("Reader UI & audio hooks", () => {
 			});
 			expect(mockAudio.getCurrentTime()).toBe(48.2);
 			expect(result.current.activeVerse).toBe(16);
+
+			expect(parseCustomPlaybackRate("0.1")).toBe(0.1);
+			expect(parseCustomPlaybackRate("0.75")).toBe(0.75);
+			expect(parseCustomPlaybackRate("2.0")).toBe(2);
+			expect(parseCustomPlaybackRate("0.09")).toBeNull();
+			expect(parseCustomPlaybackRate("2.01")).toBeNull();
+			expect(parseCustomPlaybackRate("")).toBeNull();
+			expect(normalizePlaybackRate(0.05)).toBe(0.1);
+			expect(normalizePlaybackRate(3)).toBe(2);
+			expect(normalizePlaybackRate(Number.NaN)).toBeNull();
+
+			await act(async () => {
+				result.current.setPlaybackRate(0.35);
+			});
+			expect(result.current.playbackRate).toBe(0.35);
+			await act(async () => {
+				result.current.setPlaybackRate(0.02);
+			});
+			expect(result.current.playbackRate).toBe(0.1);
+			await act(async () => {
+				result.current.setPlaybackRate(Number.NaN);
+			});
+			expect(result.current.playbackRate).toBe(0.1);
 
 			for (const badUrl of [
 				"javascript:alert(1)",
@@ -1215,7 +1279,7 @@ describe("Reader UI & audio hooks", () => {
 						tracks: [
 							{
 								id: SUPERTONIC_TRACK_ID,
-								label: "개역한글 · Daniel (AI)",
+								label: "개역한글",
 								language: "ko",
 								url: "https://cdn.example.com/krv.mp3",
 								verseTimings: { 1: 1.2, 16: 48.2 },
@@ -1254,7 +1318,7 @@ describe("Reader UI & audio hooks", () => {
 							tracks: [
 								{
 									id: SUPERTONIC_TRACK_ID,
-									label: "개역한글 · Daniel (AI)",
+									label: "개역한글",
 									language: "ko",
 									url: "https://cdn.example.com/JHN/3.mp3",
 								},
@@ -1337,7 +1401,7 @@ describe("Reader UI & audio hooks", () => {
 							tracks: [
 								{
 									id: SUPERTONIC_TRACK_ID,
-									label: "개역한글 · Daniel (AI)",
+									label: "개역한글",
 									language: "ko",
 									url: "https://cdn.example.com/krv/RUT/1.mp3",
 								},

@@ -12,19 +12,10 @@ import {
 	AudioScrubber,
 	AudioSpeedSelect,
 	formatTime,
+	formatTrackTooltip,
 } from "./AudioShared";
-import {
-	ArrowRight,
-	BookOpen,
-	ChevronLeft,
-	ChevronRight,
-	Headphones,
-	Loader2,
-	Pause,
-	Play,
-	RotateCcw,
-	RotateCw,
-} from "./Icons";
+import { HomePassageBar } from "./HomeStudyShared";
+import { Headphones, Loader2, Pause, Play, RotateCcw, RotateCw } from "./Icons";
 
 interface HomeAudioBrowserProps {
 	initialBookNumber: number;
@@ -39,19 +30,13 @@ export function HomeAudioBrowser({
 }: HomeAudioBrowserProps) {
 	const initialBook = getBookByNumber(initialBookNumber) ?? BIBLE_BOOKS[0];
 	const [bookNumber, setBookNumber] = useState(initialBook.number);
-	const [chapter, setChapter] = useState(initialChapter);
+	const [chapter, setChapter] = useState(() =>
+		Math.max(1, Math.min(initialBook.chapters, initialChapter)),
+	);
 	const [tracks, setTracks] = useState<AudioTrackOption[]>([]);
 	const [loadingTracks, setLoadingTracks] = useState(true);
 
 	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
-	const prevTarget = useMemo(
-		() => getAdjacentChapter(bookNumber, chapter, -1),
-		[bookNumber, chapter],
-	);
-	const nextTarget = useMemo(
-		() => getAdjacentChapter(bookNumber, chapter, 1),
-		[bookNumber, chapter],
-	);
 
 	const selectPassage = useCallback((nextBookNumber: number, nextChapter: number) => {
 		const target = getBookByNumber(nextBookNumber) ?? BIBLE_BOOKS[0];
@@ -98,65 +83,31 @@ export function HomeAudioBrowser({
 
 	return (
 		<div className="home-study-browser">
+			<div className="home-study-card home-study-toolbar">
+				<HomePassageBar
+					bookNumber={currentBook.number}
+					chapter={chapter}
+					onChangePassage={selectPassage}
+					onOpenInReader={() =>
+						onOpenPassage(currentBook.number, chapter, audio.activeVerse ?? undefined)
+					}
+				/>
+			</div>
+
 			<section className="home-study-card home-audio-card" aria-label="Chapter audio player">
-				<div className="home-audio-card-head">
-					<div className="home-audio-title-group">
-						<div className="home-audio-eyebrow">
-							<Headphones size={13} />
-							<span>Chapter Audio</span>
-							{hasTimings && <span className="home-study-badge">Verse-synced</span>}
-						</div>
-						<h3 className="home-study-passage-title">
-							{currentBook.en} {chapter}{" "}
-							<span className="home-continue-ko" lang="ko">
-								· {currentBook.ko} {chapter}장
-							</span>
-						</h3>
-						{audio.activeTrack && (
-							<p className="home-audio-track-label">{audio.activeTrack.label}</p>
-						)}
+				<div className="home-audio-title-group">
+					<div className="home-audio-eyebrow">
+						<Headphones size={13} />
+						<span>Chapter Audio</span>
+						{hasTimings && <span className="home-study-badge">Verse-synced</span>}
 					</div>
-
-					<div className="home-audio-head-actions">
-						<div className="home-passage-steppers">
-							<button
-								type="button"
-								className="pill-nav-btn home-step-btn"
-								disabled={!prevTarget}
-								onClick={() =>
-									prevTarget && selectPassage(prevTarget.bookNumber, prevTarget.chapter)
-								}
-								aria-label="Previous chapter"
-								title="Previous chapter"
-							>
-								<ChevronLeft size={15} />
-							</button>
-							<button
-								type="button"
-								className="pill-nav-btn home-step-btn"
-								disabled={!nextTarget}
-								onClick={() =>
-									nextTarget && selectPassage(nextTarget.bookNumber, nextTarget.chapter)
-								}
-								aria-label="Next chapter"
-								title="Next chapter"
-							>
-								<ChevronRight size={15} />
-							</button>
-						</div>
-
-						<button
-							type="button"
-							className="home-open-reader-btn"
-							onClick={() =>
-								onOpenPassage(currentBook.number, chapter, audio.activeVerse ?? undefined)
-							}
-						>
-							<BookOpen size={14} />
-							<span>Open in Reader</span>
-							<ArrowRight size={14} />
-						</button>
-					</div>
+					<h3 className="home-study-passage-title">
+						{currentBook.en} {chapter}{" "}
+						<span className="home-continue-ko" lang="ko">
+							· {currentBook.ko} {chapter}장
+						</span>
+					</h3>
+					{audio.activeTrack && <p className="home-audio-track-label">{audio.activeTrack.label}</p>}
 				</div>
 
 				<div className="home-audio-controls">
@@ -185,11 +136,7 @@ export function HomeAudioBrowser({
 								disabled={!audio.activeTrack && !audio.isPlaying}
 								onClick={audio.togglePlay}
 								aria-label={audio.isPlaying ? "Pause audio" : "Play audio"}
-								title={
-									audio.activeTrack
-										? `${audio.activeTrack.label} (${activeLangCode})`
-										: `No audio available for ${activeLangCode}`
-								}
+								title={formatTrackTooltip(audio.activeTrack, activeLangCode)}
 							>
 								{audio.isLoading || loadingTracks ? (
 									<Loader2 size={14} className="spin" />
@@ -267,26 +214,6 @@ export function HomeAudioBrowser({
 					)}
 				</div>
 			</section>
-
-			<div className="home-audio-chapters">
-				<div className="home-subhead">
-					<h3 className="home-favorites-group-title">
-						{currentBook.en} Chapters ({currentBook.chapters})
-					</h3>
-				</div>
-				<div className="chapters-grid home-audio-chapters-grid">
-					{Array.from({ length: currentBook.chapters }, (_, i) => i + 1).map((ch) => (
-						<button
-							key={ch}
-							type="button"
-							className={`chapter-cell ${ch === chapter ? "current" : ""}`.trim()}
-							onClick={() => setChapter(ch)}
-						>
-							{ch}
-						</button>
-					))}
-				</div>
-			</div>
 		</div>
 	);
 }

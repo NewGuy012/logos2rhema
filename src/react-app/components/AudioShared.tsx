@@ -1,9 +1,14 @@
-import { type CSSProperties, useCallback, useState } from "react";
+import { type CSSProperties, type FormEvent, useCallback, useId, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
-import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
+import {
+	MAX_PLAYBACK_SPEED,
+	MIN_PLAYBACK_SPEED,
+	parseCustomPlaybackRate,
+	PLAYBACK_SPEEDS,
+} from "../hooks/useHumanAudio";
 import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { ChevronDown } from "./Icons";
 
@@ -32,6 +37,11 @@ export function formatTime(totalSeconds: number): string {
 	const mins = Math.floor(totalSeconds / 60);
 	const secs = Math.floor(totalSeconds % 60);
 	return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+export function formatTrackTooltip(track: AudioTrackOption | null, langCode: string): string {
+	if (!track) return `No audio available for ${langCode}`;
+	return track.label.includes(langCode) ? track.label : `${track.label} (${langCode})`;
 }
 
 export function AudioLanguageToggle({
@@ -99,15 +109,30 @@ export function AudioSpeedSelect({
 	onChangeSpeed: (rate: number) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const [customValue, setCustomValue] = useState(() => String(playbackRate));
+	const [customError, setCustomError] = useState<string | null>(null);
+	const inputId = useId();
+	const errorId = useId();
 	const close = useCallback(() => setOpen(false), []);
 	const { triggerRef, menuRef, pos, updatePosition } = useAnchoredPopover(open, {
-		minSpace: 56,
-		halfWidth: 148,
+		minSpace: 108,
+		halfWidth: 152,
 		gap: 6,
 		onDismiss: close,
 		onScroll: true,
-		onResize: true,
 	});
+
+	const handleCustomSubmit = (e: FormEvent) => {
+		e.preventDefault();
+		const parsed = parseCustomPlaybackRate(customValue);
+		if (parsed === null) {
+			setCustomError(`Enter ${MIN_PLAYBACK_SPEED}–${MAX_PLAYBACK_SPEED.toFixed(1)}`);
+			return;
+		}
+		onChangeSpeed(parsed);
+		setCustomError(null);
+		setOpen(false);
+	};
 
 	return (
 		<div className="speed-select-wrap">
@@ -116,7 +141,11 @@ export function AudioSpeedSelect({
 				type="button"
 				className={`speed-pill speed-select ${open ? "active" : ""}`.trim()}
 				onClick={() => {
-					if (!open) updatePosition();
+					if (!open) {
+						setCustomValue(String(playbackRate));
+						setCustomError(null);
+						updatePosition();
+					}
 					setOpen((prev) => !prev);
 				}}
 				aria-label="Playback speed"
@@ -139,24 +168,65 @@ export function AudioSpeedSelect({
 						className="speed-menu"
 						style={anchorPosStyle(pos)}
 					>
-						{PLAYBACK_SPEEDS.map((speed) => {
-							const active = speed === playbackRate;
-							return (
-								<button
-									key={speed}
-									type="button"
-									role="menuitemradio"
-									aria-checked={active}
-									className={`speed-menu-option ${active ? "active" : ""}`.trim()}
-									onClick={() => {
-										onChangeSpeed(speed);
-										setOpen(false);
-									}}
-								>
-									{speed}x
+						<div className="speed-menu-presets">
+							{PLAYBACK_SPEEDS.map((speed) => {
+								const active = speed === playbackRate;
+								return (
+									<button
+										key={speed}
+										type="button"
+										role="menuitemradio"
+										aria-checked={active}
+										className={`speed-menu-option ${active ? "active" : ""}`.trim()}
+										onClick={() => {
+											onChangeSpeed(speed);
+											setOpen(false);
+										}}
+									>
+										{speed}x
+									</button>
+								);
+							})}
+						</div>
+
+						<form className="speed-menu-custom" noValidate onSubmit={handleCustomSubmit}>
+							<label htmlFor={inputId} className="speed-custom-label">
+								Custom
+							</label>
+							<div className="speed-custom-controls">
+								<span className={`speed-custom-field ${customError ? "invalid" : ""}`.trim()}>
+									<input
+										id={inputId}
+										type="number"
+										inputMode="decimal"
+										min={MIN_PLAYBACK_SPEED}
+										max={MAX_PLAYBACK_SPEED}
+										step={0.05}
+										className="speed-custom-input"
+										aria-label="Custom playback speed (0.1 to 2.0)"
+										aria-invalid={customError ? true : undefined}
+										aria-describedby={customError ? errorId : undefined}
+										value={customValue}
+										onChange={(e) => {
+											setCustomValue(e.target.value);
+											if (customError) setCustomError(null);
+										}}
+									/>
+									<span className="speed-custom-suffix" aria-hidden="true">
+										x
+									</span>
+								</span>
+								<button type="submit" className="speed-custom-apply">
+									Apply
 								</button>
-							);
-						})}
+							</div>
+						</form>
+
+						{customError && (
+							<p id={errorId} className="speed-custom-error" role="alert">
+								{customError}
+							</p>
+						)}
 					</div>,
 					document.body,
 				)}

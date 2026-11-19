@@ -48,7 +48,7 @@ describe("Worker API & Security Boundaries", () => {
 
 		expect(koTrack).toEqual({
 			id: SUPERTONIC_TRACK_ID,
-			label: "개역한글 · Daniel (AI)",
+			label: "개역한글",
 			language: "ko",
 			url: "https://cdn.example.com/krv/JHN/3.mp3",
 		});
@@ -291,7 +291,7 @@ describe("Worker API & Security Boundaries", () => {
 			tracks: [
 				{
 					id: SUPERTONIC_TRACK_ID,
-					label: "개역한글 · Daniel (AI)",
+					label: "개역한글",
 					language: "ko",
 					url: "/api/audio/krv/JHN/3",
 				},
@@ -309,7 +309,7 @@ describe("Worker API & Security Boundaries", () => {
 			tracks: [
 				{
 					id: SUPERTONIC_TRACK_ID,
-					label: "개역한글 · Daniel (AI)",
+					label: "개역한글",
 					language: "ko",
 					url: "https://cdn.example.com/krv/JHN/3.mp3",
 				},

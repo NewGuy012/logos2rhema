@@ -4,7 +4,29 @@ import { hasVerseTimings } from "../../shared/audio-timings";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import { isSafeAudioSrc } from "../../shared/url";
 
+export const MIN_PLAYBACK_SPEED = 0.1;
+export const MAX_PLAYBACK_SPEED = 2.0;
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
+
+function roundPlaybackRate(rate: number): number {
+	return Math.round(rate * 100) / 100;
+}
+
+export function normalizePlaybackRate(rate: number): number | null {
+	if (!Number.isFinite(rate)) return null;
+	const clamped = Math.min(MAX_PLAYBACK_SPEED, Math.max(MIN_PLAYBACK_SPEED, rate));
+	return roundPlaybackRate(clamped);
+}
+
+export function parseCustomPlaybackRate(raw: string): number | null {
+	const trimmed = raw.trim();
+	if (!trimmed) return null;
+	const parsed = Number(trimmed);
+	if (!Number.isFinite(parsed) || parsed < MIN_PLAYBACK_SPEED || parsed > MAX_PLAYBACK_SPEED) {
+		return null;
+	}
+	return roundPlaybackRate(parsed);
+}
 
 export function resolveVerseAtTime(
 	timings: Record<number, number> | undefined,
@@ -321,8 +343,9 @@ export function useHumanAudio({
 	);
 
 	const selectPlaybackRate = useCallback((rate: number) => {
-		if ((PLAYBACK_SPEEDS as readonly number[]).includes(rate)) {
-			setPlaybackRate(rate);
+		const next = normalizePlaybackRate(rate);
+		if (next !== null) {
+			setPlaybackRate(next);
 		}
 	}, []);
 

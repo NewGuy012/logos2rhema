@@ -3,6 +3,7 @@ import { type Context, Hono } from "hono";
 import { SUPERTONIC_TRACK_ID } from "../shared/audio-timings";
 import { getBookByUsfm } from "../shared/books";
 import { isCommentaryId } from "../shared/commentaries";
+import { CANONICAL_BIBLES } from "../shared/translations";
 import type { AudioTrackOption, BookMeta, ChapterAudioResponse } from "../shared/types";
 import { isSafeHttpsUrl } from "../shared/url";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
@@ -230,7 +231,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (krvUrl) {
 			tracks.push({
 				id: SUPERTONIC_TRACK_ID,
-				label: "개역한글 · Daniel (AI)",
+				label: CANONICAL_BIBLES.ko.code,
 				language: "ko",
 				url: krvUrl,
 			});

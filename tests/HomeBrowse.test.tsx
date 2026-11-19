@@ -49,7 +49,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 							tracks: [
 								{
 									id: SUPERTONIC_TRACK_ID,
-									label: "개역한글 · Daniel (AI)",
+									label: "개역한글",
 									language: "ko",
 									url: `${url.replace("/api/audio/", "/api/audio/krv/")}.mp3`,
 								},
@@ -104,6 +104,10 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					await waitUntil(() => {
 						expect(getByText(browseSection, "Genesis 1")).toBeDefined();
 						expect(getByText(browseSection, "Verse-synced")).toBeDefined();
+						expect(browseSection.querySelector(".home-audio-track-label")?.textContent).toBe(
+							"개역한글",
+						);
+						expect(getButton(browseSection, "Play audio").getAttribute("title")).toBe("개역한글");
 					});
 					expect(fetchedUrls).toContain("/api/audio/GEN/1");
 
@@ -114,13 +118,32 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						expect(getButton(browseSection, /Playing v\.1/)).toBeDefined();
 					});
 
+					fireClick(getButton(browseSection, "Playback speed"));
+					const speedMenu = document.body.querySelector('.speed-menu[role="menu"]') as ParentNode;
+					const speedInput = speedMenu.querySelector(
+						'input[aria-label="Custom playback speed (0.1 to 2.0)"]',
+					) as HTMLInputElement;
+					setInputValue(speedInput, "0.75");
+					fireClick(getButton(speedMenu, "Apply"));
+					expect(getButton(browseSection, "Playback speed").textContent).toContain("0.75x");
+
 					fireClick(getButton(browseSection, "EN"));
 					expect(getByText(browseSection, "ESV Audio")).toBeDefined();
 
 					expect(browseSection.querySelector("input[type='search']")).toBeNull();
 					expect(browseSection.querySelector(".books-grid")).toBeNull();
+					expect(browseSection.querySelector(".chapters-grid")).toBeNull();
 
-					fireClick(getButton(browseSection, "2"));
+					const bookSelect = browseSection.querySelector(
+						'select[aria-label="Select book"]',
+					) as HTMLSelectElement;
+					const chapterSelect = browseSection.querySelector(
+						'select[aria-label="Select chapter"]',
+					) as HTMLSelectElement;
+					expect(bookSelect.value).toBe("1");
+					expect(chapterSelect.value).toBe("1");
+
+					setSelectValue(chapterSelect, "2");
 					await flushAsync();
 					await waitUntil(() => {
 						expect(getByText(browseSection, "Genesis 2")).toBeDefined();
@@ -131,11 +154,30 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					await flushAsync();
 					await waitUntil(() => {
 						expect(getByText(browseSection, "Genesis 3")).toBeDefined();
+						expect(chapterSelect.value).toBe("3");
 						expect(fetchedUrls).toContain("/api/audio/GEN/3");
 					});
 
+					setSelectValue(bookSelect, "19");
+					await flushAsync();
+					await waitUntil(() => {
+						expect(getByText(browseSection, "Psalms 1")).toBeDefined();
+						expect(chapterSelect.value).toBe("1");
+						expect(chapterSelect.options.length).toBe(150);
+						expect(fetchedUrls).toContain("/api/audio/PSA/1");
+					});
+
+					setSelectValue(chapterSelect, "23");
+					await flushAsync();
+					fireClick(getButton(browseSection, "한"));
+					await waitUntil(() => {
+						expect(getByText(browseSection, "Psalms 23")).toBeDefined();
+						expect(getByText(browseSection, "Verse-synced")).toBeDefined();
+						expect(fetchedUrls).toContain("/api/audio/PSA/23");
+					});
+
 					fireClick(getButton(browseSection, "Open in Reader"));
-					expect(onOpenPassage).toHaveBeenCalledWith(1, 3, undefined);
+					expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
 				},
 			);
 		} finally {
