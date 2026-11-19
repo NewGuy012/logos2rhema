@@ -405,9 +405,14 @@ describe("Reader UI & audio hooks", () => {
 			/>,
 		);
 		expect(getByText(home.container, "Bible Brain Verse-Synced Audio")).toBeDefined();
-		fireClick(
-			getButton(home.container.querySelector(".home-continue-section") as ParentNode, "Continue"),
-		);
+		const continueSection = home.container.querySelector(".home-continue-section") as ParentNode;
+		const continueCard = continueSection.querySelector(".home-continue-card") as ParentNode;
+		const continueMeta = continueCard.querySelector(".home-continue-meta") as Element;
+		expect(continueSection.querySelector(".home-section-title")).toBeNull();
+		expect(continueMeta.children[0]?.className).toBe("home-continue-subtitle");
+		expect(continueMeta.children[0]?.textContent).toBe("Continue Where You Left Off");
+		expect(continueMeta.children[1]?.className).toBe("home-continue-ref");
+		fireClick(getButton(continueSection, "Continue"));
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4, 12);
 
 		const genreSection = home.container.querySelector(

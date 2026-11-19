@@ -97,13 +97,15 @@ export function HomePage({
 				className="home-section home-continue-section"
 				aria-label="Continue Where You Left Off"
 			>
-				<h2 className="home-section-title">Continue Where You Left Off</h2>
 				<div className="home-continue-card">
-					<div className="home-continue-ref">
-						{lastBook.en} {lastChapter}:{lastVerse}{" "}
-						<span className="home-continue-ko" lang="ko">
-							· {lastBook.ko} {lastChapter}장 {lastVerse}절
-						</span>
+					<div className="home-continue-meta">
+						<p className="home-continue-subtitle">Continue Where You Left Off</p>
+						<h2 className="home-continue-ref">
+							{lastBook.en} {lastChapter}:{lastVerse}{" "}
+							<span className="home-continue-ko" lang="ko">
+								· {lastBook.ko} {lastChapter}장 {lastVerse}절
+							</span>
+						</h2>
 					</div>
 					<button
 						type="button"
