@@ -21,6 +21,7 @@ writes compact per-book timing JSONs to `public/data/timings/krv-supertonic/{USF
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import gc
 import json
 import os
@@ -64,6 +65,9 @@ MIN_VERSE_DURATION_SEC = 0.25
 TARGET_RMS_DBFS = -19.0
 PEAK_CEILING_DBFS = -1.0
 MAX_GAIN = 6.0
+
+_WORKER_TTS: Any = None
+_WORKER_STYLE: Any = None
 
 
 @dataclass(frozen=True)
@@ -562,6 +566,18 @@ def parse_args() -> argparse.Namespace:
         help="CBR MP3 bitrate in kbps (default: 96)",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Parallel worker processes (default: 0 = auto: 1 for <=2 chapters, else 6)",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=2,
+        help="ONNX intra-op threads per worker process (default: 2)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-generate chapters even if MP3 and timing entry already exist",
@@ -572,6 +588,50 @@ def parse_args() -> argparse.Namespace:
         help="Validate text normalization, chunking, and chapter headers without running ONNX",
     )
     return parser.parse_args()
+
+
+def _init_worker(resolved_voice: str, intra_threads: int) -> None:
+    global _WORKER_TTS, _WORKER_STYLE
+    from supertonic import TTS
+
+    _WORKER_TTS = TTS(
+        model="supertonic-3",
+        auto_download=False,
+        intra_op_num_threads=intra_threads,
+        inter_op_num_threads=1,
+    )
+    _WORKER_STYLE = _WORKER_TTS.get_voice_style(resolved_voice)
+
+
+def _process_chapter_job(
+    job: tuple[str, str, int, list[VerseJob], int],
+    steps: int,
+    speed: float,
+    verse_pause_sec: float,
+    header_pause_sec: float,
+    bitrate_kbps: int,
+) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
+    usfm, book_ko, ch_num, verses, total_verses = job
+    mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
+    t0 = time.time()
+    try:
+        timings, metrics = synthesize_chapter(
+            _WORKER_TTS,
+            _WORKER_STYLE,
+            usfm=usfm,
+            book_ko=book_ko,
+            chapter=ch_num,
+            verses=verses,
+            steps=steps,
+            speed=speed,
+            verse_pause_sec=verse_pause_sec,
+            header_pause_sec=header_pause_sec,
+            bitrate_kbps=bitrate_kbps,
+            mp3_path=mp3_path,
+        )
+        return usfm, ch_num, total_verses, timings, metrics, time.time() - t0
+    finally:
+        gc.collect()
 
 
 def main() -> int:
@@ -647,9 +707,13 @@ def main() -> int:
 
     from supertonic import TTS
 
-    tts = TTS(model="supertonic-3", auto_download=True)
+    tts = TTS(
+        model="supertonic-3",
+        auto_download=True,
+        intra_op_num_threads=args.threads,
+        inter_op_num_threads=1,
+    )
     resolved_voice = resolve_voice_name(args.voice, tts.voice_style_names)
-    voice_style = tts.get_voice_style(resolved_voice)
 
     # Validate entire selected corpus against Supertonic's character table up front.
     for usfm, book_ko, ch_num, verses, _ in jobs:
@@ -664,9 +728,13 @@ def main() -> int:
                     f"Unsupported chars in {usfm} {ch_num}:{v.verse}: {bad}"
                 )
 
+    worker_count = args.workers if args.workers > 0 else (1 if len(jobs) <= 2 else 6)
+    worker_count = max(1, min(worker_count, len(jobs)))
+
     print(
         f"Generating {len(jobs)} chapter(s) across {len(selected_books)} book(s) "
         f"using Supertonic 3 voice '{args.voice}' ({resolved_voice}), "
+        f"workers={worker_count}, threads={args.threads}, "
         f"speed={args.speed}, steps={args.steps}, bitrate={args.bitrate}kbps..."
     )
 
@@ -683,6 +751,10 @@ def main() -> int:
 
     book_cache: dict[str, dict[str, Any]] = {}
     dirty_books: set[str] = set()
+    remaining_by_book: dict[str, int] = {}
+    for usfm, *_ in jobs:
+        remaining_by_book[usfm] = remaining_by_book.get(usfm, 0) + 1
+
     completed = 0
     errors = 0
     started_at = time.time()
@@ -712,55 +784,132 @@ def main() -> int:
         atomic_write_json(TIMINGS_OUT_DIR / f"{usfm}.json", payload, compact=True)
         dirty_books.discard(usfm)
 
+    def record_success(
+        idx_done: int,
+        usfm: str,
+        ch_num: int,
+        total_verses: int,
+        timings: dict[str, float],
+        metrics: dict[str, Any],
+        elapsed: float,
+    ) -> None:
+        nonlocal completed
+        ref = f"{usfm}:{ch_num}"
+        book_payload = get_book_payload(usfm)
+        book_payload["chapters"][str(ch_num)] = timings
+        dirty_books.add(usfm)
+
+        chapters_report[ref] = {
+            "status": "ok",
+            "totalVerses": total_verses,
+            "wallSeconds": round(elapsed, 2),
+            **metrics,
+        }
+        completed += 1
+        remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
+        print(
+            f"[{idx_done}/{len(jobs)}] {ref} "
+            f"({metrics['versesSynthesized']}/{total_verses} vv, "
+            f"{metrics['duration']}s audio in {elapsed:.1f}s, "
+            f"v1={metrics['v1Start']}s, {metrics['mp3Bytes'] // 1024} KB)"
+        )
+
+        if remaining_by_book[usfm] == 0:
+            flush_book(usfm)
+        elif completed % 10 == 0:
+            for dirty_usfm in list(dirty_books):
+                flush_book(dirty_usfm)
+        if remaining_by_book[usfm] == 0 or completed % 10 == 0:
+            atomic_write_json(REPORT_PATH, report, compact=False)
+
     try:
-        for idx, (usfm, book_ko, ch_num, verses, total_verses) in enumerate(jobs):
-            ref = f"{usfm}:{ch_num}"
-            mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
-            t0 = time.time()
-            try:
-                timings, metrics = synthesize_chapter(
-                    tts,
-                    voice_style,
-                    usfm=usfm,
-                    book_ko=book_ko,
-                    chapter=ch_num,
-                    verses=verses,
-                    steps=args.steps,
-                    speed=args.speed,
-                    verse_pause_sec=args.pause,
-                    header_pause_sec=args.header_pause,
-                    bitrate_kbps=args.bitrate,
-                    mp3_path=mp3_path,
-                )
-                book_payload = get_book_payload(usfm)
-                book_payload["chapters"][str(ch_num)] = timings
-                dirty_books.add(usfm)
-
-                elapsed = time.time() - t0
-                chapters_report[ref] = {
-                    "status": "ok",
-                    "totalVerses": total_verses,
-                    "wallSeconds": round(elapsed, 2),
-                    **metrics,
+        if worker_count == 1:
+            voice_style = tts.get_voice_style(resolved_voice)
+            for idx, (usfm, book_ko, ch_num, verses, total_verses) in enumerate(jobs):
+                ref = f"{usfm}:{ch_num}"
+                mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
+                t0 = time.time()
+                try:
+                    timings, metrics = synthesize_chapter(
+                        tts,
+                        voice_style,
+                        usfm=usfm,
+                        book_ko=book_ko,
+                        chapter=ch_num,
+                        verses=verses,
+                        steps=args.steps,
+                        speed=args.speed,
+                        verse_pause_sec=args.pause,
+                        header_pause_sec=args.header_pause,
+                        bitrate_kbps=args.bitrate,
+                        mp3_path=mp3_path,
+                    )
+                    record_success(
+                        idx + 1,
+                        usfm,
+                        ch_num,
+                        total_verses,
+                        timings,
+                        metrics,
+                        time.time() - t0,
+                    )
+                except Exception as err:  # noqa: BLE001
+                    errors += 1
+                    remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
+                    chapters_report[ref] = {"status": "error", "error": str(err)}
+                    print(f"[{idx + 1}/{len(jobs)}] {ref} — ERROR: {err}", file=sys.stderr)
+                finally:
+                    gc.collect()
+        else:
+            # Release main-process ONNX model memory before spawning worker processes.
+            del tts
+            gc.collect()
+            with ProcessPoolExecutor(
+                max_workers=worker_count,
+                initializer=_init_worker,
+                initargs=(resolved_voice, args.threads),
+            ) as executor:
+                future_to_ref = {
+                    executor.submit(
+                        _process_chapter_job,
+                        job,
+                        args.steps,
+                        args.speed,
+                        args.pause,
+                        args.header_pause,
+                        args.bitrate,
+                    ): (job[0], job[2])
+                    for job in jobs
                 }
-                completed += 1
-                print(
-                    f"[{idx + 1}/{len(jobs)}] {ref} "
-                    f"({metrics['versesSynthesized']}/{total_verses} vv, "
-                    f"{metrics['duration']}s audio in {elapsed:.1f}s, "
-                    f"v1={metrics['v1Start']}s, {metrics['mp3Bytes'] // 1024} KB)"
-                )
-
-                is_book_end = idx + 1 == len(jobs) or jobs[idx + 1][0] != usfm
-                if is_book_end or completed % 5 == 0:
-                    flush_book(usfm)
-                    atomic_write_json(REPORT_PATH, report, compact=False)
-            except Exception as err:  # noqa: BLE001
-                errors += 1
-                chapters_report[ref] = {"status": "error", "error": str(err)}
-                print(f"[{idx + 1}/{len(jobs)}] {ref} — ERROR: {err}", file=sys.stderr)
-            finally:
-                gc.collect()
+                for done_idx, future in enumerate(as_completed(future_to_ref), start=1):
+                    usfm, ch_num = future_to_ref[future]
+                    ref = f"{usfm}:{ch_num}"
+                    try:
+                        (
+                            res_usfm,
+                            res_ch,
+                            total_verses,
+                            timings,
+                            metrics,
+                            elapsed,
+                        ) = future.result()
+                        record_success(
+                            done_idx,
+                            res_usfm,
+                            res_ch,
+                            total_verses,
+                            timings,
+                            metrics,
+                            elapsed,
+                        )
+                    except Exception as err:  # noqa: BLE001
+                        errors += 1
+                        remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
+                        chapters_report[ref] = {"status": "error", "error": str(err)}
+                        print(
+                            f"[{done_idx}/{len(jobs)}] {ref} — ERROR: {err}",
+                            file=sys.stderr,
+                        )
     finally:
         for dirty_usfm in list(dirty_books):
             flush_book(dirty_usfm)
@@ -768,6 +917,8 @@ def main() -> int:
             "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "voice": args.voice,
             "resolvedVoice": resolved_voice,
+            "workers": worker_count,
+            "threads": args.threads,
             "speed": args.speed,
             "steps": args.steps,
             "bitrateKbps": args.bitrate,
