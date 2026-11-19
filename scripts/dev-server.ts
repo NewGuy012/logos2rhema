@@ -1,18 +1,13 @@
 import { join, resolve, sep } from "node:path";
 
 import indexHtml from "../index.html";
-import { createApp } from "../src/worker/index";
+import { createApp, type WorkerBindings } from "../src/worker/index";
 
 const ROOT_DIR = join(import.meta.dir, "..");
 const PUBLIC_DIR = join(ROOT_DIR, "public");
 const DIST_CLIENT_DIR = join(ROOT_DIR, "dist", "client");
 const DEV_VARS_PATH = join(ROOT_DIR, ".dev.vars");
 const HEADERS_PATH = join(PUBLIC_DIR, "_headers");
-
-interface WorkerEnvBindings {
-	ESV_API_KEY?: string;
-	AUDIO_BASE_URL?: string;
-}
 
 function stripOptionalQuotes(value: string): string {
 	if (
@@ -24,7 +19,7 @@ function stripOptionalQuotes(value: string): string {
 	return value;
 }
 
-async function loadDevVars(): Promise<WorkerEnvBindings> {
+async function loadDevVars(): Promise<WorkerBindings> {
 	const file = Bun.file(DEV_VARS_PATH);
 	if (!(await file.exists())) {
 		return {};
@@ -99,6 +94,7 @@ function resolveSafeStaticPath(baseDir: string, requestPath: string): string | n
 async function serveStaticFile(
 	filePath: string,
 	staticHeaders: Array<[string, string]>,
+	method = "GET",
 	contentType?: string,
 ): Promise<Response | null> {
 	const file = Bun.file(filePath);
@@ -111,7 +107,7 @@ async function serveStaticFile(
 	} else if (file.type) {
 		headers.set("Content-Type", file.type);
 	}
-	return new Response(file, { headers });
+	return new Response(method === "HEAD" ? null : file, { headers });
 }
 
 const isPreview = process.argv.includes("--preview");
@@ -125,12 +121,28 @@ if (isPreview) {
 		throw new Error(`Missing ${join(DIST_CLIENT_DIR, "index.html")}. Run 'bun run build' first.`);
 	}
 	const staticHeaders = await loadStaticHeaders();
-	const serveDistAsset = async (req: Request): Promise<Response> => {
-		const url = new URL(req.url);
-		const target = resolveSafeStaticPath(DIST_CLIENT_DIR, url.pathname);
-		const res = target ? await serveStaticFile(target, staticHeaders) : null;
-		return res ?? new Response("Not Found", { status: 404 });
+	const respondPreview = async (
+		req: Request,
+		filePath: string | null,
+		contentType?: string,
+	): Promise<Response> => {
+		if (req.method !== "GET" && req.method !== "HEAD") {
+			const headers = applyHeaders(new Headers({ Allow: "GET, HEAD" }), staticHeaders);
+			return new Response("Method Not Allowed", { status: 405, headers });
+		}
+		const res = filePath
+			? await serveStaticFile(filePath, staticHeaders, req.method, contentType)
+			: null;
+		return (
+			res ??
+			new Response(req.method === "HEAD" ? null : "Not Found", {
+				status: 404,
+				headers: applyHeaders(new Headers(), staticHeaders),
+			})
+		);
 	};
+	const serveDistAsset = (req: Request): Promise<Response> =>
+		respondPreview(req, resolveSafeStaticPath(DIST_CLIENT_DIR, new URL(req.url).pathname));
 
 	const server = Bun.serve({
 		port,
@@ -138,22 +150,10 @@ if (isPreview) {
 			"/api/*": (req) => workerApp.fetch(req, devVars),
 			"/assets/*": serveDistAsset,
 			"/data/*": serveDistAsset,
-			"/favicon.svg": async () => {
-				const res = await serveStaticFile(
-					join(DIST_CLIENT_DIR, "favicon.svg"),
-					staticHeaders,
-					"image/svg+xml",
-				);
-				return res ?? new Response("Not Found", { status: 404 });
-			},
-			"/*": async () => {
-				const res = await serveStaticFile(
-					join(DIST_CLIENT_DIR, "index.html"),
-					staticHeaders,
-					"text/html; charset=utf-8",
-				);
-				return res ?? new Response("Not Found", { status: 404 });
-			},
+			"/favicon.svg": (req) =>
+				respondPreview(req, join(DIST_CLIENT_DIR, "favicon.svg"), "image/svg+xml"),
+			"/*": (req) =>
+				respondPreview(req, join(DIST_CLIENT_DIR, "index.html"), "text/html; charset=utf-8"),
 		},
 	});
 

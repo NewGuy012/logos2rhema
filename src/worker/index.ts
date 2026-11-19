@@ -14,7 +14,7 @@ import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
 import { fetchHelloAoCommentaryChapter } from "./helloao";
 import { type FetchLike, isSafeHttpsUrl } from "./http";
 
-interface WorkerBindings {
+export interface WorkerBindings {
 	ESV_API_KEY?: string;
 	AUDIO_BASE_URL?: string;
 }

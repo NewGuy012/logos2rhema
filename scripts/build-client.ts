@@ -4,15 +4,10 @@ import { join } from "node:path";
 const ROOT_DIR = join(import.meta.dir, "..");
 const ENTRY_HTML = join(ROOT_DIR, "index.html");
 const PUBLIC_DIR = join(ROOT_DIR, "public");
-const DIST_DIR = join(ROOT_DIR, "dist");
-const DIST_CLIENT_DIR = join(DIST_DIR, "client");
-const LEGACY_WORKER_DIST_DIR = join(DIST_DIR, "logos");
-const LEGACY_WRANGLER_DEPLOY_CONFIG = join(ROOT_DIR, ".wrangler", "deploy", "config.json");
+const DIST_CLIENT_DIR = join(ROOT_DIR, "dist", "client");
 
 async function buildClient(): Promise<void> {
 	await rm(DIST_CLIENT_DIR, { recursive: true, force: true });
-	await rm(LEGACY_WORKER_DIST_DIR, { recursive: true, force: true });
-	await rm(LEGACY_WRANGLER_DEPLOY_CONFIG, { force: true });
 	await mkdir(DIST_CLIENT_DIR, { recursive: true });
 
 	const result = await Bun.build({
