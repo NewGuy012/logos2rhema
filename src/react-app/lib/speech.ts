@@ -1,12 +1,20 @@
 let activeSpeechSeq = 0;
 
-export function isKoreanSpeechSupported(): boolean {
-	if (typeof window === "undefined") return false;
-	const synth = (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
-	const UtteranceCtor =
-		(window as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance })
-			.SpeechSynthesisUtterance ?? globalThis.SpeechSynthesisUtterance;
-	return Boolean(synth && typeof synth.speak === "function" && typeof UtteranceCtor === "function");
+function getSpeechApis(): {
+	synth: SpeechSynthesis;
+	UtteranceCtor: typeof SpeechSynthesisUtterance;
+} | null {
+	if (typeof window === "undefined") return null;
+	const win = window as {
+		speechSynthesis?: SpeechSynthesis;
+		SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance;
+	};
+	const synth = win.speechSynthesis;
+	const UtteranceCtor = win.SpeechSynthesisUtterance ?? globalThis.SpeechSynthesisUtterance;
+	if (!synth || typeof synth.speak !== "function" || typeof UtteranceCtor !== "function") {
+		return null;
+	}
+	return { synth, UtteranceCtor };
 }
 
 function pickKoreanVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
@@ -31,26 +39,20 @@ export function speakKoreanWord(
 	},
 ): boolean {
 	const trimmed = text.trim();
-	if (!trimmed || !isKoreanSpeechSupported()) {
+	const apis = getSpeechApis();
+	if (!trimmed || !apis) {
 		options?.onError?.();
 		return false;
 	}
 
-	const synth = window.speechSynthesis;
-	const UtteranceCtor =
-		(window as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance })
-			.SpeechSynthesisUtterance ?? globalThis.SpeechSynthesisUtterance;
 	const seq = ++activeSpeechSeq;
-
 	try {
-		synth.cancel?.();
-		const utterance = new UtteranceCtor(trimmed);
+		apis.synth.cancel?.();
+		const utterance = new apis.UtteranceCtor(trimmed);
 		utterance.lang = "ko-KR";
 		utterance.rate = options?.rate ?? 0.92;
-		const voice = pickKoreanVoice(synth);
-		if (voice) {
-			utterance.voice = voice;
-		}
+		const voice = pickKoreanVoice(apis.synth);
+		if (voice) utterance.voice = voice;
 		utterance.onstart = () => {
 			if (seq === activeSpeechSeq) options?.onStart?.();
 		};
@@ -61,7 +63,7 @@ export function speakKoreanWord(
 			if (seq === activeSpeechSeq) options?.onError?.();
 		};
 		options?.onStart?.();
-		synth.speak(utterance);
+		apis.synth.speak(utterance);
 		return true;
 	} catch {
 		if (seq === activeSpeechSeq) options?.onError?.();

@@ -1,9 +1,17 @@
-import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
 import type { AlignedVerse, HighlightItem, TranslationLanguage } from "../../shared/types";
+import {
+	formatBilingualRef,
+	MAX_STORED_ITEMS,
+	parseStoredBookChapter,
+	readJsonStorage,
+	writeJsonStorage,
+} from "./storage";
 
 export const HIGHLIGHTS_STORAGE_KEY = "logos.reader.highlights.v1";
+const MAX_HIGHLIGHT_TEXT_LEN = 500;
+const MAX_HIGHLIGHT_OFFSET = 4000;
 
-export interface SelectionHighlightSpan {
+interface SelectionHighlightSpan {
 	verse: number;
 	lang: TranslationLanguage;
 	start: number;
@@ -11,12 +19,12 @@ export interface SelectionHighlightSpan {
 	text: string;
 }
 
-export interface TextHighlightSegment {
+interface TextHighlightSegment {
 	text: string;
 	highlightId?: string;
 }
 
-export function makeHighlightId(
+function makeHighlightId(
 	bookNumber: number,
 	chapter: number,
 	verse: number,
@@ -29,10 +37,7 @@ export function makeHighlightId(
 
 export function getVerseTextForLang(verse: AlignedVerse, lang: TranslationLanguage): string {
 	if (lang === "en") return verse.enText ?? "";
-	if (verse.tokens.length > 0) {
-		return verse.tokens.map((t) => t.raw).join(" ");
-	}
-	return verse.koText ?? "";
+	return verse.tokens.length > 0 ? verse.tokens.map((t) => t.raw).join(" ") : (verse.koText ?? "");
 }
 
 function sameLine(
@@ -48,72 +53,59 @@ function sameLine(
 }
 
 export function readStoredHighlights(): HighlightItem[] {
-	if (typeof localStorage === "undefined") return [];
-	try {
-		const raw = localStorage.getItem(HIGHLIGHTS_STORAGE_KEY);
-		if (!raw) return [];
-		const parsed = JSON.parse(raw);
-		if (!Array.isArray(parsed)) return [];
-		const seen = new Set<string>();
-		const items: HighlightItem[] = [];
-		for (const entry of parsed) {
-			if (!entry || typeof entry !== "object") continue;
-			const rec = entry as Record<string, unknown>;
-			const book = typeof rec.bookNumber === "number" ? getBookByNumber(rec.bookNumber) : undefined;
-			if (!book) continue;
-			if (
-				typeof rec.chapter !== "number" ||
-				!Number.isInteger(rec.chapter) ||
-				rec.chapter < 1 ||
-				rec.chapter > book.chapters
-			) {
-				continue;
-			}
-			if (typeof rec.verse !== "number" || !Number.isInteger(rec.verse) || rec.verse < 1) {
-				continue;
-			}
-			if (rec.lang !== "en" && rec.lang !== "ko") continue;
-			if (
-				typeof rec.start !== "number" ||
-				!Number.isInteger(rec.start) ||
-				rec.start < 0 ||
-				typeof rec.end !== "number" ||
-				!Number.isInteger(rec.end) ||
-				rec.end <= rec.start
-			) {
-				continue;
-			}
-			const text = typeof rec.text === "string" ? rec.text : "";
-			if (!text.trim()) continue;
-			const id = makeHighlightId(book.number, rec.chapter, rec.verse, rec.lang, rec.start, rec.end);
-			if (seen.has(id)) continue;
-			seen.add(id);
-			items.push({
-				id,
-				bookNumber: book.number,
-				chapter: rec.chapter,
-				verse: rec.verse,
-				lang: rec.lang,
-				start: rec.start,
-				end: rec.end,
-				text,
-				createdAt:
-					typeof rec.createdAt === "number" && Number.isFinite(rec.createdAt) ? rec.createdAt : 0,
-			});
+	const parsed = readJsonStorage(HIGHLIGHTS_STORAGE_KEY);
+	if (!Array.isArray(parsed)) return [];
+	const seen = new Set<string>();
+	const items: HighlightItem[] = [];
+	for (const entry of parsed) {
+		if (!entry || typeof entry !== "object") continue;
+		const rec = entry as Record<string, unknown>;
+		const ref = parseStoredBookChapter(rec);
+		if (!ref) continue;
+		if (typeof rec.verse !== "number" || !Number.isInteger(rec.verse) || rec.verse < 1) continue;
+		if (rec.lang !== "en" && rec.lang !== "ko") continue;
+		if (
+			typeof rec.start !== "number" ||
+			!Number.isInteger(rec.start) ||
+			rec.start < 0 ||
+			typeof rec.end !== "number" ||
+			!Number.isInteger(rec.end) ||
+			rec.end <= rec.start ||
+			rec.end > MAX_HIGHLIGHT_OFFSET
+		) {
+			continue;
 		}
-		return items;
-	} catch {
-		return [];
+		const rawText = typeof rec.text === "string" ? rec.text.slice(0, MAX_HIGHLIGHT_TEXT_LEN) : "";
+		if (!rawText.trim()) continue;
+		const id = makeHighlightId(
+			ref.book.number,
+			ref.chapter,
+			rec.verse,
+			rec.lang,
+			rec.start,
+			rec.end,
+		);
+		if (seen.has(id)) continue;
+		seen.add(id);
+		items.push({
+			id,
+			bookNumber: ref.book.number,
+			chapter: ref.chapter,
+			verse: rec.verse,
+			lang: rec.lang,
+			start: rec.start,
+			end: rec.end,
+			text: rawText,
+			createdAt:
+				typeof rec.createdAt === "number" && Number.isFinite(rec.createdAt) ? rec.createdAt : 0,
+		});
+		if (items.length >= MAX_STORED_ITEMS) break;
 	}
+	return items;
 }
 
 export function writeStoredHighlights(items: readonly HighlightItem[]): void {
-	if (typeof localStorage === "undefined") return;
-	try {
-		localStorage.setItem(HIGHLIGHTS_STORAGE_KEY, JSON.stringify(items));
-	} catch {
-		// Ignore storage quota errors
-	}
+	writeJsonStorage(HIGHLIGHTS_STORAGE_KEY, items.slice(0, MAX_STORED_ITEMS));
 }
 
 function getSelectionRangeOffsetsInLine(
@@ -127,36 +119,40 @@ function getSelectionRangeOffsetsInLine(
 	const END_TO_END = RangeCtor?.END_TO_END ?? 2;
 	const END_TO_START = RangeCtor?.END_TO_START ?? 3;
 
-	const lineRange = document.createRange();
-	lineRange.selectNodeContents(lineEl);
+	try {
+		const lineRange = document.createRange();
+		lineRange.selectNodeContents(lineEl);
 
-	if (
-		selectionRange.compareBoundaryPoints(END_TO_START, lineRange) >= 0 ||
-		selectionRange.compareBoundaryPoints(START_TO_END, lineRange) <= 0
-	) {
+		if (
+			selectionRange.compareBoundaryPoints(END_TO_START, lineRange) >= 0 ||
+			selectionRange.compareBoundaryPoints(START_TO_END, lineRange) <= 0
+		) {
+			return null;
+		}
+
+		const startBeforeLine = selectionRange.compareBoundaryPoints(START_TO_START, lineRange) <= 0;
+		const endAfterLine = selectionRange.compareBoundaryPoints(END_TO_END, lineRange) >= 0;
+		const startContainer = startBeforeLine
+			? lineRange.startContainer
+			: selectionRange.startContainer;
+		const startOffset = startBeforeLine ? lineRange.startOffset : selectionRange.startOffset;
+		const endContainer = endAfterLine ? lineRange.endContainer : selectionRange.endContainer;
+		const endOffset = endAfterLine ? lineRange.endOffset : selectionRange.endOffset;
+
+		const preRange = document.createRange();
+		preRange.setStart(lineEl, 0);
+		preRange.setEnd(startContainer, startOffset);
+		const start = preRange.toString().length;
+
+		const selectedRange = document.createRange();
+		selectedRange.setStart(startContainer, startOffset);
+		selectedRange.setEnd(endContainer, endOffset);
+		const end = start + selectedRange.toString().length;
+
+		return end > start ? { start, end } : null;
+	} catch {
 		return null;
 	}
-
-	const startBeforeLine = selectionRange.compareBoundaryPoints(START_TO_START, lineRange) <= 0;
-	const endAfterLine = selectionRange.compareBoundaryPoints(END_TO_END, lineRange) >= 0;
-
-	const startContainer = startBeforeLine ? lineRange.startContainer : selectionRange.startContainer;
-	const startOffset = startBeforeLine ? lineRange.startOffset : selectionRange.startOffset;
-	const endContainer = endAfterLine ? lineRange.endContainer : selectionRange.endContainer;
-	const endOffset = endAfterLine ? lineRange.endOffset : selectionRange.endOffset;
-
-	const preRange = document.createRange();
-	preRange.setStart(lineEl, 0);
-	preRange.setEnd(startContainer, startOffset);
-	const start = preRange.toString().length;
-
-	const selectedRange = document.createRange();
-	selectedRange.setStart(startContainer, startOffset);
-	selectedRange.setEnd(endContainer, endOffset);
-	const end = start + selectedRange.toString().length;
-
-	if (end <= start) return null;
-	return { start, end };
 }
 
 export function extractVerseSelectionSpans(
@@ -168,10 +164,8 @@ export function extractVerseSelectionSpans(
 	const scope = rootEl ?? (typeof document !== "undefined" ? document : null);
 	if (!scope) return [];
 
-	const lineEls = Array.from(scope.querySelectorAll<HTMLElement>("[data-verse][data-lang]"));
 	const spans: SelectionHighlightSpan[] = [];
-
-	for (const lineEl of lineEls) {
+	for (const lineEl of scope.querySelectorAll<HTMLElement>("[data-verse][data-lang]")) {
 		const verseNum = Number.parseInt(lineEl.dataset.verse ?? "", 10);
 		const lang = lineEl.dataset.lang;
 		if (Number.isNaN(verseNum) || verseNum < 1 || (lang !== "en" && lang !== "ko")) continue;
@@ -181,10 +175,8 @@ export function extractVerseSelectionSpans(
 
 		const lineText = lineEl.textContent ?? "";
 		const rawSlice = lineText.slice(offsets.start, offsets.end);
-		const leadingWs = rawSlice.length - rawSlice.trimStart().length;
-		const trailingWs = rawSlice.length - rawSlice.trimEnd().length;
-		const start = offsets.start + leadingWs;
-		const end = offsets.end - trailingWs;
+		const start = offsets.start + (rawSlice.length - rawSlice.trimStart().length);
+		const end = offsets.end - (rawSlice.length - rawSlice.trimEnd().length);
 		if (end <= start) continue;
 
 		spans.push({
@@ -192,7 +184,7 @@ export function extractVerseSelectionSpans(
 			lang,
 			start,
 			end,
-			text: lineText.slice(start, end),
+			text: lineText.slice(start, end).slice(0, MAX_HIGHLIGHT_TEXT_LEN),
 		});
 	}
 
@@ -219,12 +211,15 @@ export function areSpansHighlighted(
 	spans: readonly SelectionHighlightSpan[],
 ): boolean {
 	if (spans.length === 0) return false;
-	return spans.every((span) => {
-		const lineHighlights = items.filter((item) =>
-			sameLine(item, { bookNumber, chapter, verse: span.verse, lang: span.lang }),
-		);
-		return isRangeCovered(lineHighlights, span.start, span.end);
-	});
+	return spans.every((span) =>
+		isRangeCovered(
+			items.filter((item) =>
+				sameLine(item, { bookNumber, chapter, verse: span.verse, lang: span.lang }),
+			),
+			span.start,
+			span.end,
+		),
+	);
 }
 
 export function toggleHighlightSpans(
@@ -241,47 +236,39 @@ export function toggleHighlightSpans(
 		for (const span of spans) {
 			const updated: HighlightItem[] = [];
 			const verseText = getVerseText(span.verse, span.lang);
+			const target = { bookNumber, chapter, verse: span.verse, lang: span.lang };
 			for (const item of next) {
-				if (
-					!sameLine(item, { bookNumber, chapter, verse: span.verse, lang: span.lang }) ||
-					item.end <= span.start ||
-					item.start >= span.end
-				) {
+				if (!sameLine(item, target) || item.end <= span.start || item.start >= span.end) {
 					updated.push(item);
 					continue;
 				}
+				const pushSlice = (sliceStart: number, sliceEnd: number, sliceText: string) => {
+					if (!sliceText.trim()) return;
+					updated.push({
+						...item,
+						id: makeHighlightId(bookNumber, chapter, span.verse, span.lang, sliceStart, sliceEnd),
+						start: sliceStart,
+						end: sliceEnd,
+						text: sliceText.slice(0, MAX_HIGHLIGHT_TEXT_LEN),
+					});
+				};
 				if (item.start < span.start) {
-					const leftText = verseText
-						? verseText.slice(item.start, span.start)
-						: item.text.slice(0, span.start - item.start);
-					if (leftText.trim()) {
-						updated.push({
-							...item,
-							id: makeHighlightId(
-								bookNumber,
-								chapter,
-								span.verse,
-								span.lang,
-								item.start,
-								span.start,
-							),
-							end: span.start,
-							text: leftText,
-						});
-					}
+					pushSlice(
+						item.start,
+						span.start,
+						verseText
+							? verseText.slice(item.start, span.start)
+							: item.text.slice(0, span.start - item.start),
+					);
 				}
 				if (item.end > span.end) {
-					const rightText = verseText
-						? verseText.slice(span.end, item.end)
-						: item.text.slice(span.end - item.start);
-					if (rightText.trim()) {
-						updated.push({
-							...item,
-							id: makeHighlightId(bookNumber, chapter, span.verse, span.lang, span.end, item.end),
-							start: span.end,
-							text: rightText,
-						});
-					}
+					pushSlice(
+						span.end,
+						item.end,
+						verseText
+							? verseText.slice(span.end, item.end)
+							: item.text.slice(span.end - item.start),
+					);
 				}
 			}
 			next = updated;
@@ -295,16 +282,22 @@ export function toggleHighlightSpans(
 
 	for (const span of spans) {
 		const target = { bookNumber, chapter, verse: span.verse, lang: span.lang };
-		const overlapping = next.filter(
-			(item) => sameLine(item, target) && item.start <= span.end && item.end >= span.start,
-		);
-		const remaining = next.filter(
-			(item) => !(sameLine(item, target) && item.start <= span.end && item.end >= span.start),
-		);
+		const overlapping: HighlightItem[] = [];
+		const remaining: HighlightItem[] = [];
+		for (const item of next) {
+			if (sameLine(item, target) && item.start <= span.end && item.end >= span.start) {
+				overlapping.push(item);
+			} else {
+				remaining.push(item);
+			}
+		}
 		const mergedStart = Math.min(span.start, ...overlapping.map((h) => h.start));
 		const mergedEnd = Math.max(span.end, ...overlapping.map((h) => h.end));
 		const verseText = getVerseText(span.verse, span.lang);
-		const mergedText = verseText ? verseText.slice(mergedStart, mergedEnd) : span.text;
+		const mergedText = (verseText ? verseText.slice(mergedStart, mergedEnd) : span.text).slice(
+			0,
+			MAX_HIGHLIGHT_TEXT_LEN,
+		);
 
 		added.push({
 			id: makeHighlightId(bookNumber, chapter, span.verse, span.lang, mergedStart, mergedEnd),
@@ -320,7 +313,7 @@ export function toggleHighlightSpans(
 		next = remaining;
 	}
 
-	return { next: [...added, ...next], action: "added" };
+	return { next: [...added, ...next].slice(0, MAX_STORED_ITEMS), action: "added" };
 }
 
 export function splitTextByHighlights(
@@ -365,10 +358,8 @@ export function formatHighlightLabel(item: HighlightItem): {
 	refKo: string;
 	langLabel: string;
 } {
-	const book = getBookByNumber(item.bookNumber) ?? BIBLE_BOOKS[0];
 	return {
-		refEn: `${book.en} ${item.chapter}:${item.verse}`,
-		refKo: `${book.ko} ${item.chapter}장 ${item.verse}절`,
+		...formatBilingualRef(item.bookNumber, item.chapter, item.verse),
 		langLabel: item.lang === "ko" ? "한" : "EN",
 	};
 }

@@ -4,6 +4,15 @@ import type { AudioTrackOption } from "../../shared/types";
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
 
+function isSafeAudioSrc(url: string): boolean {
+	if (url.startsWith("/api/audio/")) return true;
+	try {
+		return new URL(url).protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
 export function resolveVerseAtTime(
 	timings: Record<number, number> | undefined,
 	seconds: number,
@@ -26,10 +35,8 @@ export function resolveTimeForVerse(
 	verseNumber: number,
 ): number | null {
 	if (!timings) return null;
-	if (typeof timings[verseNumber] === "number") {
-		return timings[verseNumber];
-	}
-	// Walk backward to nearest preceding timed verse if a verse was merged in audio metadata
+	if (typeof timings[verseNumber] === "number") return timings[verseNumber];
+	// Walk backward to nearest preceding timed verse if a verse was merged in metadata.
 	let bestVerse = -1;
 	let bestTime: number | null = null;
 	for (const [vStr, startSec] of Object.entries(timings)) {
@@ -49,7 +56,7 @@ function applyPlaybackRate(audio: HTMLAudioElement, rate: number): void {
 	}
 }
 
-export interface UseHumanAudioOptions {
+interface UseHumanAudioOptions {
 	tracks: AudioTrackOption[];
 	visibleVerse?: number;
 	autoSync?: boolean;
@@ -73,14 +80,14 @@ export function useHumanAudio({
 	const autoSyncRef = useRef(autoSync);
 	autoSyncRef.current = autoSync;
 
-	const [preferredLang, setPreferredLang] = useState<string>("ko");
-	const [selectedTrackId, setSelectedTrackId] = useState<string>("");
+	const [preferredLang, setPreferredLang] = useState("ko");
+	const [selectedTrackId, setSelectedTrackId] = useState("");
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [currentTime, setCurrentTime] = useState(0);
 	const [duration, setDuration] = useState(0);
-	const [playbackRate, setPlaybackRate] = useState<number>(1.0);
-	const [isFollowingAudio, setIsFollowingAudio] = useState<boolean>(true);
+	const [playbackRate, setPlaybackRate] = useState(1.0);
+	const [isFollowingAudio, setIsFollowingAudio] = useState(true);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 	const playbackRateRef = useRef(playbackRate);
@@ -89,17 +96,16 @@ export function useHumanAudio({
 	const activeTrack = useMemo(() => {
 		const langTracks = tracks.filter((t) => t.language === preferredLang);
 		if (langTracks.length === 0) return null;
-		const exact = langTracks.find((t) => t.id === selectedTrackId);
-		return exact ?? langTracks[0];
+		return langTracks.find((t) => t.id === selectedTrackId) ?? langTracks[0];
 	}, [tracks, preferredLang, selectedTrackId]);
 
 	const activeTrackRef = useRef(activeTrack);
 	activeTrackRef.current = activeTrack;
 
-	const activeVerse = useMemo(() => {
-		if (!isPlaying) return null;
-		return resolveVerseAtTime(activeTrack?.verseTimings, currentTime);
-	}, [activeTrack, currentTime, isPlaying]);
+	const activeVerse = useMemo(
+		() => (isPlaying ? resolveVerseAtTime(activeTrack?.verseTimings, currentTime) : null),
+		[activeTrack, currentTime, isPlaying],
+	);
 
 	useEffect(() => {
 		if (typeof Audio === "undefined") return;
@@ -124,67 +130,52 @@ export function useHumanAudio({
 				pendingSyncVerseRef.current = null;
 			}
 		};
-		const handleLoadedMetadata = () => {
-			syncDuration();
-			applyPendingVerseSeek();
-		};
-		const handleTimeUpdate = () => {
-			setCurrentTime(audio.currentTime || 0);
-			syncDuration();
-		};
-		const handleDurationChange = () =>
-			setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
-		const handlePlay = () => {
-			setIsPlaying(true);
-			setIsLoading(false);
-			setErrorMessage(null);
-			syncDuration();
-		};
-		const handlePause = () => setIsPlaying(false);
-		const handleWaiting = () => setIsLoading(true);
-		const handleCanPlay = () => {
-			setIsLoading(false);
-			syncDuration();
-			applyPendingVerseSeek();
-		};
-		const handleEnded = () => {
-			setIsPlaying(false);
-			onEndedRef.current?.();
-		};
-		const handleError = () => {
-			setIsPlaying(false);
-			setIsLoading(false);
-			setErrorMessage("Audio stream could not be loaded for this chapter.");
+		const handlers: Record<string, () => void> = {
+			loadedmetadata: () => {
+				syncDuration();
+				applyPendingVerseSeek();
+			},
+			timeupdate: () => {
+				setCurrentTime(audio.currentTime || 0);
+				syncDuration();
+			},
+			durationchange: () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0),
+			play: () => {
+				setIsPlaying(true);
+				setIsLoading(false);
+				setErrorMessage(null);
+				syncDuration();
+			},
+			pause: () => setIsPlaying(false),
+			waiting: () => setIsLoading(true),
+			canplay: () => {
+				setIsLoading(false);
+				syncDuration();
+				applyPendingVerseSeek();
+			},
+			ended: () => {
+				setIsPlaying(false);
+				onEndedRef.current?.();
+			},
+			error: () => {
+				setIsPlaying(false);
+				setIsLoading(false);
+				setErrorMessage("Audio stream could not be loaded for this chapter.");
+			},
 		};
 
-		audio.addEventListener("timeupdate", handleTimeUpdate);
-		audio.addEventListener("loadedmetadata", handleLoadedMetadata);
-		audio.addEventListener("durationchange", handleDurationChange);
-		audio.addEventListener("play", handlePlay);
-		audio.addEventListener("pause", handlePause);
-		audio.addEventListener("waiting", handleWaiting);
-		audio.addEventListener("canplay", handleCanPlay);
-		audio.addEventListener("ended", handleEnded);
-		audio.addEventListener("error", handleError);
-
+		for (const [evt, fn] of Object.entries(handlers)) audio.addEventListener(evt, fn);
 		return () => {
 			audio.pause();
 			audio.removeAttribute("src");
-			audio.removeEventListener("timeupdate", handleTimeUpdate);
-			audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-			audio.removeEventListener("durationchange", handleDurationChange);
-			audio.removeEventListener("play", handlePlay);
-			audio.removeEventListener("pause", handlePause);
-			audio.removeEventListener("waiting", handleWaiting);
-			audio.removeEventListener("canplay", handleCanPlay);
-			audio.removeEventListener("ended", handleEnded);
-			audio.removeEventListener("error", handleError);
+			audio.load();
+			for (const [evt, fn] of Object.entries(handlers)) audio.removeEventListener(evt, fn);
 		};
 	}, []);
 
 	const activeTrackKey = activeTrack ? `${activeTrack.id}|${activeTrack.url}` : "";
 
-	// Sync audio src when activeTrack changes (without resetting position on speed changes)
+	// Sync audio src when activeTrack changes without resetting position on speed changes.
 	useEffect(() => {
 		const audio = audioRef.current;
 		if (!audio) return;
@@ -195,11 +186,15 @@ export function useHumanAudio({
 		setIsFollowingAudio(true);
 
 		const track = activeTrackRef.current;
-		if (!track?.url) {
+		if (!track?.url || !isSafeAudioSrc(track.url)) {
 			audio.pause();
 			audio.removeAttribute("src");
+			audio.load();
 			setIsPlaying(false);
 			pendingSyncVerseRef.current = null;
+			if (track?.url) {
+				setErrorMessage("Audio stream URL was rejected.");
+			}
 			return;
 		}
 
@@ -222,9 +217,7 @@ export function useHumanAudio({
 	}, [activeTrackKey]);
 
 	useEffect(() => {
-		const audio = audioRef.current;
-		if (!audio) return;
-		applyPlaybackRate(audio, playbackRate);
+		if (audioRef.current) applyPlaybackRate(audioRef.current, playbackRate);
 	}, [playbackRate]);
 
 	const seekTo = useCallback((seconds: number) => {
@@ -241,7 +234,8 @@ export function useHumanAudio({
 
 	const togglePlay = useCallback(() => {
 		const audio = audioRef.current;
-		if (!audio || !activeTrack) return;
+		const track = activeTrackRef.current;
+		if (!audio || !track || !isSafeAudioSrc(track.url)) return;
 		if (!audio.paused) {
 			audio.pause();
 			return;
@@ -249,18 +243,15 @@ export function useHumanAudio({
 
 		setIsFollowingAudio(true);
 
-		// Two-way auto-sync: start playback from the currently visible verse when timestamps exist
-		if (autoSyncRef.current && activeTrack.verseTimings) {
+		if (autoSyncRef.current && track.verseTimings) {
 			const targetVerse = visibleVerseRef.current;
-			const targetSec = resolveTimeForVerse(activeTrack.verseTimings, targetVerse);
-			const verseAtAudio = resolveVerseAtTime(activeTrack.verseTimings, audio.currentTime || 0);
+			const targetSec = resolveTimeForVerse(track.verseTimings, targetVerse);
+			const verseAtAudio = resolveVerseAtTime(track.verseTimings, audio.currentTime || 0);
 			const shouldSnap =
 				targetSec !== null &&
 				(((audio.currentTime || 0) < 0.5 && targetVerse > 1) ||
 					(verseAtAudio !== null && verseAtAudio !== targetVerse));
-			if (shouldSnap) {
-				seekTo(targetSec);
-			}
+			if (shouldSnap) seekTo(targetSec);
 		}
 
 		setErrorMessage(null);
@@ -270,21 +261,17 @@ export function useHumanAudio({
 			setIsPlaying(false);
 			setErrorMessage("Playback blocked or unavailable for this chapter.");
 		});
-	}, [activeTrack, seekTo]);
+	}, [seekTo]);
 
 	const pause = useCallback(() => {
 		const audio = audioRef.current;
-		if (!audio) return;
-		if (!audio.paused) {
-			audio.pause();
-		}
+		if (audio && !audio.paused) audio.pause();
 	}, []);
 
 	const skipBy = useCallback(
 		(deltaSeconds: number) => {
 			const audio = audioRef.current;
-			if (!audio) return;
-			seekTo((audio.currentTime || 0) + deltaSeconds);
+			if (audio) seekTo((audio.currentTime || 0) + deltaSeconds);
 		},
 		[seekTo],
 	);
@@ -318,16 +305,17 @@ export function useHumanAudio({
 
 	const jumpToVerse = useCallback(
 		(verseNumber: number) => {
-			const startSec = resolveTimeForVerse(activeTrack?.verseTimings, verseNumber);
+			const track = activeTrackRef.current;
+			const startSec = resolveTimeForVerse(track?.verseTimings, verseNumber);
 			if (startSec === null) return false;
 			setIsFollowingAudio(true);
 			seekTo(startSec);
-			if (!isPlaying) {
-				audioRef.current?.play().catch(() => {});
+			if (audioRef.current?.paused) {
+				audioRef.current.play().catch(() => {});
 			}
 			return true;
 		},
-		[activeTrack, isPlaying, seekTo],
+		[seekTo],
 	);
 
 	const selectPlaybackRate = useCallback((rate: number) => {
@@ -336,26 +324,49 @@ export function useHumanAudio({
 		}
 	}, []);
 
-	return {
-		preferredLang,
-		activeTrack,
-		activeVerse,
-		isPlaying,
-		isLoading,
-		currentTime,
-		duration,
-		playbackRate,
-		isFollowingAudio,
-		errorMessage,
-		setIsFollowingAudio,
-		togglePlay,
-		pause,
-		seekTo,
-		skipBy,
-		selectTrack,
-		selectLanguage,
-		prepareAutoAdvancePlay,
-		jumpToVerse,
-		setPlaybackRate: selectPlaybackRate,
-	};
+	return useMemo(
+		() => ({
+			preferredLang,
+			activeTrack,
+			activeVerse,
+			isPlaying,
+			isLoading,
+			currentTime,
+			duration,
+			playbackRate,
+			isFollowingAudio,
+			errorMessage,
+			setIsFollowingAudio,
+			togglePlay,
+			pause,
+			seekTo,
+			skipBy,
+			selectTrack,
+			selectLanguage,
+			prepareAutoAdvancePlay,
+			jumpToVerse,
+			setPlaybackRate: selectPlaybackRate,
+		}),
+		[
+			preferredLang,
+			activeTrack,
+			activeVerse,
+			isPlaying,
+			isLoading,
+			currentTime,
+			duration,
+			playbackRate,
+			isFollowingAudio,
+			errorMessage,
+			togglePlay,
+			pause,
+			seekTo,
+			skipBy,
+			selectTrack,
+			selectLanguage,
+			prepareAutoAdvancePlay,
+			jumpToVerse,
+			selectPlaybackRate,
+		],
+	);
 }

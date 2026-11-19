@@ -1,0 +1,57 @@
+import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
+import type { BookMeta } from "../../shared/types";
+
+export const MAX_STORED_ITEMS = 500;
+
+export function readJsonStorage(key: string): unknown {
+	if (typeof localStorage === "undefined") return null;
+	try {
+		const raw = localStorage.getItem(key);
+		return raw ? JSON.parse(raw) : null;
+	} catch {
+		return null;
+	}
+}
+
+export function writeJsonStorage(key: string, value: unknown): void {
+	if (typeof localStorage === "undefined") return;
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+	} catch {
+		// Ignore storage quota errors
+	}
+}
+
+export function parseStoredBookChapter(
+	rec: Record<string, unknown>,
+): { book: BookMeta; chapter: number } | null {
+	const book = typeof rec.bookNumber === "number" ? getBookByNumber(rec.bookNumber) : undefined;
+	if (
+		!book ||
+		typeof rec.chapter !== "number" ||
+		!Number.isInteger(rec.chapter) ||
+		rec.chapter < 1 ||
+		rec.chapter > book.chapters
+	) {
+		return null;
+	}
+	return { book, chapter: rec.chapter };
+}
+
+export function formatBilingualRef(
+	bookNumber: number,
+	chapter: number,
+	verse?: number,
+): { refEn: string; refKo: string } {
+	const book = getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0];
+	if (verse !== undefined) {
+		return {
+			refEn: `${book.en} ${chapter}:${verse}`,
+			refKo: `${book.ko} ${chapter}장 ${verse}절`,
+		};
+	}
+	return {
+		refEn: `${book.en} ${chapter}`,
+		refKo: `${book.ko} ${chapter}장`,
+	};
+}
