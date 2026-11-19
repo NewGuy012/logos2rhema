@@ -11,7 +11,7 @@ import {
 	useDismissListeners,
 } from "../hooks/usePopover";
 import { renderHighlightedText } from "./HighlightText";
-import { ArrowRight, Volume2 } from "./Icons";
+import { Volume2 } from "./Icons";
 
 interface KoreanTokenProps {
 	token: GlossToken;
@@ -137,9 +137,13 @@ export function KoreanToken({
 					) {
 						return;
 					}
-					cancelClose();
-					updatePosition();
-					setOpen((prev) => !prev);
+					if (token.footnoteId && onSelectFootnote) {
+						onSelectFootnote(token.footnoteId);
+					} else {
+						cancelClose();
+						updatePosition();
+						setOpen((prev) => !prev);
+					}
 				}}
 				aria-label={`${token.word}: ${token.gloss}`}
 			>
@@ -227,20 +231,7 @@ export function KoreanToken({
 							</div>
 						)}
 						{token.footnoteId && onSelectFootnote && (
-							<button
-								type="button"
-								className="ko-tooltip-hint-btn"
-								onMouseDown={(e) => e.preventDefault()}
-								onPointerDown={(e) => e.stopPropagation()}
-								onClick={(e) => {
-									e.stopPropagation();
-									cancelClose();
-									onSelectFootnote(token.footnoteId!);
-								}}
-							>
-								<span>View in Dictionary</span>
-								<ArrowRight size={12} />
-							</button>
+							<div className="ko-tooltip-hint">Click to view in dictionary</div>
 						)}
 					</div>,
 					document.body,

@@ -3,6 +3,7 @@ import { Fragment, useId, useMemo, useState } from "react";
 import { BIBLE_BOOKS, filterBooks, getBookByNumber } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { BookMeta, FavoriteItem, HighlightItem } from "../../shared/types";
+import { useIsDesktopLayout } from "../hooks/useMediaQuery";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList } from "./FavoritesList";
 import {
@@ -54,6 +55,8 @@ export function HomePage({
 	const [grouping, setGrouping] = useState<ScriptureGrouping>("scripture");
 	const [favoritesOpen, setFavoritesOpen] = useState(false);
 	const favoritesPanelId = useId();
+	const isDesktop = useIsDesktopLayout();
+	const testamentBookColumns = isDesktop ? 3 : 2;
 
 	const lastBook = useMemo(
 		() => getBookByNumber(lastBookNumber) ?? BIBLE_BOOKS[0],
@@ -262,7 +265,7 @@ export function HomePage({
 											currentBookNumber={lastBook.number}
 											currentChapter={lastChapter}
 											showChapterCount={true}
-											verticalColumns={2}
+											verticalColumns={testamentBookColumns}
 											onSelectBook={setSelectedBook}
 											onSelectChapter={onOpenPassage}
 										/>

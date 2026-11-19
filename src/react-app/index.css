@@ -255,8 +255,7 @@ button:focus:not(:focus-visible) {
 	outline-offset: 2px;
 }
 
-.ko-tooltip-speak-btn:focus-visible,
-.ko-tooltip-hint-btn:focus-visible {
+.ko-tooltip-speak-btn:focus-visible {
 	outline: 1.5px solid var(--tooltip-accent);
 	outline-offset: 1px;
 }
@@ -745,6 +744,7 @@ button:focus:not(:focus-visible) {
 	border-left: 2.5px solid transparent;
 	scroll-margin-top: 5rem;
 	scroll-margin-bottom: 3rem;
+	cursor: pointer;
 	transition:
 		background-color 180ms ease,
 		border-color 180ms ease;
@@ -1087,30 +1087,10 @@ button:focus:not(:focus-visible) {
 	color: var(--tooltip-muted);
 }
 
-.ko-tooltip-hint-btn {
-	margin-top: 0.34rem;
-	margin-left: -0.5rem;
-	padding: 0.22rem 0.5rem;
-	border-radius: 6px;
-	display: inline-flex;
-	align-items: center;
-	gap: 0.28rem;
-	font-size: 0.72rem;
-	font-weight: 500;
+.ko-tooltip-hint {
+	margin-top: 0.26rem;
+	font-size: 0.68rem;
 	color: var(--tooltip-accent);
-	transition:
-		background-color 140ms ease,
-		color 140ms ease,
-		transform 120ms var(--ease-spring);
-}
-
-.ko-tooltip-hint-btn:hover {
-	background: rgba(212, 154, 114, 0.16);
-	color: var(--tooltip-accent-hover);
-}
-
-.ko-tooltip-hint-btn:active {
-	transform: scale(0.97);
 }
 
 /* Chapter Navigation Footer */
@@ -1196,7 +1176,8 @@ button:focus:not(:focus-visible) {
 }
 
 .dict-panel-sidebar {
-	max-height: calc(100vh - 7.25rem);
+	/* Match the 2.5rem gap below the 3.5rem sticky top bar (6rem top + 2.5rem bottom) */
+	max-height: calc(100vh - 8.5rem);
 }
 
 .dict-sheet-wrap {
@@ -2511,9 +2492,9 @@ button:focus:not(:focus-visible) {
 /* Home Page */
 .home-container {
 	width: 100%;
-	max-width: 820px;
+	max-width: 1680px;
 	margin: 0 auto;
-	padding: 2.5rem 1.35rem 4rem;
+	padding: 2.5rem clamp(1.35rem, 2.5vw, 2.5rem) 4rem;
 	display: flex;
 	flex-direction: column;
 	gap: 2.25rem;
@@ -2566,7 +2547,7 @@ button:focus:not(:focus-visible) {
 
 .home-subtitle {
 	margin: 0;
-	max-width: 600px;
+	max-width: 68ch;
 	font-size: 0.96rem;
 	line-height: 1.6;
 	color: var(--text-secondary);
@@ -2779,6 +2760,14 @@ button:focus:not(:focus-visible) {
 	gap: 0.55rem;
 }
 
+@media (min-width: 860px) {
+	.home-favorites-panel .home-favorites-list {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+		gap: 0.7rem;
+	}
+}
+
 .home-highlight-icon {
 	color: var(--highlight-icon);
 	flex-shrink: 0;
@@ -2931,9 +2920,20 @@ button:focus:not(:focus-visible) {
 }
 
 .home-genres-list {
-	display: flex;
-	flex-direction: column;
-	gap: 0.6rem;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+}
+
+.home-genre-card:only-child {
+	grid-column: 1 / -1;
+}
+
+@media (max-width: 859px) {
+	.home-genres-list {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.6rem;
+	}
 }
 
 .home-genre-card {
@@ -3032,7 +3032,7 @@ button:focus:not(:focus-visible) {
 .home-testaments {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
-	gap: 0.95rem;
+	gap: clamp(0.95rem, 1.8vw, 1.75rem);
 	align-items: start;
 }
 
@@ -3094,7 +3094,7 @@ button:focus:not(:focus-visible) {
 
 .home-about-copy {
 	margin: 0;
-	max-width: 640px;
+	max-width: 72ch;
 	font-size: 0.9rem;
 	line-height: 1.65;
 	color: var(--text-secondary);

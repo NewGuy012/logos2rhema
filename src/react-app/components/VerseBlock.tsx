@@ -1,3 +1,5 @@
+import type { MouseEvent } from "react";
+
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, HighlightItem } from "../../shared/types";
 import { renderHighlightedText } from "./HighlightText";
@@ -6,6 +8,23 @@ import { KoreanToken } from "./KoreanToken";
 
 export type StackOrder = "en-first" | "ko-first";
 export type StudyMaskMode = "none" | "mask-en" | "mask-ko";
+
+const INTERACTIVE_DESCENDANT_SELECTOR = "button, a, input, select, textarea, [role='button']";
+
+function hasTextSelectionIn(container: HTMLElement): boolean {
+	const selection = typeof window !== "undefined" ? window.getSelection() : null;
+	if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+	if (!selection.toString().trim()) return false;
+	for (let i = 0; i < selection.rangeCount; i++) {
+		const range = selection.getRangeAt(i);
+		if (typeof range.intersectsNode === "function") {
+			if (range.intersectsNode(container)) return true;
+		} else if (container.contains(range.startContainer) || container.contains(range.endContainer)) {
+			return true;
+		}
+	}
+	return false;
+}
 
 interface VerseBlockProps {
 	verse: AlignedVerse;
@@ -96,10 +115,20 @@ export function VerseBlock({
 		</p>
 	);
 
+	const handleBlockClick = (e: MouseEvent<HTMLElement>) => {
+		const target = e.target;
+		if (!(target instanceof Node) || !e.currentTarget.contains(target)) return;
+		const targetEl = target instanceof Element ? target : target.parentElement;
+		if (targetEl?.closest(INTERACTIVE_DESCENDANT_SELECTOR)) return;
+		if (hasTextSelectionIn(e.currentTarget)) return;
+		onSelectVerse(verse.verse);
+	};
+
 	return (
 		<article
 			id={`verse-${verse.verse}`}
 			className={`verse-block ${isSelected ? "selected" : ""} ${isAudioActive ? "audio-active" : ""}`}
+			onClick={handleBlockClick}
 		>
 			{heading && <h3 className="verse-heading">{heading}</h3>}
 			<div className="verse-grid">

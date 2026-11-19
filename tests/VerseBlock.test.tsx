@@ -199,6 +199,7 @@ describe("Reader UI & audio hooks", () => {
 			expect(tooltip?.textContent).toContain("to create");
 			expect(tooltip?.textContent).toContain("[chang-jo-ha-si-ni-ra]");
 			expect(tooltip?.textContent).toContain("Root: 창조하다");
+			expect(tooltip?.textContent).toContain("Click to view in dictionary");
 
 			fireHover(wordBtn, false);
 			fireHover(tooltip as HTMLElement, true);
@@ -216,17 +217,8 @@ describe("Reader UI & audio hooks", () => {
 			});
 
 			fireClick(wordBtn);
-			expect(onSelectFootnote).not.toHaveBeenCalled();
-			const pinned = document.body.querySelector('[role="tooltip"]') as ParentNode;
-			fireClick(getButton(pinned, "View in Dictionary"));
+			expect(onSelectFootnote).toHaveBeenCalledTimes(1);
 			expect(onSelectFootnote).toHaveBeenCalledWith("vocab-창조하다");
-			expect(document.body.querySelector('[role="tooltip"]') !== null).toBe(true);
-			act(() => {
-				document.dispatchEvent(
-					new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-				);
-			});
-			expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 		} finally {
 			restore();
 		}
@@ -238,6 +230,104 @@ describe("Reader UI & audio hooks", () => {
 		expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain(
 			"see aligned English verse",
 		);
+		act(() => {
+			document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
+	});
+
+	it("selects verse when clicking container or whitespace while ignoring buttons, tooltips, and text selections", () => {
+		const onSelectVerse = mock((_verseNum: number) => {});
+		const onToggleFavorite = mock(() => {});
+		const verseWithHeading = {
+			...sampleVerse,
+			enHeading: "The Creation of the World",
+		};
+		const { container } = render(
+			<div>
+				<VerseBlock
+					verse={verseWithHeading}
+					stackOrder="en-first"
+					studyMask="none"
+					isSelected={false}
+					isAudioActive={false}
+					hasVerseTimestamps={false}
+					onSelectVerse={onSelectVerse}
+					onToggleFavorite={onToggleFavorite}
+					onSelectFootnote={noop}
+				/>
+				<VerseBlock
+					verse={{ ...sampleVerse, verse: 2 }}
+					stackOrder="en-first"
+					studyMask="none"
+					isSelected={false}
+					isAudioActive={false}
+					hasVerseTimestamps={false}
+					onSelectVerse={onSelectVerse}
+					onToggleFavorite={onToggleFavorite}
+					onSelectFootnote={noop}
+				/>
+			</div>,
+		);
+
+		const verse1 = container.querySelector("#verse-1") as HTMLElement;
+		const verse2 = container.querySelector("#verse-2") as HTMLElement;
+
+		// Clicking verse number button triggers onSelectVerse once (no double-fire from container)
+		fireClick(getButton(verse1, "Verse 1"));
+		expect(onSelectVerse).toHaveBeenCalledTimes(1);
+		expect(onSelectVerse).toHaveBeenLastCalledWith(1);
+
+		// Clicking container whitespace, gutter, lines wrapper, English line, Korean line whitespace, and heading selects verse
+		const clickableAreas = [
+			verse1,
+			verse1.querySelector(".verse-gutter"),
+			verse1.querySelector(".verse-lines"),
+			verse1.querySelector(".verse-en"),
+			verse1.querySelector(".verse-ko"),
+			verse1.querySelector(".verse-heading"),
+		];
+		for (const el of clickableAreas) {
+			expect(el).not.toBeNull();
+			fireClick(el as Element);
+		}
+		expect(onSelectVerse).toHaveBeenCalledTimes(1 + clickableAreas.length);
+
+		// Clicking bookmark button or Korean word button or open portaled tooltip must NOT select verse
+		const callsBeforeIgnored = onSelectVerse.mock.calls.length;
+		fireClick(getButton(verse1, "Bookmark verse 1"));
+		expect(onToggleFavorite).toHaveBeenCalledTimes(1);
+
+		const koBtn = getButton(verse1, "창조하시니라");
+		fireClick(koBtn);
+		fireHover(koBtn, true);
+		const tooltipGloss = document.body.querySelector(
+			'[role="tooltip"] .ko-tooltip-gloss',
+		) as HTMLElement;
+		expect(tooltipGloss).not.toBeNull();
+		fireClick(tooltipGloss);
+		expect(onSelectVerse).toHaveBeenCalledTimes(callsBeforeIgnored);
+		fireHover(koBtn, false);
+
+		// Drag-selecting text in verse 1 suppresses verse selection click on verse 1,
+		// while a selection in verse 1 does not block clicking verse 2
+		const enLine = verse1.querySelector(".verse-en") as HTMLElement;
+		const range = document.createRange();
+		range.setStart(enLine.firstChild as Text, 7);
+		range.setEnd(enLine.firstChild as Text, 16);
+		const sel = window.getSelection();
+		sel?.removeAllRanges();
+		sel?.addRange(range);
+		try {
+			fireClick(enLine);
+			expect(onSelectVerse).toHaveBeenCalledTimes(callsBeforeIgnored);
+
+			fireClick(verse2.querySelector(".verse-en") as Element);
+			expect(onSelectVerse).toHaveBeenCalledTimes(callsBeforeIgnored + 1);
+			expect(onSelectVerse).toHaveBeenLastCalledWith(2);
+		} finally {
+			sel?.removeAllRanges();
+		}
 	});
 
 	it("renders FootnotesGuide disclosures, pronunciation, search, and scroll highlight", () => {
@@ -460,6 +550,43 @@ describe("Reader UI & audio hooks", () => {
 		) as ParentNode;
 		expect(browseSection.querySelector(".home-section-title")?.textContent).toBe("Browse");
 		expect(browseSection.querySelector(".home-testaments")).not.toBeNull();
+		const bookGrids = browseSection.querySelectorAll<HTMLElement>(".books-grid-vertical");
+		expect(bookGrids).toHaveLength(2);
+		expect(bookGrids[0]?.style.getPropertyValue("--book-cols")).toBe("3");
+		expect(bookGrids[0]?.style.getPropertyValue("--book-rows")).toBe("13");
+		expect(bookGrids[1]?.style.getPropertyValue("--book-cols")).toBe("3");
+		expect(bookGrids[1]?.style.getPropertyValue("--book-rows")).toBe("9");
+
+		const origMatchMedia = window.matchMedia;
+		window.matchMedia = (() => ({
+			matches: false,
+			media: "(min-width: 1024px)",
+			onchange: null,
+			addListener: noop,
+			removeListener: noop,
+			addEventListener: noop,
+			removeEventListener: noop,
+			dispatchEvent: () => false,
+		})) as typeof window.matchMedia;
+		try {
+			const narrowHome = render(
+				<HomePage
+					lastBookNumber={8}
+					lastChapter={4}
+					lastVerse={12}
+					krvSyncedAudioEnabled={false}
+					onOpenPassage={noop}
+				/>,
+			);
+			const narrowGrids =
+				narrowHome.container.querySelectorAll<HTMLElement>(".books-grid-vertical");
+			expect(narrowGrids[0]?.style.getPropertyValue("--book-cols")).toBe("2");
+			expect(narrowGrids[0]?.style.getPropertyValue("--book-rows")).toBe("20");
+			expect(narrowGrids[1]?.style.getPropertyValue("--book-cols")).toBe("2");
+			expect(narrowGrids[1]?.style.getPropertyValue("--book-rows")).toBe("14");
+		} finally {
+			window.matchMedia = origMatchMedia;
+		}
 		expect(getButton(browseSection, "Scripture").getAttribute("aria-selected")).toBe("true");
 		expect(getButton(browseSection, "Genres").getAttribute("aria-selected")).toBe("false");
 
@@ -596,25 +723,14 @@ describe("Reader UI & audio hooks", () => {
 					});
 					await flushAsync();
 
-					// Tooltip -> View in Dictionary -> rail minimize/expand
+					// Word click -> Dictionary highlight -> rail minimize/expand
 					expect(commentaryFetchUrls).toEqual([]);
 					fireClick(getButton(container, "올라가서"));
-					fireClick(
-						getButton(
-							document.body.querySelector('[role="tooltip"]') as ParentNode,
-							"View in Dictionary",
-						),
-					);
 					expect(
 						container.querySelector('[data-footnote-id="vocab-올라가다"]')?.className,
 					).toContain("highlighted");
-					act(() => {
-						document.dispatchEvent(
-							new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-						);
-					});
 
-					// Lazy-load Commentary tab, switch to Matthew Henry, and let View in Dictionary switch back
+					// Lazy-load Commentary tab, switch to Matthew Henry, and let word click switch back to Dictionary
 					fireClick(getButton(container, "Commentary"));
 					await waitUntil(() => {
 						expect(getByText(container, "Tyndale GEN 1 note.")).toBeDefined();
@@ -631,23 +747,12 @@ describe("Reader UI & audio hooks", () => {
 					]);
 
 					fireClick(getButton(container, "올라가서"));
-					fireClick(
-						getButton(
-							document.body.querySelector('[role="tooltip"]') as ParentNode,
-							"View in Dictionary",
-						),
-					);
 					expect(container.querySelector("#footnotes .panel-title")?.textContent).toBe(
 						"Dictionary",
 					);
 					expect(
 						container.querySelector('[data-footnote-id="vocab-올라가다"]')?.className,
 					).toContain("highlighted");
-					act(() => {
-						document.dispatchEvent(
-							new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-						);
-					});
 
 					// Switching back to Commentary uses cached response without refetching
 					fireClick(getButton(container, "Commentary"));
@@ -690,10 +795,17 @@ describe("Reader UI & audio hooks", () => {
 					});
 					await flushAsync();
 
-					// Bookmark chapter & verse, highlight English via Cmd+H and Korean via toolbar
+					// Bookmark chapter & verse, select verse via container/English line whitespace, highlight English via Cmd+H and Korean via toolbar
 					fireClick(getButton(container, "Bookmark Genesis 1"));
 					fireClick(getButton(container, "Bookmark verse 1"));
 					expect(readStoredFavorites()).toHaveLength(2);
+
+					const verse2 = container.querySelector("#verse-2") as HTMLElement;
+					expect(verse2.className).not.toContain("selected");
+					fireClick(verse2.querySelector(".verse-en") as Element);
+					expect(verse2.className).toContain("selected");
+					fireClick(verse2.querySelector(".verse-lines") as Element);
+					expect(verse2.className).not.toContain("selected");
 
 					const enLine = container.querySelector('.verse-en[data-verse="1"]') as HTMLElement;
 					const enRange = document.createRange();

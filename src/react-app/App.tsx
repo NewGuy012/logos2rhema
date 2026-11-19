@@ -32,6 +32,7 @@ import { StudyRightRail } from "./components/StudyRightRail";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
 import { useHumanAudio } from "./hooks/useHumanAudio";
+import { useIsDesktopLayout } from "./hooks/useMediaQuery";
 import { anchorPosStyle, computeAnchorPos } from "./hooks/usePopover";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import {
@@ -212,25 +213,6 @@ function scrollToVerse(verseNum: number, mode: "jump" | "follow" = "jump"): void
 	if (typeof el.scrollIntoView === "function") {
 		el.scrollIntoView({ behavior: "smooth", block: mode === "follow" ? "nearest" : "start" });
 	}
-}
-
-function useIsDesktopLayout(): boolean {
-	const [isDesktop, setIsDesktop] = useState(() =>
-		typeof window !== "undefined" && typeof window.matchMedia === "function"
-			? window.matchMedia("(min-width: 1024px)").matches
-			: true,
-	);
-
-	useEffect(() => {
-		if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-		const mql = window.matchMedia("(min-width: 1024px)");
-		const update = () => setIsDesktop(mql.matches);
-		update();
-		mql.addEventListener("change", update);
-		return () => mql.removeEventListener("change", update);
-	}, []);
-
-	return isDesktop;
 }
 
 export default function App() {
