@@ -1,29 +1,34 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
+import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
 	AlignedVerse,
 	AudioTrackOption,
+	ChapterCommentaryResponse,
+	CommentaryId,
 	FavoriteItem,
 	HighlightItem,
 	LexiconMap,
+	RightRailTab,
 	TranslationMeta,
 	VerseEntry,
 } from "../shared/types";
 import { AudioControlRail } from "./components/AudioControlRail";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
-import { FootnotesGuide } from "./components/FootnotesGuide";
 import { HomePage } from "./components/HomePage";
 import {
 	Bookmark,
 	BookOpen,
+	BookText,
 	ChevronLeft,
 	ChevronRight,
 	Headphones,
 	Highlighter,
 } from "./components/Icons";
 import { PassagePicker } from "./components/PassagePicker";
+import { StudyRightRail } from "./components/StudyRightRail";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
 import { useHumanAudio } from "./hooks/useHumanAudio";
@@ -31,6 +36,7 @@ import { computeAnchorPos } from "./hooks/usePopover";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import {
 	alignChapterVerses,
+	loadChapterCommentary,
 	loadLexicon,
 	loadReaderConfig,
 	loadSyncedChapterAudio,
@@ -61,6 +67,8 @@ interface DisplayPrefs {
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
 	autoSync: boolean;
+	rightRailTab: RightRailTab;
+	commentarySource: CommentaryId;
 }
 
 interface StoredPrefs extends DisplayPrefs {
@@ -76,6 +84,8 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	koFontStyle: "serif",
 	studyMask: "none",
 	autoSync: true,
+	rightRailTab: "dictionary",
+	commentarySource: DEFAULT_COMMENTARY_ID,
 };
 
 const DEFAULT_PREFS: StoredPrefs = {
@@ -146,6 +156,12 @@ function readStoredPrefs(): StoredPrefs {
 			? parsed.studyMask
 			: DEFAULT_PREFS.studyMask,
 		autoSync: typeof parsed.autoSync === "boolean" ? parsed.autoSync : DEFAULT_PREFS.autoSync,
+		rightRailTab: isOneOf(parsed.rightRailTab, ["dictionary", "commentary"])
+			? parsed.rightRailTab
+			: DEFAULT_PREFS.rightRailTab,
+		commentarySource: isCommentaryId(parsed.commentarySource)
+			? parsed.commentarySource
+			: DEFAULT_PREFS.commentarySource,
 	};
 }
 
@@ -197,6 +213,8 @@ export default function App() {
 		koFontStyle: initialPrefs.koFontStyle,
 		studyMask: initialPrefs.studyMask,
 		autoSync: initialPrefs.autoSync,
+		rightRailTab: initialPrefs.rightRailTab,
+		commentarySource: initialPrefs.commentarySource,
 	});
 
 	const updatePref = useCallback(<K extends keyof DisplayPrefs>(key: K, value: DisplayPrefs[K]) => {
@@ -217,6 +235,12 @@ export default function App() {
 	const [audioRailOpen, setAudioRailOpen] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [sheetOpen, setSheetOpen] = useState(false);
+
+	const [commentaryData, setCommentaryData] = useState<ChapterCommentaryResponse | null>(null);
+	const [commentaryLoading, setCommentaryLoading] = useState(false);
+	const [commentaryError, setCommentaryError] = useState<string | null>(null);
+	const [commentaryRetrySeq, setCommentaryRetrySeq] = useState(0);
+	const commentaryLoadedKeyRef = useRef<string | null>(null);
 
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [selectedVerse, setSelectedVerse] = useState<number | null>(
@@ -666,6 +690,7 @@ export default function App() {
 		(footnoteId: string) => {
 			setHighlightedFootnoteId(footnoteId);
 			setHighlightSeq((seq) => seq + 1);
+			updatePref("rightRailTab", "dictionary");
 			if (isDesktop) setSidebarOpen(true);
 			else setSheetOpen(true);
 			if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
@@ -674,7 +699,7 @@ export default function App() {
 				setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
 			}, 3200);
 		},
-		[isDesktop],
+		[isDesktop, updatePref],
 	);
 
 	const handleJumpFromFootnote = useCallback((verseNum: number) => {
@@ -695,6 +720,54 @@ export default function App() {
 
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
 	const showDictionary = !loadingChapter && !chapterError;
+
+	useEffect(() => {
+		const targetKey = `${prefs.commentarySource}:${currentBook.usfm}:${chapter}`;
+		const matchesCurrent = commentaryLoadedKeyRef.current === targetKey;
+
+		if (!matchesCurrent) {
+			commentaryLoadedKeyRef.current = null;
+			setCommentaryData(null);
+		}
+		setCommentaryError(null);
+
+		if (view !== "reader" || !dictionaryOpen || prefs.rightRailTab !== "commentary") {
+			setCommentaryLoading(false);
+			return;
+		}
+
+		let cancelled = false;
+		setCommentaryLoading(!matchesCurrent);
+		loadChapterCommentary({
+			commentaryId: prefs.commentarySource,
+			usfm: currentBook.usfm,
+			chapter,
+		})
+			.then((res) => {
+				if (cancelled) return;
+				commentaryLoadedKeyRef.current = targetKey;
+				setCommentaryData(res);
+				setCommentaryLoading(false);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				commentaryLoadedKeyRef.current = null;
+				setCommentaryError(err instanceof Error ? err.message : "Unable to load commentary.");
+				setCommentaryLoading(false);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		view,
+		dictionaryOpen,
+		prefs.rightRailTab,
+		prefs.commentarySource,
+		currentBook.usfm,
+		chapter,
+		commentaryRetrySeq,
+	]);
 
 	const openPrevChapter = () =>
 		prevChapterTarget && navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter);
@@ -750,8 +823,14 @@ export default function App() {
 		onChangeSpeed: audio.setPlaybackRate,
 	};
 
-	const renderDictionary = (variant: "sidebar" | "sheet", onMinimize: () => void) => (
-		<FootnotesGuide
+	const maxVerseInChapter = alignedVerses[alignedVerses.length - 1]?.verse;
+
+	const renderRightRail = (variant: "sidebar" | "sheet", onMinimize: () => void) => (
+		<StudyRightRail
+			activeTab={prefs.rightRailTab}
+			onChangeTab={(tab) => updatePref("rightRailTab", tab)}
+			variant={variant}
+			onMinimize={onMinimize}
 			bookEn={currentBook.en}
 			bookKo={currentBook.ko}
 			chapter={chapter}
@@ -759,8 +838,14 @@ export default function App() {
 			grammarNotes={analysis.grammarNotes}
 			highlightedFootnoteId={highlightedFootnoteId}
 			highlightSeq={highlightSeq}
-			variant={variant}
-			onMinimize={onMinimize}
+			commentarySource={prefs.commentarySource}
+			commentaryData={commentaryData}
+			commentaryLoading={commentaryLoading}
+			commentaryError={commentaryError}
+			maxVerseInChapter={maxVerseInChapter}
+			selectedVerse={selectedVerse}
+			onChangeCommentarySource={(source) => updatePref("commentarySource", source)}
+			onRetryCommentary={() => setCommentaryRetrySeq((seq) => seq + 1)}
 			onJumpToVerse={handleJumpFromFootnote}
 		/>
 	);
@@ -893,10 +978,24 @@ export default function App() {
 										<button
 											type="button"
 											className="footnote-jump-link"
-											onClick={handleToggleDictionary}
+											onClick={() => {
+												updatePref("rightRailTab", "dictionary");
+												setSheetOpen(true);
+											}}
 										>
 											<BookOpen size={13} />
 											<span>Korean Dictionary ({analysis.footnotes.length})</span>
+										</button>
+										<button
+											type="button"
+											className="footnote-jump-link"
+											onClick={() => {
+												updatePref("rightRailTab", "commentary");
+												setSheetOpen(true);
+											}}
+										>
+											<BookText size={13} />
+											<span>Commentary</span>
 										</button>
 									</div>
 								)}
@@ -953,18 +1052,30 @@ export default function App() {
 						{showDictionary && isDesktop && (
 							<div className={`dict-sidebar-wrap ${sidebarOpen ? "expanded" : "minimized"}`}>
 								{sidebarOpen ? (
-									renderDictionary("sidebar", handleToggleDictionary)
+									renderRightRail("sidebar", handleToggleDictionary)
 								) : (
 									<button
 										type="button"
 										className="rail-minimized-pill dict-minimized-pill"
 										onClick={handleToggleDictionary}
 										aria-expanded={false}
-										aria-label="Expand dictionary"
-										title="Show Korean dictionary"
+										aria-label={
+											prefs.rightRailTab === "commentary"
+												? "Expand commentary"
+												: "Expand dictionary"
+										}
+										title={
+											prefs.rightRailTab === "commentary"
+												? "Show commentary"
+												: "Show Korean dictionary"
+										}
 									>
 										<ChevronLeft size={13} />
-										<BookOpen size={14} />
+										{prefs.rightRailTab === "commentary" ? (
+											<BookText size={14} />
+										) : (
+											<BookOpen size={14} />
+										)}
 									</button>
 								)}
 							</div>
@@ -979,11 +1090,12 @@ export default function App() {
 							onPrevChapter={openPrevChapter}
 							onNextChapter={openNextChapter}
 							onOpenPicker={() => setPickerOpen(true)}
+							rightRailTab={prefs.rightRailTab}
 							dictionaryOpen={dictionaryOpen}
 							dictionarySheet={
 								showDictionary && sheetOpen ? (
 									<div className="dict-sheet-wrap">
-										{renderDictionary("sheet", () => setSheetOpen(false))}
+										{renderRightRail("sheet", () => setSheetOpen(false))}
 									</div>
 								) : undefined
 							}

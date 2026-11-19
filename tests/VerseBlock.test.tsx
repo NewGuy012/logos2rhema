@@ -16,6 +16,7 @@ import {
 	resolveVerseAtTime,
 	useHumanAudio,
 } from "../src/react-app/hooks/useHumanAudio";
+import { clearCommentaryCache } from "../src/react-app/lib/bible-loader";
 import {
 	FAVORITES_STORAGE_KEY,
 	formatFavoriteLabel,
@@ -29,6 +30,7 @@ import {
 	splitTextByHighlights,
 	toggleHighlightSpans,
 } from "../src/react-app/lib/highlights";
+import { getCommentaryMeta } from "../src/shared/commentaries";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 import {
@@ -492,6 +494,7 @@ describe("Reader UI & audio hooks", () => {
 	it("opens App reader, syncs dictionary/rails/bookmarks/highlights, and handles out-of-range verses", async () => {
 		window.location.hash = "";
 		localStorage.clear();
+		clearCommentaryCache();
 		const originalFetch = globalThis.fetch;
 		const originalMatchMedia = window.matchMedia;
 		window.matchMedia = ((query: string) => ({
@@ -507,6 +510,7 @@ describe("Reader UI & audio hooks", () => {
 
 		let configLoaded = false;
 		let audioLoadCount = 0;
+		const commentaryFetchUrls: string[] = [];
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url.includes("/api/config")) {
@@ -551,6 +555,22 @@ describe("Reader UI & audio hooks", () => {
 				audioLoadCount++;
 				return Response.json({ bookUsfm: "GEN", chapter: 1, tracks: [] });
 			}
+			if (url.includes("/api/commentary/")) {
+				commentaryFetchUrls.push(url);
+				const isMh = url.includes("/matthew-henry/");
+				return Response.json({
+					commentary: getCommentaryMeta(isMh ? "matthew-henry" : "tyndale"),
+					bookUsfm: "GEN",
+					chapter: 1,
+					entries: [
+						{
+							id: `${isMh ? "matthew-henry" : "tyndale"}:GEN:1:1`,
+							verseStart: 1,
+							paragraphs: [isMh ? "Matthew Henry GEN 1 note." : "Tyndale GEN 1 note."],
+						},
+					],
+				});
+			}
 			return new Response("Not Found", { status: 404 });
 		}) as typeof fetch;
 
@@ -577,6 +597,7 @@ describe("Reader UI & audio hooks", () => {
 			await flushAsync();
 
 			// Tooltip -> View in Dictionary -> rail minimize/expand
+			expect(commentaryFetchUrls).toEqual([]);
 			fireClick(getButton(container, "올라가서"));
 			fireClick(
 				getButton(
@@ -592,6 +613,47 @@ describe("Reader UI & audio hooks", () => {
 					new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
 				);
 			});
+
+			// Lazy-load Commentary tab, switch to Matthew Henry, and let View in Dictionary switch back
+			fireClick(getButton(container, "Commentary"));
+			await waitUntil(() => {
+				expect(getByText(container, "Tyndale GEN 1 note.")).toBeDefined();
+			});
+			expect(commentaryFetchUrls).toEqual(["/api/commentary/tyndale/GEN/1"]);
+
+			fireClick(getButton(container, "Matthew Henry"));
+			await waitUntil(() => {
+				expect(getByText(container, "Matthew Henry GEN 1 note.")).toBeDefined();
+			});
+			expect(commentaryFetchUrls).toEqual([
+				"/api/commentary/tyndale/GEN/1",
+				"/api/commentary/matthew-henry/GEN/1",
+			]);
+
+			fireClick(getButton(container, "올라가서"));
+			fireClick(
+				getButton(
+					document.body.querySelector('[role="tooltip"]') as ParentNode,
+					"View in Dictionary",
+				),
+			);
+			expect(container.querySelector("#footnotes .panel-title")?.textContent).toBe("Dictionary");
+			expect(container.querySelector('[data-footnote-id="vocab-올라가다"]')?.className).toContain(
+				"highlighted",
+			);
+			act(() => {
+				document.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+				);
+			});
+
+			// Switching back to Commentary uses cached response without refetching
+			fireClick(getButton(container, "Commentary"));
+			expect(container.querySelector("#footnotes .panel-title")?.textContent).toBe("Commentary");
+			expect(getByText(container, "Matthew Henry GEN 1 note.")).toBeDefined();
+			expect(commentaryFetchUrls).toHaveLength(2);
+			expect(localStorage.getItem("logos.reader.preferences.v1")).toContain("matthew-henry");
+			fireClick(getButton(container, "Dictionary"));
 
 			fireClick(getButton(container, "Minimize dictionary"));
 			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("minimized");
@@ -721,11 +783,13 @@ describe("Reader UI & audio hooks", () => {
 				tracks={[koTrack]}
 				preferredLang="en"
 				activeTrack={null}
+				rightRailTab="commentary"
 				dictionaryOpen={false}
 				onToggleDictionary={noop}
 				onSelectLanguage={onSelectLanguage}
 			/>,
 		);
+		expect(getButton(bar.container, "Toggle commentary").textContent).toContain("Notes");
 		fireClick(getButton(bar.container, /Use 개역한글/));
 		expect(onSelectLanguage).toHaveBeenCalledWith("ko");
 

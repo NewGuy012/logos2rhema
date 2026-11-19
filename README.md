@@ -9,11 +9,13 @@ A lean, distraction-free bilingual Bible web app for reading and listening to Sc
 - **3-Column Desktop Workspace**:
   - **Left Rail**: Collapsible sticky **Audio & Verse Sync** player (Play/Pause, `한` / `EN` toggle, scrubber, 10s skip, speed menu, Standard/Drama tracks, and two-way visible-verse auto-sync).
   - **Center**: Stacked verse pairs with verse deep-links (`#/JHN/3/16`), verse/chapter **Bookmarks**, text **Highlights** (`⌘H` / `Ctrl+H` or floating toolbar), and interactive Korean word tooltips with **Revised Romanization**, **Web Speech (`ko-KR`) pronunciation**, and **View in Dictionary**.
-  - **Right Rail**: Collapsible sticky **Korean Dictionary & KRV Grammar Guide** (`어휘`) synced to chapter vocabulary with search and pronunciation playback.
-- **Bible Brain v4 Audio & Multi-Language Endpoints**: Uses [Bible Brain API v4](https://4.dbt.io/open-api-4.json) (`BIBLE_BRAIN_API_KEY`) as primary provider for standard/dramatized MP3 audio and `/timestamps` verse sync—falling back to Crossway ESV (`ESV_API_KEY`) and zero-key Wordproject Korean narration—plus future-ready Worker endpoints:
+  - **Right Rail (Tabbed)**: Collapsible sticky panel with **Dictionary** (**Korean Dictionary & KRV Grammar Guide** synced to chapter vocabulary with search and pronunciation playback) and **Commentary** (**Tyndale Open Study Notes** & **Matthew Henry Bible Commentary** synced to verse selection with keyword/verse search and book/chapter introductions).
+- **Bible Brain v4 Audio, Commentaries & Multi-Language Endpoints**: Uses [Bible Brain API v4](https://4.dbt.io/open-api-4.json) (`BIBLE_BRAIN_API_KEY`) as primary provider for standard/dramatized MP3 audio and `/timestamps` verse sync—falling back to Crossway ESV (`ESV_API_KEY`) and zero-key Wordproject Korean narration—plus keyless commentary and multi-language Worker endpoints:
   - `GET /api/languages` — lists available Bible Brain languages (`limit`/`page` supported)
   - `GET /api/passage/:target/:usfm/:chapter` — resolves `lang:<iso>` (`text_plain` preferred) or `bb:<filesetId>` chapters
   - `GET /api/audio/:usfm/:chapter` — resolves canonical `ko`/`en` audio + timestamps and optional `?lang=<iso>&bible=<abbr>` tracks
+  - `GET /api/commentaries` — returns curated English commentary metadata (`tyndale`, `matthew-henry`)
+  - `GET /api/commentary/:commentaryId/:usfm/:chapter` — proxies and normalizes chapter commentary from `bible.helloao.org`
 - **Editorial Display Controls**: Paper, Sepia, and Dark themes; text scaling (`S`–`XL`); Serif (명조) vs. Sans (고딕) Korean typefaces; Stack Order; and hover-to-reveal **Study Mode** blur.
 - **Hardened Worker & Assets**: HTTPS-only upstream/media validation with SSRF/IP/port/key-leak guards, upstream timeouts, safe JSON parsing, `502` / `no-store` error boundaries, prototype-safe dictionary lookups, and strict CSP/security headers (`public/_headers` + Worker middleware).
 
