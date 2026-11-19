@@ -827,6 +827,9 @@ describe("Reader UI & audio hooks", () => {
 						window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
 					});
 					expect(audioPanel.className).toContain("floating");
+					expect(container.querySelector(".audio-rail-wrap")?.className).toContain(
+						"is-floating-host",
+					);
 					expect(audioPanel.style.zIndex).toBe("46");
 
 					act(() => {
@@ -844,6 +847,9 @@ describe("Reader UI & audio hooks", () => {
 						window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
 					});
 					expect(dictPanel.className).toContain("floating");
+					expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain(
+						"is-floating-host",
+					);
 					expect(dictPanel.style.zIndex).toBe("46");
 					expect(audioPanel.style.zIndex).toBe("45");
 
@@ -858,8 +864,14 @@ describe("Reader UI & audio hooks", () => {
 
 					fireClick(getButton(container, "Snap audio back to original position"));
 					expect(audioPanel.className).not.toContain("floating");
+					expect(container.querySelector(".audio-rail-wrap")?.className).not.toContain(
+						"is-floating-host",
+					);
 					fireClick(getButton(container, "Snap dictionary back to original position"));
 					expect(dictPanel.className).not.toContain("floating");
+					expect(container.querySelector(".dict-sidebar-wrap")?.className).not.toContain(
+						"is-floating-host",
+					);
 
 					// Next/Prev chapter
 					const headerNav = container.querySelector(

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { ChevronDown, ChevronRight, Search, Undo2, X } from "./Icons";
+import { ChevronDown, ChevronRight, Pin, Search, X } from "./Icons";
 
 export function PanelSnapBackButton({
 	onClick,
@@ -17,7 +17,7 @@ export function PanelSnapBackButton({
 			aria-label={ariaLabel}
 			title="Snap back to original position"
 		>
-			<Undo2 size={14} />
+			<Pin size={14} />
 		</button>
 	);
 }

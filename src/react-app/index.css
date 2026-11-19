@@ -1168,6 +1168,12 @@ button:focus:not(:focus-visible) {
 	width: auto;
 }
 
+.dict-sidebar-wrap.is-floating-host,
+.audio-rail-wrap.is-floating-host {
+	position: static;
+	margin-top: 0;
+}
+
 .dict-panel {
 	display: flex;
 	flex-direction: column;
@@ -1197,12 +1203,18 @@ button:focus:not(:focus-visible) {
 .audio-rail.floating .rail-card {
 	max-height: var(--floating-max-height, calc(100vh - 16px));
 	overflow-y: auto;
-	box-shadow: var(--glass-specular), var(--shadow-float);
 }
 
 .dict-panel-sidebar.floating {
 	width: clamp(272px, 20vw, 320px);
 	max-height: var(--floating-max-height, calc(100vh - 16px));
+}
+
+.audio-rail.floating .rail-card,
+.dict-panel-sidebar.floating {
+	background: var(--glass-surface-elevated);
+	backdrop-filter: blur(24px) saturate(175%);
+	-webkit-backdrop-filter: blur(24px) saturate(175%);
 	box-shadow: var(--glass-specular), var(--shadow-float);
 }
 
@@ -2584,9 +2596,9 @@ button:focus:not(:focus-visible) {
 /* Home Page */
 .home-container {
 	width: 100%;
-	max-width: 1140px;
+	max-width: 1020px;
 	margin: 0 auto;
-	padding: 2.5rem clamp(1.35rem, 5vw, 4rem) 4rem;
+	padding: 2.5rem clamp(1.5rem, 5.5vw, 3.75rem) 4rem;
 	display: flex;
 	flex-direction: column;
 	gap: 2.25rem;

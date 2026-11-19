@@ -989,7 +989,9 @@ export default function App() {
 				<>
 					<div className={`reader-workspace ${isDesktop ? "desktop-layout" : ""}`.trim()}>
 						{isDesktop && (
-							<div className={`audio-rail-wrap ${audioRailOpen ? "expanded" : "minimized"}`}>
+							<div
+								className={`audio-rail-wrap ${audioRailOpen ? "expanded" : "minimized"} ${audioRailOpen && audioFloatingPos ? "is-floating-host" : ""}`.trim()}
+							>
 								{audioRailOpen ? (
 									<AudioControlRail
 										{...sharedAudioControls}
@@ -1147,7 +1149,9 @@ export default function App() {
 						</main>
 
 						{showDictionary && isDesktop && (
-							<div className={`dict-sidebar-wrap ${sidebarOpen ? "expanded" : "minimized"}`}>
+							<div
+								className={`dict-sidebar-wrap ${sidebarOpen ? "expanded" : "minimized"} ${sidebarOpen && dictFloatingPos ? "is-floating-host" : ""}`.trim()}
+							>
 								{sidebarOpen ? (
 									renderRightRail("sidebar", handleToggleDictionary)
 								) : (
