@@ -65,15 +65,13 @@ Bundled Scripture text, Korean lexicon, and HelloAO commentaries work out of the
 
 ## API Endpoints
 
-All Worker routes enforce `GET`/`HEAD`-only access, strict CSP/security headers, HTTPS upstream validation, and `502` / `no-store` error boundaries.
+All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security headers, HTTPS upstream validation, and `502` / `no-store` error boundaries.
 
 | Endpoint                                           | Purpose                                                                 |
 | :------------------------------------------------- | :---------------------------------------------------------------------- |
-| `GET /api/health`                                  | Worker health check                                                     |
-| `GET /api/config`                                  | Canonical translation metadata and audio capability flags               |
+| `GET /api/config`                                  | Korean verse-synced audio capability flag (`krvSyncedAudioEnabled`)     |
 | `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3) and English (Crossway ESV) chapter tracks |
 | `GET /api/audio/esv/:usfm/:chapter`                | Proxy or redirect Crossway ESV chapter audio                            |
-| `GET /api/commentaries`                            | Curated English commentary metadata (`tyndale`, `matthew-henry`)        |
 | `GET /api/commentary/:commentaryId/:usfm/:chapter` | Normalized chapter commentary & introductions from `bible.helloao.org`  |
 
 <details>
