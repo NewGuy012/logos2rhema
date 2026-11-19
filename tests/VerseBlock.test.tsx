@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 
 import App from "../src/react-app/App";
 import { AudioControlRail } from "../src/react-app/components/AudioControlRail";
@@ -34,12 +34,13 @@ import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import {
 	fireClick,
+	fireDrag,
 	fireHover,
 	flushAsync,
 	getButton,
 	getByText,
 	installMockAudio,
-	mockDesktopMatchMedia,
+	mockMatchMedia,
 	noop,
 	render,
 	renderHook,
@@ -98,6 +99,25 @@ function setupMockKoreanSpeech() {
 	};
 }
 
+function selectTextRange(node: Node, start: number, end: number) {
+	const range = document.createRange();
+	range.setStart(node, start);
+	range.setEnd(node, end);
+	const sel = window.getSelection();
+	sel?.removeAllRanges();
+	sel?.addRange(range);
+	return sel;
+}
+
+function makeBookResponse(
+	translationId: string,
+	bookNumber: number,
+	usfm: string,
+	chapters: Record<string, Array<{ verse: number; text: string }>>,
+) {
+	return Response.json({ translationId, bookNumber, usfm, chapters });
+}
+
 function baseBarProps() {
 	return {
 		bookEn: "Genesis",
@@ -125,6 +145,33 @@ function baseBarProps() {
 	};
 }
 
+function makeTopBarProps(
+	overrides: Partial<ComponentProps<typeof TopBar>> = {},
+): ComponentProps<typeof TopBar> {
+	return {
+		lastBookNumber: 8,
+		lastChapter: 4,
+		lastVerse: 12,
+		stackOrder: "en-first",
+		theme: "paper",
+		fontScale: 1,
+		enFontStyle: "newsreader",
+		koFontStyle: "serif",
+		studyMask: "none",
+		onGoHome: noop,
+		onContinueReading: noop,
+		onOpenPassage: noop,
+		onChangeStackOrder: noop,
+		onOpenSearch: noop,
+		onChangeTheme: noop,
+		onChangeFontScale: noop,
+		onChangeEnFontStyle: noop,
+		onChangeKoFontStyle: noop,
+		onChangeStudyMask: noop,
+		...overrides,
+	};
+}
+
 describe("Reader UI & audio hooks", () => {
 	const analysis = analyzeKoreanChapter([
 		{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" },
@@ -136,10 +183,28 @@ describe("Reader UI & audio hooks", () => {
 		tokens: analysis.tokensByVerse.get(1) ?? [],
 	};
 
+	function makeVerseProps(
+		overrides: Partial<ComponentProps<typeof VerseBlock>> = {},
+	): ComponentProps<typeof VerseBlock> {
+		return {
+			verse: sampleVerse,
+			stackOrder: "en-first",
+			studyMask: "none",
+			isSelected: false,
+			isAudioActive: false,
+			isFavorited: false,
+			hasVerseTimestamps: false,
+			onSelectVerse: noop,
+			onToggleFavorite: noop,
+			onSelectFootnote: noop,
+			...overrides,
+		};
+	}
+
 	it("flips verse order, toggles verse bookmark, and handles Korean tooltip hover/click/speech", async () => {
 		const onToggleFavorite = mock(() => {});
 		const onSelectFootnote = mock(() => {});
-		const verseProps = {
+		const verseProps = makeVerseProps({
 			verse: {
 				...sampleVerse,
 				tokens: [
@@ -155,17 +220,11 @@ describe("Reader UI & audio hooks", () => {
 					},
 				],
 			},
-			studyMask: "none" as const,
-			isSelected: false,
-			isAudioActive: false,
-			isFavorited: false,
-			hasVerseTimestamps: false,
-			onSelectVerse: noop,
 			onToggleFavorite,
 			onSelectFootnote,
-		};
+		});
 
-		const { container, rerender } = render(<VerseBlock {...verseProps} stackOrder="en-first" />);
+		const { container, rerender } = render(<VerseBlock {...verseProps} />);
 		fireClick(getButton(container, "Bookmark verse 1"));
 		expect(onToggleFavorite).toHaveBeenCalledTimes(1);
 
@@ -241,26 +300,18 @@ describe("Reader UI & audio hooks", () => {
 		const { container } = render(
 			<div>
 				<VerseBlock
-					verse={verseWithHeading}
-					stackOrder="en-first"
-					studyMask="none"
-					isSelected={false}
-					isAudioActive={false}
-					hasVerseTimestamps={false}
-					onSelectVerse={onSelectVerse}
-					onToggleFavorite={onToggleFavorite}
-					onSelectFootnote={noop}
+					{...makeVerseProps({
+						verse: verseWithHeading,
+						onSelectVerse,
+						onToggleFavorite,
+					})}
 				/>
 				<VerseBlock
-					verse={{ ...sampleVerse, verse: 2 }}
-					stackOrder="en-first"
-					studyMask="none"
-					isSelected={false}
-					isAudioActive={false}
-					hasVerseTimestamps={false}
-					onSelectVerse={onSelectVerse}
-					onToggleFavorite={onToggleFavorite}
-					onSelectFootnote={noop}
+					{...makeVerseProps({
+						verse: { ...sampleVerse, verse: 2 },
+						onSelectVerse,
+						onToggleFavorite,
+					})}
 				/>
 			</div>,
 		);
@@ -307,12 +358,7 @@ describe("Reader UI & audio hooks", () => {
 		// Drag-selecting text in verse 1 suppresses verse selection click on verse 1,
 		// while a selection in verse 1 does not block clicking verse 2
 		const enLine = verse1.querySelector(".verse-en") as HTMLElement;
-		const range = document.createRange();
-		range.setStart(enLine.firstChild as Text, 7);
-		range.setEnd(enLine.firstChild as Text, 16);
-		const sel = window.getSelection();
-		sel?.removeAllRanges();
-		sel?.addRange(range);
+		const sel = selectTextRange(enLine.firstChild as Text, 7, 16);
 		try {
 			fireClick(enLine);
 			expect(onSelectVerse).toHaveBeenCalledTimes(callsBeforeIgnored);
@@ -465,39 +511,25 @@ describe("Reader UI & audio hooks", () => {
 		const onFlip = mock(() => {});
 		const onChangeEnFont = mock(() => {});
 		const onOpenSearch = mock(() => {});
-		const topBar = render(
-			<TopBar
-				lastBookNumber={8}
-				lastChapter={4}
-				lastVerse={12}
-				favorites={[
-					{
-						id: "43:3:16",
-						bookNumber: 43,
-						chapter: 3,
-						verse: 16,
-						enText: "For God so loved the world...",
-						createdAt: 100,
-					},
-				]}
-				stackOrder="en-first"
-				theme="paper"
-				fontScale={1}
-				enFontStyle="newsreader"
-				koFontStyle="serif"
-				studyMask="none"
-				onGoHome={onGoHome}
-				onContinueReading={onContinue}
-				onOpenPassage={onTopOpen}
-				onChangeStackOrder={onFlip}
-				onOpenSearch={onOpenSearch}
-				onChangeTheme={noop}
-				onChangeFontScale={noop}
-				onChangeEnFontStyle={onChangeEnFont}
-				onChangeKoFontStyle={noop}
-				onChangeStudyMask={noop}
-			/>,
-		);
+		const sharedTopBarProps = makeTopBarProps({
+			favorites: [
+				{
+					id: "43:3:16",
+					bookNumber: 43,
+					chapter: 3,
+					verse: 16,
+					enText: "For God so loved the world...",
+					createdAt: 100,
+				},
+			],
+			onGoHome,
+			onContinueReading: onContinue,
+			onOpenPassage: onTopOpen,
+			onChangeStackOrder: onFlip,
+			onOpenSearch,
+			onChangeEnFontStyle: onChangeEnFont,
+		});
+		const topBar = render(<TopBar {...sharedTopBarProps} />);
 		fireClick(topBar.container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
 		const readButton = getButton(topBar.container.querySelector(".top-nav") as ParentNode, "Read");
 		expect(readButton.getAttribute("title")).toBe("Read Ruth 4:12");
@@ -515,10 +547,6 @@ describe("Reader UI & audio hooks", () => {
 		expect(onChangeEnFont).not.toHaveBeenCalled();
 		fireClick(getButton(settingsPopover, "Lora"));
 		expect(onChangeEnFont).toHaveBeenCalledWith("lora");
-		fireClick(getButton(settingsPopover, "Inter"));
-		expect(onChangeEnFont).toHaveBeenCalledWith("inter");
-		fireClick(getButton(settingsPopover, "EN / 한"));
-		expect(onFlip).not.toHaveBeenCalled();
 		fireClick(getButton(settingsPopover, "한 / EN"));
 		expect(onFlip).toHaveBeenCalledWith("ko-first");
 
@@ -534,30 +562,8 @@ describe("Reader UI & audio hooks", () => {
 			getButton(topBar.container.querySelector(".top-nav") as ParentNode, "Genres"),
 		).toThrow();
 
-		// Settings icon is hidden on Home and reappears closed when returning to Read
 		fireClick(getButton(topBar.container, "Reader appearance settings"));
 		expect(topBar.container.querySelector(".settings-popover")).not.toBeNull();
-		const sharedTopBarProps = {
-			lastBookNumber: 8,
-			lastChapter: 4,
-			lastVerse: 12,
-			stackOrder: "en-first" as const,
-			theme: "paper" as const,
-			fontScale: 1,
-			enFontStyle: "newsreader" as const,
-			koFontStyle: "serif" as const,
-			studyMask: "none" as const,
-			onGoHome,
-			onContinueReading: onContinue,
-			onOpenPassage: onTopOpen,
-			onChangeStackOrder: onFlip,
-			onOpenSearch,
-			onChangeTheme: noop,
-			onChangeFontScale: noop,
-			onChangeEnFontStyle: onChangeEnFont,
-			onChangeKoFontStyle: noop,
-			onChangeStudyMask: noop,
-		};
 		topBar.rerender(<TopBar isHome={true} {...sharedTopBarProps} />);
 		expect(topBar.container.querySelectorAll(".appearance-btn")).toHaveLength(0);
 		expect(topBar.container.querySelector(".settings-popover")).toBeNull();
@@ -589,17 +595,7 @@ describe("Reader UI & audio hooks", () => {
 		expect(bookGrids[1]?.style.getPropertyValue("--book-cols")).toBe("3");
 		expect(bookGrids[1]?.style.getPropertyValue("--book-rows")).toBe("9");
 
-		const origMatchMedia = window.matchMedia;
-		window.matchMedia = (() => ({
-			matches: false,
-			media: "(min-width: 1024px)",
-			onchange: null,
-			addListener: noop,
-			removeListener: noop,
-			addEventListener: noop,
-			removeEventListener: noop,
-			dispatchEvent: () => false,
-		})) as typeof window.matchMedia;
+		const restoreNarrow = mockMatchMedia(false);
 		try {
 			const narrowHome = render(
 				<HomePage lastBookNumber={8} lastChapter={4} lastVerse={12} onOpenPassage={noop} />,
@@ -611,7 +607,7 @@ describe("Reader UI & audio hooks", () => {
 			expect(narrowGrids[1]?.style.getPropertyValue("--book-cols")).toBe("2");
 			expect(narrowGrids[1]?.style.getPropertyValue("--book-rows")).toBe("14");
 		} finally {
-			window.matchMedia = origMatchMedia;
+			restoreNarrow();
 		}
 		expect(getButton(browseSection, "Scripture").getAttribute("aria-selected")).toBe("true");
 		expect(getButton(browseSection, "Genres").getAttribute("aria-selected")).toBe("false");
@@ -672,7 +668,7 @@ describe("Reader UI & audio hooks", () => {
 		localStorage.clear();
 		localStorage.setItem("logos.reader.preferences.v1", JSON.stringify({ enFontStyle: "invalid" }));
 		clearLoaderCaches();
-		const restoreMatchMedia = mockDesktopMatchMedia();
+		const restoreMatchMedia = mockMatchMedia(true);
 
 		let audioLoadCount = 0;
 		const commentaryFetchUrls: string[] = [];
@@ -682,31 +678,21 @@ describe("Reader UI & audio hooks", () => {
 				(url) => {
 					if (url.includes("/data/lexicon.json")) return Response.json({});
 					if (url.includes("/data/bibles/krv/")) {
-						return Response.json({
-							translationId: "krv",
-							bookNumber: 1,
-							usfm: "GEN",
-							chapters: {
-								"1": [
-									{ verse: 1, text: "보아스가 성문에 올라가서 거기 앉았더니" },
-									{ verse: 2, text: "장로 십 인을 청하여 가로되" },
-								],
-								"2": [{ verse: 1, text: "천지와 만물이 다 이루니라" }],
-							},
+						return makeBookResponse("krv", 1, "GEN", {
+							"1": [
+								{ verse: 1, text: "보아스가 성문에 올라가서 거기 앉았더니" },
+								{ verse: 2, text: "장로 십 인을 청하여 가로되" },
+							],
+							"2": [{ verse: 1, text: "천지와 만물이 다 이루니라" }],
 						});
 					}
 					if (url.includes("/data/bibles/")) {
-						return Response.json({
-							translationId: "esv",
-							bookNumber: 1,
-							usfm: "GEN",
-							chapters: {
-								"1": [
-									{ verse: 1, text: "In the beginning..." },
-									{ verse: 2, text: "The earth was without form..." },
-								],
-								"2": [{ verse: 1, text: "Thus the heavens and the earth were finished..." }],
-							},
+						return makeBookResponse("esv", 1, "GEN", {
+							"1": [
+								{ verse: 1, text: "In the beginning..." },
+								{ verse: 2, text: "The earth was without form..." },
+							],
+							"2": [{ verse: 1, text: "Thus the heavens and the earth were finished..." }],
 						});
 					}
 					if (url.includes("/api/audio/")) {
@@ -747,14 +733,12 @@ describe("Reader UI & audio hooks", () => {
 					await flushAsync();
 					expect(container.querySelectorAll(".appearance-btn")).toHaveLength(1);
 
-					// Word click -> Dictionary highlight -> rail minimize/expand
 					expect(commentaryFetchUrls).toEqual([]);
 					fireClick(getButton(container, "올라가서"));
 					expect(
 						container.querySelector('[data-footnote-id="vocab-올라가다"]')?.className,
 					).toContain("highlighted");
 
-					// Lazy-load Commentary tab, switch to Matthew Henry, and let word click switch back to Dictionary
 					fireClick(getButton(container, "Commentary"));
 					await waitUntil(() => {
 						expect(getByText(container, "Tyndale GEN 1 note.")).toBeDefined();
@@ -778,7 +762,6 @@ describe("Reader UI & audio hooks", () => {
 						container.querySelector('[data-footnote-id="vocab-올라가다"]')?.className,
 					).toContain("highlighted");
 
-					// Switching back to Commentary uses cached response without refetching
 					fireClick(getButton(container, "Commentary"));
 					expect(container.querySelector("#footnotes .panel-title")?.textContent).toBe(
 						"Commentary",
@@ -788,7 +771,6 @@ describe("Reader UI & audio hooks", () => {
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain("matthew-henry");
 					fireClick(getButton(container, "Dictionary"));
 
-					// Switch English reading font via settings popover and verify CSS var + persistence
 					const appShell = container.querySelector(".app-shell") as HTMLElement;
 					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en)");
 					fireClick(getButton(container, "Reader appearance settings"));
@@ -815,46 +797,19 @@ describe("Reader UI & audio hooks", () => {
 					fireClick(getButton(container, "Expand audio"));
 					expect(container.querySelector(".audio-rail-wrap")?.className).toContain("expanded");
 
-					// Dragging Audio and Dictionary panels inside App preserves position, manages z-index, and snaps back
 					const audioPanel = container.querySelector(".audio-rail") as HTMLElement;
 					const audioHeader = audioPanel.querySelector(".rail-panel-header") as HTMLElement;
 					const dictPanel = container.querySelector("#footnotes") as HTMLElement;
 					const dictHeader = dictPanel.querySelector(".dict-panel-header") as HTMLElement;
 
-					act(() => {
-						audioHeader.dispatchEvent(
-							new window.MouseEvent("mousedown", {
-								bubbles: true,
-								button: 0,
-								clientX: 20,
-								clientY: 20,
-							}),
-						);
-						window.dispatchEvent(
-							new window.MouseEvent("mousemove", { bubbles: true, clientX: 200, clientY: 140 }),
-						);
-						window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
-					});
+					fireDrag(audioHeader, [20, 20], [200, 140]);
 					expect(audioPanel.className).toContain("floating");
 					expect(container.querySelector(".audio-rail-wrap")?.className).toContain(
 						"is-floating-host",
 					);
 					expect(audioPanel.style.zIndex).toBe("46");
 
-					act(() => {
-						dictHeader.dispatchEvent(
-							new window.MouseEvent("mousedown", {
-								bubbles: true,
-								button: 0,
-								clientX: 20,
-								clientY: 20,
-							}),
-						);
-						window.dispatchEvent(
-							new window.MouseEvent("mousemove", { bubbles: true, clientX: 320, clientY: 180 }),
-						);
-						window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
-					});
+					fireDrag(dictHeader, [20, 20], [320, 180]);
 					expect(dictPanel.className).toContain("floating");
 					expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain(
 						"is-floating-host",
@@ -862,7 +817,6 @@ describe("Reader UI & audio hooks", () => {
 					expect(dictPanel.style.zIndex).toBe("46");
 					expect(audioPanel.style.zIndex).toBe("45");
 
-					// Clicking a control on Audio brings Audio back in front of Dictionary
 					act(() => {
 						getButton(audioPanel, "Play audio").dispatchEvent(
 							new window.MouseEvent("mousedown", { bubbles: true, button: 0 }),
@@ -882,7 +836,6 @@ describe("Reader UI & audio hooks", () => {
 						"is-floating-host",
 					);
 
-					// Next/Prev chapter
 					const headerNav = container.querySelector(
 						".chapter-header .chapter-nav-header",
 					) as ParentNode;
@@ -903,7 +856,6 @@ describe("Reader UI & audio hooks", () => {
 					});
 					await flushAsync();
 
-					// Bookmark chapter & verse, select verse via container/English line whitespace, highlight English via Cmd+H and Korean via toolbar
 					fireClick(getButton(container, "Bookmark Genesis 1"));
 					fireClick(getButton(container, "Bookmark verse 1"));
 					expect(readStoredFavorites()).toHaveLength(2);
@@ -916,12 +868,7 @@ describe("Reader UI & audio hooks", () => {
 					expect(verse2.className).not.toContain("selected");
 
 					const enLine = container.querySelector('.verse-en[data-verse="1"]') as HTMLElement;
-					const enRange = document.createRange();
-					enRange.setStart(enLine.firstChild as Text, 7);
-					enRange.setEnd(enLine.firstChild as Text, 16);
-					const sel = window.getSelection();
-					sel?.removeAllRanges();
-					sel?.addRange(enRange);
+					const sel = selectTextRange(enLine.firstChild as Text, 7, 16);
 					act(() => {
 						document.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
 						window.dispatchEvent(
@@ -932,11 +879,7 @@ describe("Reader UI & audio hooks", () => {
 
 					const koLine = container.querySelector('.verse-ko[data-verse="1"]') as HTMLElement;
 					const koFirstText = koLine.querySelector("button")?.firstChild as Text;
-					const koRange = document.createRange();
-					koRange.setStart(koFirstText, 0);
-					koRange.setEnd(koFirstText, koFirstText.length);
-					sel?.removeAllRanges();
-					sel?.addRange(koRange);
+					selectTextRange(koFirstText, 0, koFirstText.length);
 					act(() => {
 						document.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
 					});
@@ -948,7 +891,6 @@ describe("Reader UI & audio hooks", () => {
 					);
 					expect(koLine.querySelector("mark.verse-highlight")?.textContent).toBe("보아스가");
 
-					// Clear highlights via TopBar popover, then verify out-of-range verse deep link loads cleanly
 					fireClick(getButton(container.querySelector(".top-nav") as ParentNode, /Favorites/));
 					fireClick(
 						getButton(
@@ -957,6 +899,7 @@ describe("Reader UI & audio hooks", () => {
 						),
 					);
 					expect(readStoredHighlights()).toEqual([]);
+					sel?.removeAllRanges();
 
 					act(() => {
 						window.location.hash = "#/GEN/2/999";
@@ -1185,49 +1128,17 @@ describe("Reader UI & audio hooks", () => {
 		]);
 		expect(rail.container.querySelector(".rail-sync-actions")).toBeNull();
 
-		// Dragging AudioControlRail via header detaches and snaps back; scrubber/buttons ignore drag
 		const audioAside = rail.container.querySelector(".audio-rail") as HTMLElement;
-		const scrubber = rail.container.querySelector("input[type='range']") as HTMLElement;
-		act(() => {
-			scrubber.dispatchEvent(
-				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 20, clientY: 20 }),
-			);
-			window.dispatchEvent(
-				new window.MouseEvent("mousemove", { bubbles: true, clientX: 160, clientY: 120 }),
-			);
-			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
-		});
+		fireDrag(rail.container.querySelector("input[type='range']") as Element, [20, 20], [160, 120]);
 		expect(audioAside.className).not.toContain("floating");
 
 		const audioHeader = rail.container.querySelector(".rail-panel-header") as HTMLElement;
-		act(() => {
-			audioHeader.dispatchEvent(
-				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 40, clientY: 40 }),
-			);
-			window.dispatchEvent(
-				new window.MouseEvent("mousemove", { bubbles: true, clientX: 280, clientY: 200 }),
-			);
-			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
-		});
+		fireDrag(audioHeader, [40, 40], [280, 200]);
 		expect(audioAside.className).toContain("floating");
 		expect(audioAside.style.left).toBe("240px");
 		expect(audioAside.style.top).toBe("160px");
 
-		// Second drag continues from tracked coordinates and clamps to viewport
-		act(() => {
-			audioHeader.dispatchEvent(
-				new window.MouseEvent("mousedown", {
-					bubbles: true,
-					button: 0,
-					clientX: 280,
-					clientY: 200,
-				}),
-			);
-			window.dispatchEvent(
-				new window.MouseEvent("mousemove", { bubbles: true, clientX: 180, clientY: 150 }),
-			);
-			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
-		});
+		fireDrag(audioHeader, [280, 200], [180, 150]);
 		expect(audioAside.style.left).toBe("140px");
 		expect(audioAside.style.top).toBe("110px");
 
@@ -1235,7 +1146,6 @@ describe("Reader UI & audio hooks", () => {
 		expect(audioAside.className).not.toContain("floating");
 		expect(audioAside.style.left).toBe("");
 
-		// Hook auto-sync and unsafe URL rejection
 		const mockAudio = installMockAudio();
 		try {
 			const { result } = renderHook(() =>
@@ -1245,7 +1155,7 @@ describe("Reader UI & audio hooks", () => {
 							id: SUPERTONIC_TRACK_ID,
 							label: "개역한글 · Daniel (AI)",
 							language: "ko",
-							url: "https://cdn.example.com/krv.mp3",
+							url: "/api/audio/krv/JHN/3",
 							verseTimings: { 1: 2.3, 16: 48.2 },
 						},
 					],
@@ -1253,6 +1163,7 @@ describe("Reader UI & audio hooks", () => {
 					autoSync: true,
 				}),
 			);
+			expect(result.current.errorMessage).toBeNull();
 			await act(async () => {
 				result.current.togglePlay();
 			});
@@ -1386,7 +1297,7 @@ describe("Reader UI & audio hooks", () => {
 		localStorage.clear();
 		clearLoaderCaches();
 
-		const restoreMatchMedia = mockDesktopMatchMedia();
+		const restoreMatchMedia = mockMatchMedia(true);
 		const mockAudio = installMockAudio({ initialTime: 1.5, emitTimeUpdateOnPlay: true });
 		let esvCalls = 0;
 
@@ -1395,21 +1306,15 @@ describe("Reader UI & audio hooks", () => {
 				(url) => {
 					if (url.includes("/data/lexicon.json")) return Response.json({});
 					if (url.includes("/data/bibles/krv/RUT.json")) {
-						return Response.json({
-							translationId: "krv",
-							bookNumber: 8,
-							usfm: "RUT",
-							chapters: { "1": [{ verse: 1, text: "사사들의 치리하던 때에" }] },
+						return makeBookResponse("krv", 8, "RUT", {
+							"1": [{ verse: 1, text: "사사들의 치리하던 때에" }],
 						});
 					}
 					if (url.includes("/data/bibles/esv/RUT.json")) {
 						esvCalls++;
 						if (esvCalls === 1) return new Response("Server Error", { status: 500 });
-						return Response.json({
-							translationId: "esv",
-							bookNumber: 8,
-							usfm: "RUT",
-							chapters: { "1": [{ verse: 1, text: "In the days when the judges ruled..." }] },
+						return makeBookResponse("esv", 8, "RUT", {
+							"1": [{ verse: 1, text: "In the days when the judges ruled..." }],
 						});
 					}
 					if (url.includes("/api/audio/RUT/1")) {

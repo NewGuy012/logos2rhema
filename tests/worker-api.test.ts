@@ -6,6 +6,12 @@ import { isSafeHttpsUrl } from "../src/shared/url";
 import type { FetchLike } from "../src/worker/http";
 import { createApp, type R2BucketLike, type R2ObjectBodyLike } from "../src/worker/index";
 
+function assertSecurityHeaders(res: Response) {
+	expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+	expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+	expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+}
+
 describe("Worker API & Security Boundaries", () => {
 	it("validates AUDIO_BASE_URL and serves Supertonic KRV and Crossway ESV tracks when configured", async () => {
 		const captured = { authHeader: null as string | null, query: null as string | null };
@@ -318,15 +324,6 @@ describe("Worker API & Security Boundaries", () => {
 		});
 		const app = createApp();
 
-		const assertSecurityHeaders = (res: Response) => {
-			expect(res.headers.get("strict-transport-security")).toBe(
-				"max-age=31536000; includeSubDomains",
-			);
-			expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
-			expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-		};
-
-		// Invalid refs & unbound/malformed requests must make 0 R2 calls.
 		bucket.resetCounts();
 		const badRef = await app.request("/api/audio/krv/GEN/999", undefined, { AUDIO_BUCKET: bucket });
 		expect(badRef.status).toBe(400);
@@ -378,7 +375,6 @@ describe("Worker API & Security Boundaries", () => {
 		assertSecurityHeaders(zeroSuffixRes);
 		expect(bucket.totalOps()).toBe(0);
 
-		// 200 full stream (at most 1 R2 op).
 		bucket.resetCounts();
 		const fullRes = await app.request("/api/audio/krv/gen/1", undefined, { AUDIO_BUCKET: bucket });
 		expect(fullRes.status).toBe(200);
@@ -393,14 +389,12 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		// Sanitizes non-audio Content-Type metadata back to audio/mpeg.
 		bucket.resetCounts();
 		const mimeRes = await app.request("/api/audio/krv/EXO/1", undefined, { AUDIO_BUCKET: bucket });
 		expect(mimeRes.status).toBe(200);
 		expect(mimeRes.headers.get("content-type")).toBe("audio/mpeg");
 		expect(bucket.totalOps()).toBe(1);
 
-		// 206 bounded byte-range (bytes=0-3).
 		bucket.resetCounts();
 		const rangeRes = await app.request(
 			"/api/audio/krv/GEN/1",
@@ -417,7 +411,6 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		// 206 suffix range (bytes=-4).
 		bucket.resetCounts();
 		const suffixRes = await app.request(
 			"/api/audio/krv/GEN/1",
@@ -431,7 +424,6 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		// 304 Not Modified on matching If-None-Match (cancels body stream, <= 1 R2 op).
 		bucket.resetCounts();
 		const notModifiedRes = await app.request(
 			"/api/audio/krv/GEN/1",
@@ -446,7 +438,6 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		// HEAD uses bucket.head even with Range (0 gets, 1 head) and returns empty body + 206 headers.
 		bucket.resetCounts();
 		const headRes = await app.request(
 			"/api/audio/krv/GEN/1",
@@ -476,7 +467,6 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.headCalls).toBe(1);
 		expect(bucket.getCalls).toBe(0);
 
-		// HEAD fallback when bucket.head is absent cancels body stream and still uses 1 R2 op.
 		const getOnlyBucket = createMockAudioBucket(
 			{ "GEN/1.mp3": { data: "0123456789", contentType: "audio/mpeg", httpEtag: '"etag-gen-1"' } },
 			{ omitHead: true },
@@ -492,7 +482,6 @@ describe("Worker API & Security Boundaries", () => {
 		expect(getOnlyBucket.getCalls).toBe(1);
 		expect(getOnlyBucket.cancelledStreams).toBe(1);
 
-		// 404 missing key returns no-store and 1 R2 op.
 		bucket.resetCounts();
 		const missingRes = await app.request("/api/audio/krv/GEN/2", undefined, {
 			AUDIO_BUCKET: bucket,
@@ -502,7 +491,6 @@ describe("Worker API & Security Boundaries", () => {
 		assertSecurityHeaders(missingRes);
 		expect(bucket.totalOps()).toBe(1);
 
-		// 416 out-of-bounds range start >= size cancels stream and returns Content-Range: bytes */size.
 		bucket.resetCounts();
 		const oobRes = await app.request(
 			"/api/audio/krv/GEN/1",
@@ -516,7 +504,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		// Also handles R2 runtime 10039 InvalidRange exceptions cleanly as 416.
+		// Handles R2 runtime 10039 InvalidRange exceptions as 416.
 		const throwingBucket = createMockAudioBucket(
 			{ "GEN/1.mp3": { data: "0123456789", contentType: "audio/mpeg", httpEtag: '"etag-gen-1"' } },
 			{ throwOnOobRange: true },
@@ -550,15 +538,19 @@ function createMockAudioBucket(
 } {
 	const encoder = new TextEncoder();
 
+	const makeMeta = (spec: MockAudioObjectSpec, size: number) => ({
+		size,
+		httpEtag: spec.httpEtag,
+		httpMetadata: spec.contentType ? { contentType: spec.contentType } : undefined,
+	});
+
 	const makeStream = (bytes: Uint8Array, onCancel: () => void) =>
 		new ReadableStream<Uint8Array>({
 			pull(controller) {
 				if (bytes.byteLength > 0) controller.enqueue(bytes);
 				controller.close();
 			},
-			cancel() {
-				onCancel();
-			},
+			cancel: onCancel,
 		});
 
 	const bucket = {
@@ -578,13 +570,7 @@ function createMockAudioBucket(
 			: async (key: string): Promise<R2ObjectBodyLike | null> => {
 					bucket.headCalls++;
 					const spec = objects[key];
-					if (!spec) return null;
-					const bytes = encoder.encode(spec.data);
-					return {
-						size: bytes.byteLength,
-						httpEtag: spec.httpEtag,
-						httpMetadata: spec.contentType ? { contentType: spec.contentType } : undefined,
-					};
+					return spec ? makeMeta(spec, encoder.encode(spec.data).byteLength) : null;
 				},
 		async get(
 			key: string,
@@ -600,18 +586,14 @@ function createMockAudioBucket(
 			if (!spec) return null;
 			const bytes = encoder.encode(spec.data);
 			const size = bytes.byteLength;
+			const meta = makeMeta(spec, size);
 			const onCancel = () => {
 				bucket.cancelledStreams++;
 			};
 
 			const range = getOptions?.range;
 			if (!range) {
-				return {
-					size,
-					httpEtag: spec.httpEtag,
-					httpMetadata: spec.contentType ? { contentType: spec.contentType } : undefined,
-					body: makeStream(bytes, onCancel),
-				};
+				return { ...meta, body: makeStream(bytes, onCancel) };
 			}
 
 			let offset = 0;
@@ -625,13 +607,7 @@ function createMockAudioBucket(
 					throw new Error("get: The requested range is not satisfiable (10039)");
 				}
 				if (rawOffset >= size) {
-					return {
-						size,
-						httpEtag: spec.httpEtag,
-						httpMetadata: spec.contentType ? { contentType: spec.contentType } : undefined,
-						range: { offset: 0, length: size },
-						body: makeStream(bytes, onCancel),
-					};
+					return { ...meta, range: { offset: 0, length: size }, body: makeStream(bytes, onCancel) };
 				}
 				offset = rawOffset;
 				const maxLen = Math.max(0, size - offset);
@@ -641,13 +617,13 @@ function createMockAudioBucket(
 						: maxLen;
 			}
 
-			const sliced = length > 0 ? bytes.slice(offset, offset + length) : new Uint8Array(0);
 			return {
-				size,
-				httpEtag: spec.httpEtag,
-				httpMetadata: spec.contentType ? { contentType: spec.contentType } : undefined,
+				...meta,
 				range: { offset, length },
-				body: makeStream(sliced, onCancel),
+				body: makeStream(
+					length > 0 ? bytes.slice(offset, offset + length) : new Uint8Array(0),
+					onCancel,
+				),
 			};
 		},
 	};

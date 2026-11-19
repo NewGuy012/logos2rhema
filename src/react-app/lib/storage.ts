@@ -17,9 +17,7 @@ export function writeJsonStorage(key: string, value: unknown): void {
 	if (typeof localStorage === "undefined") return;
 	try {
 		localStorage.setItem(key, JSON.stringify(value));
-	} catch {
-		// Ignore storage quota errors
-	}
+	} catch {}
 }
 
 function parseStoredBookChapter(

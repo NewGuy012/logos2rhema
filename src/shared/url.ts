@@ -40,9 +40,7 @@ export function isSafeHttpsUrl(
 			for (const value of [rawUrl, parsed.href]) {
 				try {
 					candidates.push(decodeURIComponent(value));
-				} catch {
-					// Ignore malformed percent-escapes
-				}
+				} catch {}
 			}
 			if (
 				candidates.some((value) => {

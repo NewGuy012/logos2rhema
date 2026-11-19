@@ -147,9 +147,7 @@ export function loadChapterCommentary(options: {
 				try {
 					const payload = (await res.json()) as { error?: string };
 					if (payload?.error) message = payload.error;
-				} catch {
-					// Ignore non-JSON error body
-				}
+				} catch {}
 				throw new Error(message);
 			}
 			return (await res.json()) as ChapterCommentaryResponse;

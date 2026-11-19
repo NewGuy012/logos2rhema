@@ -76,10 +76,10 @@ export async function waitUntil(assertion: () => void, timeoutMs = 1500): Promis
 	throw lastError;
 }
 
-export function mockDesktopMatchMedia(): () => void {
+export function mockMatchMedia(matches = true): () => void {
 	const original = window.matchMedia;
 	window.matchMedia = ((query: string) => ({
-		matches: query.includes("min-width: 1024px"),
+		matches: matches && query.includes("min-width: 1024px"),
 		media: query,
 		onchange: null,
 		addListener: noop,
@@ -217,5 +217,22 @@ export function setInputValue(input: HTMLInputElement, value: string): void {
 export function submitForm(form: HTMLFormElement): void {
 	act(() => {
 		form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+	});
+}
+
+export function fireDrag(el: Element, from: [number, number], to: [number, number]): void {
+	act(() => {
+		el.dispatchEvent(
+			new window.MouseEvent("mousedown", {
+				bubbles: true,
+				button: 0,
+				clientX: from[0],
+				clientY: from[1],
+			}),
+		);
+		window.dispatchEvent(
+			new window.MouseEvent("mousemove", { bubbles: true, clientX: to[0], clientY: to[1] }),
+		);
+		window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
 	});
 }
