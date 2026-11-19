@@ -18,7 +18,7 @@ export const CANONICAL_BIBLES: Record<TranslationLanguage, TranslationMeta> = {
 		name: "Korean Revised Version (1961)",
 		nativeName: "성경전서 개역한글판 (1961)",
 		language: "ko",
-		hasAudio: true,
-		audioLabel: "Korean Narration (Supertonic 3 / Wordproject)",
+		hasAudio: false,
+		audioLabel: "Supertonic 3 Korean · Daniel (Verse-Synced)",
 	},
 };

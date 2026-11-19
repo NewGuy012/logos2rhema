@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { normalizeVerseTimings } from "../src/shared/audio-timings";
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 import type {
 	ChapterAudioResponse,
@@ -7,7 +8,6 @@ import type {
 	CommentaryMeta,
 	ReaderConfigResponse,
 } from "../src/shared/types";
-import { extractHelloAoAudioTracks } from "../src/worker/helloao";
 import { type FetchLike, isSafeHttpsUrl } from "../src/worker/http";
 import { createApp } from "../src/worker/index";
 
@@ -41,21 +41,17 @@ describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
 		});
 		const badBody = (await badRes.json()) as ReaderConfigResponse;
 		expect(badBody.krvSyncedAudioEnabled).toBe(false);
-		expect(badBody.korean.audioLabel).toBe("Wordproject Korean Narration");
+		expect(badBody.korean.hasAudio).toBe(false);
+		expect(badBody.korean.audioLabel).toBeUndefined();
 		expect(badBody.esvAudioEnabled).toBe(false);
 		expect(badBody.english.hasAudio).toBe(false);
 	});
 
 	it("serves Supertonic custom KRV track with stable ID and Crossway ESV track when AUDIO_BASE_URL and ESV_API_KEY are set", async () => {
-		let helloAoAudioCalled = false;
 		const captured = { authHeader: null as string | null, query: null as string | null };
 
 		const mockFetch: FetchLike = async (input, init) => {
 			const url = String(input);
-			if (url.includes("/kor_old/")) {
-				helloAoAudioCalled = true;
-				return new Response("unexpected", { status: 500 });
-			}
 			if (url.startsWith("https://api.esv.org/v3/passage/audio/")) {
 				captured.authHeader = new Headers(init?.headers).get("Authorization");
 				captured.query = new URL(url).searchParams.get("q");
@@ -74,7 +70,6 @@ describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
 		});
 
 		expect(res.status).toBe(200);
-		expect(helloAoAudioCalled).toBe(false);
 		expect(captured.authHeader).toBe("Token esv-secret-key");
 		expect(captured.query).toBe("John 3");
 
@@ -98,7 +93,7 @@ describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
 		expect(enTrack?.url).toBe("https://audio.esv.org/hw/43003001-43003036.mp3");
 	});
 
-	it("falls back to Wordproject Korean audio and Crossway single-chapter ESV query when AUDIO_BASE_URL is unset", async () => {
+	it("returns only Crossway single-chapter ESV track and omits KRV audio when AUDIO_BASE_URL is unset", async () => {
 		const secretKey = "esv-super-secret-token-123";
 		const captured = { authHeader: null as string | null, query: null as string | null };
 
@@ -112,14 +107,7 @@ describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
 					headers: { Location: "https://audio.esv.org/hw/65001001-65001025.mp3" },
 				});
 			}
-			if (url.includes("/kor_old/JUD/1.json")) {
-				return Response.json({
-					thisChapterAudioLinks: {
-						wordproject: "https://audio.bible.helloao.org/api/kor_old/JUD/1/audio/wordproject.mp3",
-					},
-				});
-			}
-			return new Response("Not Found", { status: 404 });
+			return new Response(`unexpected upstream fetch: ${url}`, { status: 500 });
 		};
 
 		const app = createApp({ fetcher: mockFetch });
@@ -135,21 +123,13 @@ describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
 		const audioBody = JSON.parse(audioText) as ChapterAudioResponse;
 		const koTrack = audioBody.tracks.find((t) => t.language === "ko");
 		const enTrack = audioBody.tracks.find((t) => t.language === "en");
-		expect(koTrack?.url).toContain("wordproject.mp3");
+		expect(koTrack).toBeUndefined();
 		expect(enTrack?.source).toBe("esv-api");
 		expect(enTrack?.url).toBe("https://audio.esv.org/hw/65001001-65001025.mp3");
 	});
 
 	it("validates invalid chapter references, removed legacy endpoints, methods, SSRF URLs, and error headers", async () => {
-		const mockFetch: FetchLike = async (input) => {
-			const url = String(input);
-			if (url.includes("/kor_old/GEN/1.json")) {
-				return Response.json({
-					thisChapterAudioLinks: { wordproject: "http://insecure.example.com/gen1.mp3" },
-				});
-			}
-			return new Response("Upstream Down", { status: 503 });
-		};
+		const mockFetch: FetchLike = async () => new Response("Upstream Down", { status: 503 });
 
 		expect(isSafeHttpsUrl("https://cdn.example.com/gen1.mp3")).toBe(true);
 		expect(isSafeHttpsUrl("https://127.0.0.1/gen1.mp3")).toBe(false);
@@ -297,29 +277,9 @@ describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
 		expect(failRes.headers.get("x-content-type-options")).toBe("nosniff");
 	});
 
-	it("extracts HelloAO timings only when valid numeric verse entries exist", () => {
-		const tracks = extractHelloAoAudioTracks(
-			{
-				thisChapterAudioLinks: {
-					wordproject: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
-					reader2: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/reader2.mp3",
-					reader3: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/reader3.mp3",
-				},
-				thisChapterAudioTimings: {
-					wordproject:
-						"https://bible.helloao.org/api/kor_old/GEN/1.wordproject.json" as unknown as Record<
-							string,
-							number
-						>,
-					reader2: { "0": 0, bad: Number.NaN },
-					reader3: { "1": 1.2, "2": 6.8 },
-				},
-			},
-			{ translationId: "krv", language: "ko" },
-		);
-
-		expect(tracks[0]?.verseTimings).toBeUndefined();
-		expect(tracks[1]?.verseTimings).toBeUndefined();
-		expect(tracks[2]?.verseTimings).toEqual({ 1: 1.2, 2: 6.8 });
+	it("normalizes verse timings only when valid positive numeric verse entries exist", () => {
+		expect(normalizeVerseTimings("invalid-string")).toBeUndefined();
+		expect(normalizeVerseTimings({ "0": 0, bad: Number.NaN, "-1": 5, "3": -2 })).toBeUndefined();
+		expect(normalizeVerseTimings({ "1": 1.2, "2": 6.8, bad: "x" })).toEqual({ 1: 1.2, 2: 6.8 });
 	});
 });

@@ -98,7 +98,7 @@ export function FloatingBottomBar({
 	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = preferredLang === "ko" ? activeKoCode : activeEnCode;
 	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
-	const showUnavailable = Boolean(!activeTrack && preferredLang === "en");
+	const showUnavailable = Boolean(!activeTrack);
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
 	const showFollowChip = Boolean(
@@ -130,6 +130,7 @@ export function FloatingBottomBar({
 									preferredLang={preferredLang}
 									tracks={tracks}
 									activeKoCode={activeKoCode}
+									activeEnCode={activeEnCode}
 									onSelectLanguage={onSelectLanguage}
 								/>
 							</div>

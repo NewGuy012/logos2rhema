@@ -11,11 +11,7 @@ import type {
 	TranslationMeta,
 } from "../shared/types";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
-import {
-	extractHelloAoAudioTracks,
-	fetchHelloAoChapter,
-	fetchHelloAoCommentaryChapter,
-} from "./helloao";
+import { fetchHelloAoCommentaryChapter } from "./helloao";
 import { type FetchLike, isSafeHttpsUrl } from "./http";
 
 interface WorkerBindings {
@@ -90,10 +86,8 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		const korean: TranslationMeta = {
 			...CANONICAL_BIBLES.ko,
-			hasAudio: true,
-			audioLabel: hasCustomAudio
-				? "Supertonic 3 Korean · Daniel (Verse-Synced)"
-				: "Wordproject Korean Narration",
+			hasAudio: hasCustomAudio,
+			audioLabel: hasCustomAudio ? "Supertonic 3 Korean · Daniel (Verse-Synced)" : undefined,
 		};
 
 		const body: ReaderConfigResponse = {
@@ -118,28 +112,21 @@ export function createApp(deps: WorkerDeps = {}) {
 		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
 
 		const resolveKoreanTracks = async (): Promise<AudioTrackOption[]> => {
-			if (customAudioBase && isSafeHttpsUrl(customAudioBase)) {
-				const cleanBase = customAudioBase.replace(/\/+$/, "");
-				return [
-					{
-						id: "custom:krv:supertonic",
-						label: "개역한글 · Daniel (AI)",
-						language: "ko",
-						translationId: "krv",
-						url: `${cleanBase}/${usfm}/${chapter}.mp3`,
-						source: "custom",
-						note: "AI-synthesized narration (Supertonic 3 · Daniel)",
-					},
-				];
+			if (!customAudioBase || !isSafeHttpsUrl(customAudioBase)) {
+				return [];
 			}
-
-			const korPayload = await fetchHelloAoChapter("kor_old", usfm, chapter, fetcher);
-			if (!korPayload) return [];
-			return extractHelloAoAudioTracks(korPayload, {
-				translationId: "krv",
-				language: "ko",
-				note: "Paired with Wordproject Korean human narration",
-			});
+			const cleanBase = customAudioBase.replace(/\/+$/, "");
+			return [
+				{
+					id: "custom:krv:supertonic",
+					label: "개역한글 · Daniel (AI)",
+					language: "ko",
+					translationId: "krv",
+					url: `${cleanBase}/${usfm}/${chapter}.mp3`,
+					source: "custom",
+					note: "AI-synthesized narration (Supertonic 3 · Daniel)",
+				},
+			];
 		};
 
 		const resolveEnglishTracks = async (): Promise<AudioTrackOption[]> => {

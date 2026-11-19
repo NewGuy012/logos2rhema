@@ -21,10 +21,6 @@ const STATIC_TIMINGS_SOURCES: Readonly<Record<string, { dir: string; note: strin
 		dir: "krv-supertonic",
 		note: "AI-synthesized (Supertonic 3 · Daniel) · Exact verse sync",
 	},
-	"helloao:krv:wordproject": {
-		dir: "krv-wordproject",
-		note: "Verse-synced (offline KRV alignment)",
-	},
 };
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
 const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>>();
@@ -142,10 +138,7 @@ export async function loadSyncedChapterAudio(options: {
 		const payload = (await res.json()) as ChapterAudioResponse;
 		const tracks = await Promise.all(
 			payload.tracks.map(async (track) => {
-				if (
-					(track.source !== "custom" && track.source !== "helloao") ||
-					hasVerseTimings(track.verseTimings)
-				) {
+				if (track.source !== "custom" || hasVerseTimings(track.verseTimings)) {
 					return track;
 				}
 				const timingSource = STATIC_TIMINGS_SOURCES[track.id];

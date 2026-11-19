@@ -756,12 +756,12 @@ describe("Reader UI & audio hooks", () => {
 		const onSelectLanguage = mock(() => {});
 		const onSkipBy = mock((_delta: number) => {});
 		const koTrack = {
-			id: "helloao:krv:wordproject",
-			label: "Wordproject Reader (KRV)",
+			id: "custom:krv:supertonic",
+			label: "개역한글 · Daniel (AI)",
 			language: "ko",
 			translationId: "krv",
-			url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
-			source: "helloao" as const,
+			url: "https://cdn.example.com/krv/GEN/1.mp3",
+			source: "custom" as const,
 		};
 
 		const bar = render(
@@ -797,6 +797,28 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(bar.container, /Use 개역한글/));
 		expect(onSelectLanguage).toHaveBeenCalledWith("ko");
 
+		const enTrack = {
+			id: "esv-api:GEN:1",
+			label: "David Cochran Heath (ESV)",
+			language: "en",
+			translationId: "esv",
+			url: "https://audio.esv.org/hw/gen1.mp3",
+			source: "esv-api" as const,
+		};
+		bar.rerender(
+			<FloatingBottomBar
+				{...baseBarProps()}
+				tracks={[enTrack]}
+				preferredLang="ko"
+				activeTrack={null}
+				dictionaryOpen={false}
+				onToggleDictionary={noop}
+				onSelectLanguage={onSelectLanguage}
+			/>,
+		);
+		fireClick(getButton(bar.container, /Use ESV/));
+		expect(onSelectLanguage).toHaveBeenCalledWith("en");
+
 		const supertonicTrack = {
 			id: "custom:krv:supertonic",
 			label: "개역한글 · Daniel (AI)",
@@ -808,9 +830,9 @@ describe("Reader UI & audio hooks", () => {
 		};
 		const altTrack = {
 			...supertonicTrack,
-			id: "helloao:krv:wordproject",
-			label: "Wordproject Reader (KRV)",
-			source: "helloao" as const,
+			id: "custom:krv:alt",
+			label: "개역한글 · Alternative (AI)",
+			source: "custom" as const,
 		};
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 1.5)).toBeNull();
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 2.1)).toBe(1);
@@ -888,7 +910,7 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(mobileSyncBar.container, "Follow v.12"));
 		expect(onMobileFollow).toHaveBeenCalledTimes(1);
 
-		fireClick(getButton(rail.container, "Wordproject Reader (KRV)"));
+		fireClick(getButton(rail.container, "개역한글 · Alternative (AI)"));
 		expect(onSelectTrack).toHaveBeenCalledWith(altTrack);
 
 		fireClick(
@@ -987,12 +1009,12 @@ describe("Reader UI & audio hooks", () => {
 				useHumanAudio({
 					tracks: [
 						{
-							id: "helloao:krv:wordproject",
-							label: "Wordproject Reader (KRV)",
+							id: "custom:krv:supertonic",
+							label: "개역한글 · Daniel (AI)",
 							language: "ko",
 							translationId: "krv",
 							url: "https://cdn.example.com/krv.mp3",
-							source: "helloao",
+							source: "custom",
 							verseTimings: { 1: 1.2, 16: 48.2 },
 						},
 					],
@@ -1015,7 +1037,7 @@ describe("Reader UI & audio hooks", () => {
 		}
 	});
 
-	it("hydrates static KRV timings for Supertonic custom and Wordproject fallback tracks while preserving ESV", async () => {
+	it("hydrates static KRV timings for Supertonic custom tracks while preserving ESV", async () => {
 		clearAudioTimingsCache();
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -1032,14 +1054,6 @@ describe("Reader UI & audio hooks", () => {
 							translationId: "krv",
 							url: "https://cdn.example.com/JHN/3.mp3",
 							source: "custom",
-						},
-						{
-							id: "helloao:krv:wordproject",
-							label: "Wordproject Reader (KRV)",
-							language: "ko",
-							translationId: "krv",
-							url: "https://audio.bible.helloao.org/api/kor_old/JHN/3/audio/wordproject.mp3",
-							source: "helloao",
 						},
 						{
 							id: "esv-api:JHN:3",
@@ -1062,30 +1076,17 @@ describe("Reader UI & audio hooks", () => {
 					},
 				});
 			}
-			if (url === "/data/timings/krv-wordproject/JHN.json") {
-				return Response.json({
-					translationId: "krv",
-					audioSource: "helloao:krv:wordproject",
-					usfm: "JHN",
-					chapters: {
-						"3": { "1": 2.4, "16": 51.7, bad: "x" },
-					},
-				});
-			}
 			return new Response("Not Found", { status: 404 });
 		}) as unknown as typeof fetch;
 
 		try {
 			const res = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
 			const supertonicTrack = res.tracks.find((t) => t.id === "custom:krv:supertonic");
-			const wpTrack = res.tracks.find((t) => t.id === "helloao:krv:wordproject");
 			const esvTrack = res.tracks.find((t) => t.id === "esv-api:JHN:3");
 			expect(supertonicTrack?.verseTimings).toEqual({ 1: 2.345, 16: 51.789 });
 			expect(supertonicTrack?.note).toBe(
 				"AI-synthesized (Supertonic 3 · Daniel) · Exact verse sync",
 			);
-			expect(wpTrack?.verseTimings).toEqual({ 1: 2.4, 16: 51.7 });
-			expect(wpTrack?.note).toBe("Verse-synced (offline KRV alignment)");
 			expect(esvTrack?.verseTimings).toBeUndefined();
 
 			// Gracefully handles missing timing JSON (404)
@@ -1180,20 +1181,20 @@ describe("Reader UI & audio hooks", () => {
 					chapter: 1,
 					tracks: [
 						{
-							id: "helloao:krv:wordproject",
-							label: "Wordproject Reader (KRV)",
+							id: "custom:krv:supertonic",
+							label: "개역한글 · Daniel (AI)",
 							language: "ko",
 							translationId: "krv",
-							url: "https://audio.bible.helloao.org/api/kor_old/GEN/1/audio/wordproject.mp3",
-							source: "helloao",
+							url: "https://cdn.example.com/krv/GEN/1.mp3",
+							source: "custom",
 						},
 					],
 				});
 			}
-			if (url.includes("/data/timings/krv-wordproject/GEN.json")) {
+			if (url.includes("/data/timings/krv-supertonic/GEN.json")) {
 				return Response.json({
 					translationId: "krv",
-					audioSource: "helloao:krv:wordproject",
+					audioSource: "custom:krv:supertonic",
 					usfm: "GEN",
 					chapters: { "1": { "1": 1.2 } },
 				});

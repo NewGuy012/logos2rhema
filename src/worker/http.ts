@@ -64,25 +64,3 @@ export function fetchWithTimeout(
 			: undefined);
 	return fetcher(input, signal ? { ...init, signal } : init);
 }
-
-export async function fetchJson<T>(
-	fetcher: FetchLike,
-	input: string | URL,
-	init: RequestInit = {},
-	timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<T | null> {
-	const headers = new Headers(init.headers);
-	if (!headers.has("Accept")) {
-		headers.set("Accept", "application/json");
-	}
-	try {
-		const response = await fetchWithTimeout(fetcher, input, { ...init, headers }, timeoutMs);
-		if (!response.ok) {
-			response.body?.cancel?.().catch(() => {});
-			return null;
-		}
-		return (await response.json()) as T;
-	} catch {
-		return null;
-	}
-}

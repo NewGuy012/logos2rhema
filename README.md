@@ -10,9 +10,9 @@ A lean, distraction-free bilingual Bible web app for reading and listening to Sc
   - **Left Rail**: Collapsible sticky **Audio & Verse Sync** player (Play/Pause, `한` / `EN` toggle, scrubber, 10s skip, speed menu, and two-way visible-verse auto-sync with scroll pause/follow recovery).
   - **Center**: Stacked verse pairs with verse deep-links (`#/JHN/3/16`), verse/chapter **Bookmarks**, text **Highlights** (`⌘H` / `Ctrl+H` or floating toolbar), and interactive Korean word tooltips with **Revised Romanization**, **Web Speech (`ko-KR`) pronunciation**, and **View in Dictionary**.
   - **Right Rail (Tabbed)**: Collapsible sticky panel with **Dictionary** (**Korean Dictionary & KRV Grammar Guide** synced to chapter vocabulary with search and pronunciation playback) and **Commentary** (**Tyndale Open Study Notes** & **Matthew Henry Bible Commentary** synced to verse selection with keyword/verse search and book/chapter introductions).
-- **Audio & Commentary Worker Endpoints**: Serves **Supertonic 3 (`Daniel`)** verse-synced Korean KRV audio from Cloudflare R2 (`AUDIO_BASE_URL`, falling back temporarily to Wordproject Korean narration), Crossway **ESV** chapter audio (`ESV_API_KEY`), and keyless HelloAO commentaries:
+- **Audio & Commentary Worker Endpoints**: Serves **Supertonic 3 (`Daniel`)** verse-synced Korean KRV audio from Cloudflare R2 (`AUDIO_BASE_URL`), Crossway **ESV** chapter audio (`ESV_API_KEY`), and keyless HelloAO commentaries:
   - `GET /api/config` — returns canonical translation metadata and audio capability flags
-  - `GET /api/audio/:usfm/:chapter` — resolves `ko` (Supertonic 3 / Wordproject fallback) and `en` (Crossway ESV) chapter audio tracks
+  - `GET /api/audio/:usfm/:chapter` — resolves `ko` (Supertonic 3) and `en` (Crossway ESV) chapter audio tracks
   - `GET /api/audio/esv/:usfm/:chapter` — proxies/redirects Crossway ESV audio when `ESV_API_KEY` is configured
   - `GET /api/commentaries` — returns curated English commentary metadata (`tyndale`, `matthew-henry`)
   - `GET /api/commentary/:commentaryId/:usfm/:chapter` — proxies and normalizes chapter commentary from `bible.helloao.org`

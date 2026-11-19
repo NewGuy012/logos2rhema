@@ -96,7 +96,7 @@ export interface AudioTrackOption {
 	language: TranslationLanguage | (string & {});
 	translationId: string;
 	url: string;
-	source: "esv-api" | "custom" | "helloao";
+	source: "esv-api" | "custom";
 	verseTimings?: Record<number, number>;
 	note?: string;
 }

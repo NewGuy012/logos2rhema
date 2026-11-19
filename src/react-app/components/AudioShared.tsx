@@ -168,21 +168,25 @@ export function AudioFallbackAction({
 	preferredLang,
 	tracks,
 	activeKoCode,
+	activeEnCode,
 	onSelectLanguage,
 }: {
 	preferredLang: string;
 	tracks: AudioTrackOption[];
 	activeKoCode: string;
+	activeEnCode: string;
 	onSelectLanguage: (lang: string) => void;
 }) {
-	if (preferredLang !== "en" || !tracks.some((t) => t.language === "ko")) return null;
+	const fallbackLang = preferredLang === "en" ? "ko" : "en";
+	if (!tracks.some((t) => t.language === fallbackLang)) return null;
+	const fallbackCode = fallbackLang === "ko" ? activeKoCode : activeEnCode;
 	return (
 		<button
 			type="button"
 			className="quick-inline-chip active"
-			onClick={() => onSelectLanguage("ko")}
+			onClick={() => onSelectLanguage(fallbackLang)}
 		>
-			Use {activeKoCode} Audio
+			Use {fallbackCode} Audio
 		</button>
 	);
 }

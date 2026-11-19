@@ -1,68 +1,13 @@
-import { normalizeVerseTimings } from "../shared/audio-timings";
 import { getCommentaryMeta } from "../shared/commentaries";
 import type {
-	AudioTrackOption,
 	ChapterCommentaryResponse,
 	CommentaryEntry,
 	CommentaryId,
 	CommentaryMeta,
-	TranslationLanguage,
 } from "../shared/types";
-import { fetchJson, type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
+import { type FetchLike, fetchWithTimeout } from "./http";
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
-
-interface HelloAoAudioPayload {
-	thisChapterAudioLinks?: Record<string, string>;
-	thisChapterAudioTimings?: Record<string, Record<string, number>>;
-}
-
-function formatReaderName(readerKey: string): string {
-	return readerKey === "wordproject"
-		? "Wordproject Reader"
-		: readerKey.charAt(0).toUpperCase() + readerKey.slice(1);
-}
-
-export function extractHelloAoAudioTracks(
-	payload: HelloAoAudioPayload,
-	options: {
-		translationId: string;
-		language: TranslationLanguage;
-		note?: string;
-	},
-): AudioTrackOption[] {
-	const links = payload.thisChapterAudioLinks ?? {};
-	const timingsByReader = payload.thisChapterAudioTimings ?? {};
-	const tracks: AudioTrackOption[] = [];
-
-	for (const [readerKey, url] of Object.entries(links)) {
-		if (!url || !isSafeHttpsUrl(url)) continue;
-		const verseTimings = normalizeVerseTimings(timingsByReader[readerKey]);
-
-		tracks.push({
-			id: `helloao:${options.translationId}:${readerKey}`,
-			label: `${formatReaderName(readerKey)} (${options.translationId.toUpperCase()})`,
-			language: options.language,
-			translationId: options.translationId,
-			url,
-			source: "helloao",
-			verseTimings,
-			note: options.note,
-		});
-	}
-
-	return tracks;
-}
-
-export function fetchHelloAoChapter(
-	externalTranslationId: string,
-	usfm: string,
-	chapter: number,
-	fetcher: FetchLike = fetch,
-): Promise<HelloAoAudioPayload | null> {
-	const url = `${HELLOAO_BASE}/${encodeURIComponent(externalTranslationId)}/${encodeURIComponent(usfm)}/${chapter}.json`;
-	return fetchJson<HelloAoAudioPayload>(fetcher, url);
-}
 
 export interface HelloAoCommentaryPayload {
 	book?: {

@@ -193,6 +193,7 @@ export function AudioControlRail({
 								preferredLang={preferredLang}
 								tracks={tracks}
 								activeKoCode={activeKoCode}
+								activeEnCode={activeEnCode}
 								onSelectLanguage={onSelectLanguage}
 							/>
 						</div>
