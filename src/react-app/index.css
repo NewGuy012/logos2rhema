@@ -1604,6 +1604,17 @@ button:focus:not(:focus-visible) {
 	gap: 0.4rem;
 }
 
+.rail-settings-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	min-width: 0;
+}
+
+.rail-settings-btn svg {
+	flex-shrink: 0;
+}
+
 .dict-disclosure-btn:hover,
 .rail-settings-btn:hover {
 	background: var(--glass-control);
@@ -3223,7 +3234,8 @@ button:focus:not(:focus-visible) {
 	background: var(--border-hairline);
 }
 
-.rail-section-head {
+.rail-section-head,
+.rail-kv-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -3394,13 +3406,20 @@ button:focus:not(:focus-visible) {
 }
 
 .rail-sync-status {
+	margin: 0;
 	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.4rem;
+	flex-direction: column;
+	gap: 0.42rem;
+}
+
+.rail-sync-value {
+	margin: 0;
 	font-size: 0.72rem;
+	font-weight: 500;
 	font-variant-numeric: tabular-nums;
+	line-height: 1.3;
 	color: var(--text-secondary);
+	white-space: nowrap;
 }
 
 .rail-sync-hint {

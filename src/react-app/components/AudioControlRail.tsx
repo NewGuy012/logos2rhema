@@ -22,6 +22,7 @@ import {
 	RefreshCw,
 	RotateCcw,
 	RotateCw,
+	Settings,
 } from "./Icons";
 import { PanelSnapBackButton } from "./RailShared";
 
@@ -108,6 +109,7 @@ export function AudioControlRail({
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
 	const showFollowButton = Boolean(syncActive && isPlaying && !isFollowingAudio && activeVerse);
+	const showPlayFromButton = !isPlaying || (activeVerse !== null && activeVerse !== visibleVerse);
 
 	return (
 		<aside
@@ -259,7 +261,10 @@ export function AudioControlRail({
 						aria-expanded={settingsOpen}
 						onClick={() => setSettingsOpen((prev) => !prev)}
 					>
-						<span>Settings</span>
+						<span className="rail-settings-label">
+							<Settings size={13} />
+							<span>Settings</span>
+						</span>
 						{settingsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 					</button>
 
@@ -287,13 +292,21 @@ export function AudioControlRail({
 
 							{hasTimestamps ? (
 								<>
-									<div className="rail-sync-status">
-										<span>Reading v.{visibleVerse}</span>
-										{isPlaying && activeVerse && <span>Playing v.{activeVerse}</span>}
-									</div>
+									<dl className="rail-sync-status">
+										<div className="rail-kv-row">
+											<dt className="rail-section-label">Reading</dt>
+											<dd className="rail-sync-value">v.{visibleVerse}</dd>
+										</div>
+										{Boolean(isPlaying && activeVerse) && (
+											<div className="rail-kv-row">
+												<dt className="rail-section-label">Playing</dt>
+												<dd className="rail-sync-value">v.{activeVerse}</dd>
+											</div>
+										)}
+									</dl>
 
-									<div className="rail-sync-actions">
-										{(!isPlaying || (activeVerse !== null && activeVerse !== visibleVerse)) && (
+									{showPlayFromButton && (
+										<div className="rail-sync-actions">
 											<button
 												type="button"
 												className="rail-sync-btn"
@@ -302,8 +315,8 @@ export function AudioControlRail({
 												<Crosshair size={12} />
 												<span>Play from v.{visibleVerse}</span>
 											</button>
-										)}
-									</div>
+										</div>
+									)}
 								</>
 							) : (
 								activeTrack && (

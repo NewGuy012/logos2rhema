@@ -1135,9 +1135,62 @@ describe("Reader UI & audio hooks", () => {
 		);
 		expect(onChangeSpeed).toHaveBeenCalledWith(1.25);
 
-		fireClick(getButton(rail.container, "Settings"));
+		const readSyncDetails = () =>
+			Array.from(rail.container.querySelectorAll(".rail-sync-status .rail-kv-row")).map((row) => [
+				row.querySelector("dt")?.textContent,
+				row.querySelector("dd")?.textContent,
+			]);
+		const settingsBtn = getButton(rail.container, "Settings");
+		expect(settingsBtn.querySelector(".rail-settings-label svg")).not.toBeNull();
+		fireClick(settingsBtn);
+		expect(readSyncDetails()).toEqual([
+			["Reading", "v.16"],
+			["Playing", "v.12"],
+		]);
 		fireClick(getButton(rail.container, "Play from v.16"));
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
+
+		const pausedRailProps = {
+			...baseBarProps(),
+			bookEn: "John",
+			bookKo: "요한복음",
+			chapter: 3,
+			tracks: [supertonicTrack],
+			preferredLang: "ko" as const,
+			activeTrack: supertonicTrack,
+			autoSync: true,
+			isFollowingAudio: true,
+			onChangeSpeed,
+			onToggleAutoSync: noop,
+			onSyncToVisibleVerse: onSyncToVisible,
+			onFollowActiveVerse: onFollowActive,
+		};
+		rail.rerender(
+			<AudioControlRail
+				{...pausedRailProps}
+				isPlaying={false}
+				currentTime={0}
+				visibleVerse={1}
+				activeVerse={null}
+			/>,
+		);
+		expect(readSyncDetails()).toEqual([["Reading", "v.1"]]);
+		expect(getButton(rail.container, "Play from v.1")).toBeDefined();
+
+		rail.rerender(
+			<AudioControlRail
+				{...pausedRailProps}
+				isPlaying={true}
+				currentTime={35}
+				visibleVerse={12}
+				activeVerse={12}
+			/>,
+		);
+		expect(readSyncDetails()).toEqual([
+			["Reading", "v.12"],
+			["Playing", "v.12"],
+		]);
+		expect(rail.container.querySelector(".rail-sync-actions")).toBeNull();
 
 		// Dragging AudioControlRail via header detaches and snaps back; scrubber/buttons ignore drag
 		const audioAside = rail.container.querySelector(".audio-rail") as HTMLElement;
