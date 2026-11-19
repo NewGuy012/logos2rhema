@@ -28,6 +28,13 @@ describe("spb-parser", () => {
 		);
 		expect(res.heading).toBe("A Psalm of David");
 		expect(res.text).toBe("The LORD is my shepherd; I shall not want.");
+
+		const shortRes = extractPsalmSuperscription(
+			19,
+			1,
+			"OF DAVID.To you, O LORD, I lift up my soul.",
+		);
+		expect(shortRes.heading).toBe("Of David");
 	});
 
 	it("preserves non-Psalm verse 1 text untouched", () => {
@@ -91,6 +98,7 @@ describe("books & passage reference parser", () => {
 			verse: undefined,
 		});
 		expect(findBookByQuery("1Cor")?.usfm).toBe("1CO");
+		expect(findBookByQuery("toString")).toBeUndefined();
 	});
 
 	it("computes adjacent chapters across book boundaries", () => {

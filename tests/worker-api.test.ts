@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 import type { ChapterAudioResponse, ReaderConfigResponse } from "../src/shared/types";
 import { clearBibleBrainCache, selectAudioFilesetsForTestament } from "../src/worker/bible-brain";
-import type { FetchLike } from "../src/worker/http";
+import { type FetchLike, isSafeHttpsUrl } from "../src/worker/http";
 import { createApp } from "../src/worker/index";
 
 describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
@@ -279,7 +279,7 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(spaTrack?.verseTimings?.[16]).toBe(42.5);
 	});
 
-	it("validates invalid chapter references, methods, and insecure audio URLs", async () => {
+	it("validates invalid chapter references, methods, SSRF URLs, and error headers", async () => {
 		const mockFetch: FetchLike = async (input) => {
 			const url = String(input);
 			if (url.includes("/kor_old/GEN/1.json")) {
@@ -287,18 +287,44 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 					thisChapterAudioLinks: { wordproject: "http://insecure.example.com/gen1.mp3" },
 				});
 			}
-			return new Response("Not Found", { status: 404 });
+			return new Response("Upstream Down", { status: 503 });
 		};
+
+		expect(isSafeHttpsUrl("https://cdn.example.com/gen1.mp3")).toBe(true);
+		expect(isSafeHttpsUrl("https://127.0.0.1/gen1.mp3")).toBe(false);
+		expect(isSafeHttpsUrl("https://0x7f000001/gen1.mp3")).toBe(false);
+		expect(isSafeHttpsUrl("https://[::1]/gen1.mp3")).toBe(false);
+		expect(isSafeHttpsUrl("https://localhost/gen1.mp3")).toBe(false);
+		expect(isSafeHttpsUrl("https://cdn.example.com:8443/gen1.mp3")).toBe(false);
+		expect(
+			isSafeHttpsUrl("https://cdn.example.com/a.mp3?k=a%2Bb", { forbiddenSubstring: "a+b" }),
+		).toBe(false);
 
 		const app = createApp({ fetcher: mockFetch });
 		expect((await app.request("/api/audio/GEN/999")).status).toBe(400);
 		expect((await app.request("/api/audio/GEN/1abc")).status).toBe(400);
-		expect((await app.request("/api/audio/GEN/1", { method: "POST" })).status).toBe(405);
+
+		const badMethod = await app.request("/api/audio/GEN/1", { method: "POST" });
+		expect(badMethod.status).toBe(405);
+		expect(badMethod.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(badMethod.headers.get("content-security-policy")).toContain("default-src 'none'");
 
 		const res = await app.request("/api/audio/GEN/1");
 		expect(res.status).toBe(200);
 		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
 		const body = (await res.json()) as ChapterAudioResponse;
 		expect(body.tracks).toEqual([]);
+
+		const failPassage = await app.request("/api/passage/bb:ENGESV/GEN/1", undefined, {
+			BIBLE_BRAIN_API_KEY: "bb-key",
+		});
+		expect(failPassage.status).toBe(502);
+		expect(failPassage.headers.get("cache-control")).toBe("no-store");
+
+		const failLangs = await app.request("/api/languages", undefined, {
+			BIBLE_BRAIN_API_KEY: "bb-key",
+		});
+		expect(failLangs.status).toBe(502);
+		expect(failLangs.headers.get("cache-control")).toBe("no-store");
 	});
 });

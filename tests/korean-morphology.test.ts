@@ -114,4 +114,9 @@ describe("korean-morphology", () => {
 		expect(romanizeHangul("성령")).toBe("seong-nyeong");
 		expect(romanizeHangul("좋다")).toBe("jo-ta");
 	});
+
+	it("ignores Object.prototype keys during glossary and lexicon lookup", () => {
+		expect(analyzeKoreanWord("toString", SAMPLE_LEXICON).matched).toBe(false);
+		expect(analyzeKoreanWord("constructor", SAMPLE_LEXICON).matched).toBe(false);
+	});
 });
