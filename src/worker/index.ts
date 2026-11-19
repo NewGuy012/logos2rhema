@@ -172,13 +172,12 @@ function parsePositiveInt(raw: string | undefined, min: number, max: number): nu
 }
 
 function parseChapterRef(
-	usfmRaw: string,
-	chapterRaw: string,
+	c: Context<{ Bindings: WorkerBindings }>,
 ): { book: BookMeta; usfm: string; chapter: number } | null {
-	const usfm = usfmRaw.toUpperCase();
+	const usfm = (c.req.param("usfm") ?? "").toUpperCase();
 	const book = getBookByUsfm(usfm);
 	if (!book) return null;
-	const chapter = parsePositiveInt(chapterRaw, 1, book.chapters);
+	const chapter = parsePositiveInt(c.req.param("chapter"), 1, book.chapters);
 	return chapter !== null ? { book, usfm, chapter } : null;
 }
 
@@ -206,6 +205,8 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 	});
 
+	app.notFound((c) => jsonError(c, 404, "Not found"));
+
 	app.onError((_err, c) => {
 		const res = jsonError(c, 502, "Upstream service error");
 		applySecurityHeaders(res.headers);
@@ -213,7 +214,7 @@ export function createApp(deps: WorkerDeps = {}) {
 	});
 
 	app.get("/api/audio/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		const parsed = parseChapterRef(c);
 		if (!parsed) {
 			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
@@ -252,7 +253,7 @@ export function createApp(deps: WorkerDeps = {}) {
 	});
 
 	app.get("/api/audio/krv/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		const parsed = parseChapterRef(c);
 		if (!parsed) {
 			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
@@ -267,10 +268,9 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (rawRangeHeader !== undefined) {
 			const rangeResult = parseByteRangeHeader(rawRangeHeader);
 			if (!rangeResult.ok) {
-				return new Response(null, {
-					status: rangeResult.status,
-					headers: { "Cache-Control": "no-store" },
-				});
+				return rangeResult.status === 416
+					? rangeNotSatisfiableResponse()
+					: new Response(null, { status: 400, headers: { "Cache-Control": "no-store" } });
 			}
 			parsedRange = rangeResult.value;
 		}
@@ -341,7 +341,7 @@ export function createApp(deps: WorkerDeps = {}) {
 	});
 
 	app.get("/api/audio/esv/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		const parsed = parseChapterRef(c);
 		if (!parsed) {
 			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
@@ -374,8 +374,12 @@ export function createApp(deps: WorkerDeps = {}) {
 			);
 			headers.set("Content-Disposition", "inline");
 			headers.set("Cache-Control", "private, max-age=1800");
+			const contentLength = resolved.directStreamResponse.headers.get("content-length")?.trim();
+			if (contentLength && /^\d+$/.test(contentLength)) {
+				headers.set("Content-Length", contentLength);
+			}
 			return new Response(resolved.directStreamResponse.body, {
-				status: resolved.directStreamResponse.status,
+				status: 200,
 				headers,
 			});
 		}
@@ -388,7 +392,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (!isCommentaryId(commentaryId)) {
 			return jsonError(c, 400, "Unsupported commentary source");
 		}
-		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
+		const parsed = parseChapterRef(c);
 		if (!parsed) {
 			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
@@ -403,7 +407,10 @@ export function createApp(deps: WorkerDeps = {}) {
 			return jsonError(c, 502, "Commentary lookup failed");
 		}
 
-		c.header("Cache-Control", "public, max-age=86400");
+		c.header(
+			"Cache-Control",
+			result.status === "empty" ? "public, max-age=3600" : "public, max-age=86400",
+		);
 		return c.json(result.data);
 	});
 

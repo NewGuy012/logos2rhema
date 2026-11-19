@@ -23,14 +23,17 @@ export function fetchWithTimeout(
 }
 
 export async function readJsonWithLimit(response: Response, maxBytes: number): Promise<unknown> {
-	const contentLen = Number(response.headers.get("content-length"));
+	const rawLen = response.headers.get("content-length");
+	const contentLen = rawLen !== null && rawLen.trim() !== "" ? Number(rawLen) : Number.NaN;
 	if (Number.isFinite(contentLen) && contentLen > maxBytes) {
 		cancelBody(response);
 		throw new Error("Upstream response exceeded size limit");
 	}
 	if (!response.body) {
 		const text = await response.text();
-		if (text.length > maxBytes) throw new Error("Upstream response exceeded size limit");
+		if (new TextEncoder().encode(text).byteLength > maxBytes) {
+			throw new Error("Upstream response exceeded size limit");
+		}
 		return JSON.parse(text) as unknown;
 	}
 	const reader = response.body.getReader();
