@@ -104,6 +104,12 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 		);
 
 		expect(container.querySelector(".panel-title")?.textContent).toBe("Dictionary");
+		const subtitleLines = Array.from(
+			container.querySelectorAll(".panel-subtitle .panel-subtitle-line"),
+		).map((el) => el.textContent);
+		expect(subtitleLines).toEqual(["John 3", "요한복음 3장"]);
+		const tablist = container.querySelector('[role="tablist"][aria-label="Study panel"]');
+		expect(tablist?.getAttribute("aria-orientation")).toBe("vertical");
 		fireClick(getButton(container, "Commentary"));
 		expect(onChangeTab).toHaveBeenCalledWith("commentary");
 

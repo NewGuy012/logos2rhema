@@ -9,7 +9,7 @@ import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePane
 import { CommentaryPanel } from "./CommentaryPanel";
 import { FootnotesGuide } from "./FootnotesGuide";
 import { BookOpen, BookText, ChevronDown, ChevronRight } from "./Icons";
-import { PanelSnapBackButton } from "./RailShared";
+import { PanelHeaderText, PanelSnapBackButton } from "./RailShared";
 
 interface StudyRightRailProps {
 	activeTab: RightRailTab;
@@ -106,15 +106,12 @@ export function StudyRightRail({
 				) : (
 					<span aria-hidden="true" />
 				)}
-				<div className="panel-header-text">
-					<h2 className="panel-title">{isDictionary ? "Dictionary" : "Commentary"}</h2>
-					<p className="panel-subtitle">
-						{bookEn} {chapter} ·{" "}
-						<span lang="ko">
-							{bookKo} {chapter}장
-						</span>
-					</p>
-				</div>
+				<PanelHeaderText
+					title={isDictionary ? "Dictionary" : "Commentary"}
+					bookEn={bookEn}
+					bookKo={bookKo}
+					chapter={chapter}
+				/>
 				{onMinimize && (
 					<button
 						type="button"
@@ -130,7 +127,12 @@ export function StudyRightRail({
 			</div>
 
 			<div className="right-rail-tabs-wrap">
-				<div className="segmented-row right-rail-tabs" role="tablist" aria-label="Study panel">
+				<div
+					className="segmented-row right-rail-tabs"
+					role="tablist"
+					aria-label="Study panel"
+					aria-orientation="vertical"
+				>
 					<button
 						id="right-rail-tab-dictionary"
 						type="button"
@@ -142,7 +144,7 @@ export function StudyRightRail({
 							if (!isDictionary) onChangeTab("dictionary");
 						}}
 					>
-						<BookOpen size={12} />
+						<BookOpen size={13} />
 						<span>Dictionary</span>
 					</button>
 					<button
@@ -156,7 +158,7 @@ export function StudyRightRail({
 							if (isDictionary) onChangeTab("commentary");
 						}}
 					>
-						<BookText size={12} />
+						<BookText size={13} />
 						<span>Commentary</span>
 					</button>
 				</div>

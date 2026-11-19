@@ -910,6 +910,22 @@ export default function App() {
 
 	const maxVerseInChapter = alignedVerses[alignedVerses.length - 1]?.verse;
 
+	const handleOpenFromHome = useCallback(
+		(
+			targetBook: number,
+			targetChapter: number,
+			verse?: number,
+			options?: { rightRailTab?: RightRailTab },
+		) => {
+			if (options?.rightRailTab) {
+				updatePref("rightRailTab", options.rightRailTab);
+				if (isDesktop) setSidebarOpen(true);
+			}
+			navigateTo(targetBook, targetChapter, verse);
+		},
+		[isDesktop, navigateTo, updatePref],
+	);
+
 	const savedItemsProps = {
 		favorites,
 		highlights,
@@ -981,7 +997,10 @@ export default function App() {
 					lastBookNumber={bookNumber}
 					lastChapter={chapter}
 					lastVerse={lastVerse}
+					commentarySource={prefs.commentarySource}
+					onChangeCommentarySource={(source) => updatePref("commentarySource", source)}
 					{...savedItemsProps}
+					onOpenPassage={handleOpenFromHome}
 				/>
 			) : (
 				<>

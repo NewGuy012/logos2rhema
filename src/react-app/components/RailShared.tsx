@@ -2,6 +2,32 @@ import type { ReactNode } from "react";
 
 import { ChevronDown, ChevronRight, Pin, Search, X } from "./Icons";
 
+export function PanelHeaderText({
+	title,
+	bookEn,
+	bookKo,
+	chapter,
+}: {
+	title: string;
+	bookEn: string;
+	bookKo: string;
+	chapter: number;
+}) {
+	return (
+		<div className="panel-header-text">
+			<h2 className="panel-title">{title}</h2>
+			<p className="panel-subtitle">
+				<span className="panel-subtitle-line">
+					{bookEn} {chapter}
+				</span>
+				<span className="panel-subtitle-line" lang="ko">
+					{bookKo} {chapter}장
+				</span>
+			</p>
+		</div>
+	);
+}
+
 export function PanelSnapBackButton({
 	onClick,
 	ariaLabel,

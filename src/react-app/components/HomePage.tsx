@@ -1,11 +1,15 @@
 import { Fragment, useId, useMemo, useState } from "react";
 
 import { BIBLE_BOOKS, filterBooks, getBookByNumber } from "../../shared/books";
+import { DEFAULT_COMMENTARY_ID } from "../../shared/commentaries";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { BookMeta } from "../../shared/types";
+import type { BookMeta, CommentaryId, RightRailTab } from "../../shared/types";
 import { useIsDesktopLayout } from "../hooks/useMediaQuery";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
+import { HomeAudioBrowser } from "./HomeAudioBrowser";
+import { HomeCommentaryBrowser } from "./HomeCommentaryBrowser";
+import { HomeDictionaryBrowser } from "./HomeDictionaryBrowser";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -20,14 +24,24 @@ interface HomePageProps extends SavedItemsProps {
 	lastBookNumber: number;
 	lastChapter: number;
 	lastVerse?: number;
-	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
+	commentarySource?: CommentaryId;
+	onChangeCommentarySource?: (source: CommentaryId) => void;
+	onOpenPassage: (
+		bookNumber: number,
+		chapter: number,
+		verse?: number,
+		options?: { rightRailTab?: RightRailTab },
+	) => void;
 }
 
-type ScriptureGrouping = "scripture" | "genres";
+type BrowseSection = "scripture" | "genres" | "audio" | "dictionary" | "commentary";
 
-const SCRIPTURE_GROUPINGS: ReadonlyArray<{ id: ScriptureGrouping; label: string }> = [
+const BROWSE_SECTIONS: ReadonlyArray<{ id: BrowseSection; label: string }> = [
 	{ id: "scripture", label: "Scripture" },
 	{ id: "genres", label: "Genres" },
+	{ id: "audio", label: "Audio" },
+	{ id: "dictionary", label: "Dictionary" },
+	{ id: "commentary", label: "Commentary" },
 ];
 
 export function HomePage({
@@ -36,6 +50,8 @@ export function HomePage({
 	lastVerse = 1,
 	favorites = [],
 	highlights = [],
+	commentarySource,
+	onChangeCommentarySource,
 	onOpenPassage,
 	onRemoveFavorite,
 	onRemoveHighlight,
@@ -44,11 +60,16 @@ export function HomePage({
 }: HomePageProps) {
 	const [query, setQuery] = useState("");
 	const [selectedBook, setSelectedBook] = useState<BookMeta | null>(null);
-	const [grouping, setGrouping] = useState<ScriptureGrouping>("scripture");
+	const [browseSection, setBrowseSection] = useState<BrowseSection>("scripture");
+	const [localCommentarySource, setLocalCommentarySource] =
+		useState<CommentaryId>(DEFAULT_COMMENTARY_ID);
 	const [favoritesOpen, setFavoritesOpen] = useState(false);
 	const favoritesPanelId = useId();
 	const isDesktop = useIsDesktopLayout();
 	const testamentBookColumns = isDesktop ? 3 : 2;
+
+	const activeCommentarySource = commentarySource ?? localCommentarySource;
+	const handleChangeCommentarySource = onChangeCommentarySource ?? setLocalCommentarySource;
 
 	const lastBook = useMemo(
 		() => getBookByNumber(lastBookNumber) ?? BIBLE_BOOKS[0],
@@ -74,6 +95,9 @@ export function HomePage({
 			setSelectedBook,
 		);
 	};
+
+	const isBookDrilldown =
+		selectedBook !== null && (browseSection === "scripture" || browseSection === "genres");
 
 	return (
 		<main className="home-container">
@@ -160,10 +184,10 @@ export function HomePage({
 			<section className="home-section" aria-label="Browse">
 				<div className="home-browser-header">
 					<h2 className="home-section-title">
-						{selectedBook ? `${selectedBook.en} · ${selectedBook.ko}` : "Browse"}
+						{isBookDrilldown ? `${selectedBook.en} · ${selectedBook.ko}` : "Browse"}
 					</h2>
 
-					{selectedBook ? (
+					{isBookDrilldown ? (
 						<button
 							type="button"
 							className="icon-btn"
@@ -177,18 +201,23 @@ export function HomePage({
 						<div
 							className="segmented-row home-grouping-toggle"
 							role="tablist"
-							aria-label="Scripture book grouping"
+							aria-label="Browse sections"
 						>
-							{SCRIPTURE_GROUPINGS.map((option) => {
-								const active = grouping === option.id;
+							{BROWSE_SECTIONS.map((option) => {
+								const active = browseSection === option.id;
 								return (
 									<button
 										key={option.id}
+										id={`home-browse-tab-${option.id}`}
 										type="button"
 										role="tab"
 										aria-selected={active}
+										aria-controls={`home-browse-panel-${option.id}`}
 										className={`segmented-btn ${active ? "active" : ""}`.trim()}
-										onClick={() => setGrouping(option.id)}
+										onClick={() => {
+											setSelectedBook(null);
+											setBrowseSection(option.id);
+										}}
 									>
 										{option.label}
 									</button>
@@ -198,75 +227,106 @@ export function HomePage({
 					)}
 				</div>
 
-				<form className="home-search-form" onSubmit={handleSearchSubmit}>
-					<Search size={16} className="home-search-icon" />
-					<input
-						type="search"
-						className="home-search-input"
-						placeholder="Go to passage (e.g. John 3:16, 요 3:16, 시 23, Ruth 4)..."
-						value={query}
-						onChange={(e) => {
-							setQuery(e.target.value);
-							if (selectedBook) setSelectedBook(null);
-						}}
-						aria-label="Go to Bible passage"
-					/>
-					<button type="submit" className="home-search-submit">
-						Go to
-					</button>
-				</form>
+				<div
+					id={`home-browse-panel-${browseSection}`}
+					role="tabpanel"
+					aria-labelledby={`home-browse-tab-${browseSection}`}
+					className="home-browse-panel"
+				>
+					{browseSection === "audio" ? (
+						<HomeAudioBrowser
+							initialBookNumber={lastBook.number}
+							initialChapter={lastChapter}
+							onOpenPassage={onOpenPassage}
+						/>
+					) : browseSection === "commentary" ? (
+						<HomeCommentaryBrowser
+							initialBookNumber={lastBook.number}
+							initialChapter={lastChapter}
+							source={activeCommentarySource}
+							onChangeSource={handleChangeCommentarySource}
+							onOpenPassage={onOpenPassage}
+						/>
+					) : browseSection === "dictionary" ? (
+						<HomeDictionaryBrowser
+							initialBookNumber={lastBook.number}
+							initialChapter={lastChapter}
+							onOpenPassage={onOpenPassage}
+						/>
+					) : (
+						<>
+							<form className="home-search-form" onSubmit={handleSearchSubmit}>
+								<Search size={16} className="home-search-icon" />
+								<input
+									type="search"
+									className="home-search-input"
+									placeholder="Go to passage (e.g. John 3:16, 요 3:16, 시 23, Ruth 4)..."
+									value={query}
+									onChange={(e) => {
+										setQuery(e.target.value);
+										if (selectedBook) setSelectedBook(null);
+									}}
+									aria-label="Go to Bible passage"
+								/>
+								<button type="submit" className="home-search-submit">
+									Go to
+								</button>
+							</form>
 
-				{selectedBook ? (
-					<BookChapterGrid
-						books={[]}
-						selectedBook={selectedBook}
-						currentBookNumber={lastBook.number}
-						currentChapter={lastChapter}
-						showChapterCount={true}
-						onSelectBook={setSelectedBook}
-						onSelectChapter={onOpenPassage}
-					/>
-				) : grouping === "genres" ? (
-					<GenresBrowser
-						currentBookNumber={lastBook.number}
-						allowedBookNumbers={query.trim() ? matchedBookNumbers : undefined}
-						onSelectBook={setSelectedBook}
-						onSelectChapter={onOpenPassage}
-					/>
-				) : (
-					<div className="home-testaments">
-						{[
-							{ labelEn: "Old Testament", labelKo: "구약", books: otBooks },
-							{ labelEn: "New Testament", labelKo: "신약", books: ntBooks },
-						].map((col, idx) => (
-							<Fragment key={col.labelEn}>
-								{idx > 0 && <div className="home-testament-divider" aria-hidden="true" />}
-								<div className="home-testament-col">
-									<h3 className="home-testament-heading">
-										<span>{col.labelEn}</span>
-										<span className="home-testament-ko" lang="ko">
-											{col.labelKo} ({col.books.length})
-										</span>
-									</h3>
-									{col.books.length === 0 ? (
-										<p className="home-testament-empty">No matching books</p>
-									) : (
-										<BookChapterGrid
-											books={col.books}
-											selectedBook={null}
-											currentBookNumber={lastBook.number}
-											currentChapter={lastChapter}
-											showChapterCount={true}
-											verticalColumns={testamentBookColumns}
-											onSelectBook={setSelectedBook}
-											onSelectChapter={onOpenPassage}
-										/>
-									)}
+							{isBookDrilldown ? (
+								<BookChapterGrid
+									books={[]}
+									selectedBook={selectedBook}
+									currentBookNumber={lastBook.number}
+									currentChapter={lastChapter}
+									showChapterCount={true}
+									onSelectBook={setSelectedBook}
+									onSelectChapter={onOpenPassage}
+								/>
+							) : browseSection === "genres" ? (
+								<GenresBrowser
+									currentBookNumber={lastBook.number}
+									allowedBookNumbers={query.trim() ? matchedBookNumbers : undefined}
+									onSelectBook={setSelectedBook}
+									onSelectChapter={onOpenPassage}
+								/>
+							) : (
+								<div className="home-testaments">
+									{[
+										{ labelEn: "Old Testament", labelKo: "구약", books: otBooks },
+										{ labelEn: "New Testament", labelKo: "신약", books: ntBooks },
+									].map((col, idx) => (
+										<Fragment key={col.labelEn}>
+											{idx > 0 && <div className="home-testament-divider" aria-hidden="true" />}
+											<div className="home-testament-col">
+												<h3 className="home-testament-heading">
+													<span>{col.labelEn}</span>
+													<span className="home-testament-ko" lang="ko">
+														{col.labelKo} ({col.books.length})
+													</span>
+												</h3>
+												{col.books.length === 0 ? (
+													<p className="home-testament-empty">No matching books</p>
+												) : (
+													<BookChapterGrid
+														books={col.books}
+														selectedBook={null}
+														currentBookNumber={lastBook.number}
+														currentChapter={lastChapter}
+														showChapterCount={true}
+														verticalColumns={testamentBookColumns}
+														onSelectBook={setSelectedBook}
+														onSelectChapter={onOpenPassage}
+													/>
+												)}
+											</div>
+										</Fragment>
+									))}
 								</div>
-							</Fragment>
-						))}
-					</div>
-				)}
+							)}
+						</>
+					)}
+				</div>
 			</section>
 
 			<section className="home-section home-about-section" aria-label="About Logos2Rhema">

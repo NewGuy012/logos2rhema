@@ -1,0 +1,384 @@
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+
+import { act } from "react";
+
+import App from "../src/react-app/App";
+import { HomePage } from "../src/react-app/components/HomePage";
+import { clearLoaderCaches } from "../src/react-app/lib/bible-loader";
+import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
+import { KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
+import {
+	fireClick,
+	flushAsync,
+	getButton,
+	getByText,
+	installMockAudio,
+	mockMatchMedia,
+	noop,
+	render,
+	setInputValue,
+	waitUntil,
+	withMockFetch,
+} from "./setup";
+
+function setSelectValue(select: HTMLSelectElement, value: string): void {
+	act(() => {
+		select.value = value;
+		select.dispatchEvent(new window.Event("change", { bubbles: true }));
+	});
+}
+
+describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
+	beforeEach(() => {
+		clearLoaderCaches();
+		window.location.hash = "";
+		localStorage.clear();
+	});
+
+	it("browses chapter audio, plays synced audio, switches passages, and opens reader", async () => {
+		const mockAudio = installMockAudio({ emitTimeUpdateOnPlay: true });
+		const onOpenPassage = mock(() => {});
+		const fetchedUrls: string[] = [];
+
+		try {
+			await withMockFetch(
+				(url) => {
+					fetchedUrls.push(url);
+					if (url.startsWith("/api/audio/")) {
+						return Response.json({
+							tracks: [
+								{
+									id: SUPERTONIC_TRACK_ID,
+									label: "개역한글 · Daniel (AI)",
+									language: "ko",
+									url: `${url.replace("/api/audio/", "/api/audio/krv/")}.mp3`,
+								},
+								{
+									id: "esv-audio",
+									label: "ESV Audio",
+									language: "en",
+									url: `${url.replace("/api/audio/", "/api/audio/esv/")}`,
+								},
+							],
+						});
+					}
+					if (url.includes("/data/timings/krv-supertonic/")) {
+						return Response.json({
+							chapters: {
+								"1": { "1": 0, "2": 8 },
+								"23": { "1": 0, "2": 5 },
+							},
+						});
+					}
+					return new Response(null, { status: 404 });
+				},
+				async () => {
+					const { container } = render(
+						<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
+					);
+
+					const browseSection = container.querySelector(
+						'section[aria-label="Browse"]',
+					) as ParentNode;
+					const tabLabels = Array.from(
+						browseSection.querySelectorAll(
+							'[role="tablist"][aria-label="Browse sections"] [role="tab"]',
+						),
+					).map((el) => el.textContent);
+					expect(tabLabels).toEqual(["Scripture", "Genres", "Audio", "Dictionary", "Commentary"]);
+
+					fireClick(getButton(browseSection, "Audio"));
+					await flushAsync();
+					await waitUntil(() => {
+						expect(getByText(browseSection, "Genesis 1")).toBeDefined();
+						expect(getByText(browseSection, "Verse-synced")).toBeDefined();
+					});
+					expect(fetchedUrls).toContain("/api/audio/GEN/1");
+
+					fireClick(getButton(browseSection, "Play audio"));
+					await flushAsync();
+					await waitUntil(() => {
+						expect(getButton(browseSection, "Pause audio")).toBeDefined();
+						expect(getButton(browseSection, /Playing v\.1/)).toBeDefined();
+					});
+
+					fireClick(getButton(browseSection, "EN"));
+					expect(getByText(browseSection, "ESV Audio")).toBeDefined();
+
+					expect(browseSection.querySelector("input[type='search']")).toBeNull();
+					expect(browseSection.querySelector(".books-grid")).toBeNull();
+
+					fireClick(getButton(browseSection, "2"));
+					await flushAsync();
+					await waitUntil(() => {
+						expect(getByText(browseSection, "Genesis 2")).toBeDefined();
+						expect(fetchedUrls).toContain("/api/audio/GEN/2");
+					});
+
+					fireClick(getButton(browseSection, "Next chapter"));
+					await flushAsync();
+					await waitUntil(() => {
+						expect(getByText(browseSection, "Genesis 3")).toBeDefined();
+						expect(fetchedUrls).toContain("/api/audio/GEN/3");
+					});
+
+					fireClick(getButton(browseSection, "Open in Reader"));
+					expect(onOpenPassage).toHaveBeenCalledWith(1, 3, undefined);
+				},
+			);
+		} finally {
+			mockAudio.restore();
+		}
+	});
+
+	it("browses commentary, switches sources/passages, filters notes, retries errors, and jumps to reader", async () => {
+		const onOpenPassage = mock(() => {});
+		const onChangeSource = mock(() => {});
+		let failFirst = true;
+
+		await withMockFetch(
+			(url) => {
+				if (url === "/api/commentary/tyndale/GEN/1") {
+					if (failFirst) {
+						failFirst = false;
+						return Response.json({ error: "Upstream unavailable" }, { status: 502 });
+					}
+					return Response.json({
+						bookIntroduction: ["Genesis introduces creation and covenant."],
+						entries: [
+							{
+								id: "tyndale:GEN:1:1",
+								verseStart: 1,
+								paragraphs: ["God created the heavens and the earth out of nothing."],
+							},
+							{
+								id: "tyndale:GEN:1:3",
+								verseStart: 3,
+								paragraphs: ["God spoke light into existence."],
+							},
+						],
+					});
+				}
+				if (url === "/api/commentary/matthew-henry/PSA/23") {
+					return Response.json({
+						introduction: ["David's shepherd psalm of trust."],
+						entries: [
+							{
+								id: "matthew-henry:PSA:23:1",
+								verseStart: 1,
+								verseEnd: 6,
+								heading: "The Lord Is My Shepherd",
+								paragraphs: ["Grace and goodness follow the believer all their days."],
+							},
+						],
+					});
+				}
+				return Response.json({ entries: [] });
+			},
+			async () => {
+				const { container, rerender } = render(
+					<HomePage
+						lastBookNumber={1}
+						lastChapter={1}
+						commentarySource="tyndale"
+						onChangeCommentarySource={onChangeSource}
+						onOpenPassage={onOpenPassage}
+					/>,
+				);
+
+				const browseSection = container.querySelector('section[aria-label="Browse"]') as ParentNode;
+				fireClick(getButton(browseSection, "Commentary"));
+
+				await waitUntil(() => {
+					expect(getByText(browseSection, "Upstream unavailable")).toBeDefined();
+				});
+				fireClick(getButton(browseSection, "Try again"));
+
+				await waitUntil(() => {
+					expect(getByText(browseSection, /God created the heavens/)).toBeDefined();
+				});
+
+				const searchInput = browseSection.querySelector("input[type='search']") as HTMLInputElement;
+				setInputValue(searchInput, "v.3");
+				expect(browseSection.querySelector('[data-commentary-id="tyndale:GEN:1:1"]')).toBeNull();
+				expect(
+					browseSection.querySelector('[data-commentary-id="tyndale:GEN:1:3"]'),
+				).not.toBeNull();
+				fireClick(getButton(browseSection, "Clear commentary search"));
+
+				fireClick(getButton(browseSection, "Matthew Henry"));
+				expect(onChangeSource).toHaveBeenCalledWith("matthew-henry");
+
+				rerender(
+					<HomePage
+						lastBookNumber={1}
+						lastChapter={1}
+						commentarySource="matthew-henry"
+						onChangeCommentarySource={onChangeSource}
+						onOpenPassage={onOpenPassage}
+					/>,
+				);
+
+				const bookSelect = browseSection.querySelector(
+					'select[aria-label="Select book"]',
+				) as HTMLSelectElement;
+				setSelectValue(bookSelect, "19");
+				const chapterSelect = browseSection.querySelector(
+					'select[aria-label="Select chapter"]',
+				) as HTMLSelectElement;
+				setSelectValue(chapterSelect, "23");
+
+				await waitUntil(() => {
+					expect(getByText(browseSection, "The Lord Is My Shepherd")).toBeDefined();
+				});
+
+				fireClick(getButton(browseSection, "v.1–6"));
+				expect(onOpenPassage).toHaveBeenCalledWith(19, 23, 1, { rightRailTab: "commentary" });
+
+				fireClick(getButton(browseSection, "Open in Reader"));
+				expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined, {
+					rightRailTab: "commentary",
+				});
+			},
+		);
+	});
+
+	it("browses dictionary glossary, lexicon search, chapter vocabulary, and KRV grammar", async () => {
+		const onOpenPassage = mock(() => {});
+
+		await withMockFetch(
+			(url) => {
+				if (url.includes("/data/lexicon.json")) {
+					return Response.json({
+						평안: { gloss: "peace / well-being", hanja: "平安", pos: "noun" },
+						찬송가: { gloss: "hymnal / hymn", pos: "noun" },
+					});
+				}
+				if (url.includes("/data/bibles/krv/GEN.json")) {
+					return Response.json({
+						translationId: "krv",
+						bookNumber: 1,
+						usfm: "GEN",
+						chapters: {
+							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+						},
+					});
+				}
+				return new Response(null, { status: 404 });
+			},
+			async () => {
+				const { container } = render(
+					<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
+				);
+
+				const browseSection = container.querySelector('section[aria-label="Browse"]') as ParentNode;
+				fireClick(getButton(browseSection, "Dictionary"));
+
+				await waitUntil(() => {
+					expect(getByText(browseSection, "678 words")).toBeDefined();
+				});
+
+				const dictSearch = browseSection.querySelector("input[type='search']") as HTMLInputElement;
+				setInputValue(dictSearch, "평안");
+				expect(getByText(browseSection, "평안")).toBeDefined();
+				expect(getByText(browseSection, "peace / well-being")).toBeDefined();
+
+				setInputValue(dictSearch, "taecho");
+				expect(getByText(browseSection, "태초")).toBeDefined();
+				expect(getByText(browseSection, "the beginning")).toBeDefined();
+
+				setInputValue(dictSearch, "hymnal");
+				expect(getByText(browseSection, "찬송가")).toBeDefined();
+				fireClick(getButton(browseSection, "Clear dictionary search"));
+
+				fireClick(getButton(browseSection, "Show more"));
+				expect(getByText(browseSection, /Showing 120 of 678/)).toBeDefined();
+
+				fireClick(getButton(browseSection, "Verbs"));
+				expect(getByText(browseSection, "창조하다")).toBeDefined();
+				expect(browseSection.textContent).not.toContain("찬송가");
+				fireClick(getButton(browseSection, "All"));
+
+				fireClick(getButton(browseSection, "By Chapter"));
+				await waitUntil(() => {
+					expect(getByText(browseSection, "Genesis 1 Words")).toBeDefined();
+					expect(getByText(browseSection, "태초")).toBeDefined();
+				});
+
+				fireClick(getButton(browseSection, "v.1"));
+				expect(onOpenPassage).toHaveBeenCalledWith(1, 1, 1, { rightRailTab: "dictionary" });
+
+				fireClick(getButton(browseSection, "KRV Grammar"));
+				expect(getByText(browseSection, KRV_GRAMMAR_RULES[0].pattern)).toBeDefined();
+				expect(
+					getByText(browseSection, KRV_GRAMMAR_RULES[KRV_GRAMMAR_RULES.length - 1].pattern),
+				).toBeDefined();
+			},
+		);
+	});
+
+	it("opens reader on the commentary tab when jumping from HomePage Commentary browse", async () => {
+		const restoreMatchMedia = mockMatchMedia(true);
+
+		try {
+			await withMockFetch(
+				(url) => {
+					if (url.includes("/data/lexicon.json")) return Response.json({});
+					if (url.includes("/data/bibles/esv/GEN.json")) {
+						return Response.json({
+							translationId: "esv",
+							bookNumber: 1,
+							usfm: "GEN",
+							chapters: { "1": [{ verse: 1, text: "In the beginning, God created." }] },
+						});
+					}
+					if (url.includes("/data/bibles/krv/GEN.json")) {
+						return Response.json({
+							translationId: "krv",
+							bookNumber: 1,
+							usfm: "GEN",
+							chapters: { "1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }] },
+						});
+					}
+					if (url.startsWith("/api/audio/")) return Response.json({ tracks: [] });
+					if (url.startsWith("/api/commentary/")) {
+						return Response.json({
+							entries: [
+								{
+									id: "tyndale:GEN:1:1",
+									verseStart: 1,
+									paragraphs: ["Genesis 1:1 commentary note."],
+								},
+							],
+						});
+					}
+					return new Response(null, { status: 404 });
+				},
+				async () => {
+					const { container } = render(<App />);
+					const browseSection = container.querySelector(
+						'section[aria-label="Browse"]',
+					) as ParentNode;
+					fireClick(getButton(browseSection, "Commentary"));
+
+					await waitUntil(() => {
+						expect(getByText(browseSection, "Genesis 1:1 commentary note.")).toBeDefined();
+					});
+
+					fireClick(getButton(browseSection, "Open in Reader"));
+
+					await waitUntil(() => {
+						expect(window.location.hash).toBe("#/GEN/1");
+						expect(container.querySelector("#footnotes .panel-title")?.textContent).toBe(
+							"Commentary",
+						);
+						expect(getByText(container, "Genesis 1:1 commentary note.")).toBeDefined();
+					});
+				},
+			);
+		} finally {
+			restoreMatchMedia();
+			noop();
+		}
+	});
+});

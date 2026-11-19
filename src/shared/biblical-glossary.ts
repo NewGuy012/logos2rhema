@@ -695,7 +695,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	가에서: { gloss: "from the edge / along the shore", pos: "noun" },
 };
 
-interface KrvGrammarRule {
+export interface KrvGrammarRule {
 	id: string;
 	pattern: string;
 	modern: string;
@@ -703,7 +703,7 @@ interface KrvGrammarRule {
 	matcher: RegExp;
 }
 
-const KRV_GRAMMAR_RULES: readonly KrvGrammarRule[] = [
+export const KRV_GRAMMAR_RULES: readonly KrvGrammarRule[] = [
 	{
 		id: "krv-sinira",
 		pattern: "~하시니라 / ~니라",

@@ -1,4 +1,7 @@
-import type { CommentaryId, CommentaryMeta } from "./types";
+import type { CommentaryEntry, CommentaryId, CommentaryMeta } from "./types";
+
+const MAX_PREVIEW_PARAGRAPHS = 2;
+const MAX_PREVIEW_CHARS = 480;
 
 export const DEFAULT_COMMENTARY_ID: CommentaryId = "tyndale";
 
@@ -33,4 +36,102 @@ export function isCommentaryId(value: unknown): value is CommentaryId {
 
 export function getCommentaryMeta(id: CommentaryId): CommentaryMeta {
 	return COMMENTARY_MAP.get(id) ?? COMMENTARY_SOURCES[0];
+}
+
+export interface IndexedCommentaryEntry {
+	entry: CommentaryEntry;
+	effectiveEnd: number;
+	verseLabel: string;
+}
+
+function getEffectiveVerseEnd(
+	entry: CommentaryEntry,
+	index: number,
+	entries: readonly CommentaryEntry[],
+	source: CommentaryId,
+	maxVerseInChapter?: number,
+): number {
+	if (entry.verseEnd !== undefined) return entry.verseEnd;
+	if (source === "matthew-henry" && index === entries.length - 1) {
+		return maxVerseInChapter && maxVerseInChapter > entry.verseStart
+			? maxVerseInChapter
+			: Number.POSITIVE_INFINITY;
+	}
+	return entry.verseStart;
+}
+
+function formatEntryVerseLabel(verseStart: number, effectiveEnd: number): string {
+	if (Number.isFinite(effectiveEnd) && effectiveEnd > verseStart) {
+		return `v.${verseStart}–${effectiveEnd}`;
+	}
+	if (!Number.isFinite(effectiveEnd)) {
+		return `v.${verseStart}+`;
+	}
+	return `v.${verseStart}`;
+}
+
+export function indexCommentaryEntries(
+	entries: readonly CommentaryEntry[],
+	source: CommentaryId,
+	maxVerseInChapter?: number,
+): IndexedCommentaryEntry[] {
+	return entries.map((entry, idx) => {
+		const effectiveEnd = getEffectiveVerseEnd(entry, idx, entries, source, maxVerseInChapter);
+		return {
+			entry,
+			effectiveEnd,
+			verseLabel: formatEntryVerseLabel(entry.verseStart, effectiveEnd),
+		};
+	});
+}
+
+export function filterCommentaryEntries(
+	indexedEntries: readonly IndexedCommentaryEntry[],
+	trimmedLowerQuery: string,
+): IndexedCommentaryEntry[] {
+	if (!trimmedLowerQuery) return [...indexedEntries];
+	const verseQueryMatch = trimmedLowerQuery.match(/^v\.?\s*(\d+)$/i);
+	const queryVerse = verseQueryMatch ? Number.parseInt(verseQueryMatch[1], 10) : null;
+
+	return indexedEntries.filter(({ entry, effectiveEnd }) => {
+		if (queryVerse !== null && queryVerse >= entry.verseStart && queryVerse <= effectiveEnd) {
+			return true;
+		}
+		if (entry.heading?.toLowerCase().includes(trimmedLowerQuery)) return true;
+		return entry.paragraphs.some((p) => p.toLowerCase().includes(trimmedLowerQuery));
+	});
+}
+
+export function buildCommentaryPreview(paragraphs: readonly string[]): {
+	preview: string[];
+	isTruncated: boolean;
+} {
+	const totalChars = paragraphs.reduce((sum, p) => sum + p.length, 0);
+	if (paragraphs.length <= 3 && totalChars <= 650) {
+		return { preview: [...paragraphs], isTruncated: false };
+	}
+
+	const preview: string[] = [];
+	let usedChars = 0;
+	for (const paragraph of paragraphs) {
+		if (preview.length >= MAX_PREVIEW_PARAGRAPHS) break;
+		const remaining = MAX_PREVIEW_CHARS - usedChars;
+		if (remaining <= 60 && preview.length > 0) break;
+
+		if (paragraph.length <= remaining) {
+			preview.push(paragraph);
+			usedChars += paragraph.length;
+		} else {
+			const slice = paragraph.slice(0, Math.max(80, remaining));
+			const wordBreak = slice.lastIndexOf(" ");
+			const trimmed = wordBreak > 60 ? slice.slice(0, wordBreak) : slice;
+			preview.push(`${trimmed.trimEnd()}…`);
+			return { preview, isTruncated: true };
+		}
+	}
+
+	return {
+		preview,
+		isTruncated: preview.length < paragraphs.length,
+	};
 }

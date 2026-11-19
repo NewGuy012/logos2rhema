@@ -24,7 +24,7 @@ import {
 	RotateCw,
 	Settings,
 } from "./Icons";
-import { PanelSnapBackButton } from "./RailShared";
+import { PanelHeaderText, PanelSnapBackButton } from "./RailShared";
 
 interface AudioControlRailProps extends SharedAudioControlProps {
 	visibleVerse: number;
@@ -92,7 +92,7 @@ export function AudioControlRail({
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
 	const showFollowButton = Boolean(syncActive && isPlaying && !isFollowingAudio && activeVerse);
-	const showPlayFromButton = !isPlaying || (activeVerse !== null && activeVerse !== visibleVerse);
+	const isPlayingVisibleVerse = Boolean(isPlaying && activeVerse === visibleVerse);
 
 	return (
 		<aside
@@ -119,15 +119,7 @@ export function AudioControlRail({
 					) : (
 						<span aria-hidden="true" />
 					)}
-					<div className="panel-header-text">
-						<h2 className="panel-title">Audio</h2>
-						<p className="panel-subtitle">
-							{bookEn} {chapter} ·{" "}
-							<span lang="ko">
-								{bookKo} {chapter}장
-							</span>
-						</p>
-					</div>
+					<PanelHeaderText title="Audio" bookEn={bookEn} bookKo={bookKo} chapter={chapter} />
 					{isFloating ? (
 						<PanelSnapBackButton
 							onClick={resetPosition}
@@ -274,33 +266,34 @@ export function AudioControlRail({
 							</div>
 
 							{hasTimestamps ? (
-								<>
-									<dl className="rail-sync-status">
+								<dl className="rail-sync-status">
+									<div className="rail-kv-row">
+										<dt className="rail-section-label">Reading</dt>
+										<dd className="rail-sync-value">v.{visibleVerse}</dd>
+									</div>
+									{Boolean(isPlaying && activeVerse) && (
 										<div className="rail-kv-row">
-											<dt className="rail-section-label">Reading</dt>
-											<dd className="rail-sync-value">v.{visibleVerse}</dd>
-										</div>
-										{Boolean(isPlaying && activeVerse) && (
-											<div className="rail-kv-row">
-												<dt className="rail-section-label">Playing</dt>
-												<dd className="rail-sync-value">v.{activeVerse}</dd>
-											</div>
-										)}
-									</dl>
-
-									{showPlayFromButton && (
-										<div className="rail-sync-actions">
-											<button
-												type="button"
-												className="rail-sync-btn"
-												onClick={onSyncToVisibleVerse}
-											>
-												<Crosshair size={12} />
-												<span>Play from v.{visibleVerse}</span>
-											</button>
+											<dt className="rail-section-label">Playing</dt>
+											<dd className="rail-sync-value">v.{activeVerse}</dd>
 										</div>
 									)}
-								</>
+									<div className="rail-kv-row">
+										<dt className="rail-section-label">Play from</dt>
+										<dd className="rail-sync-control">
+											<button
+												type="button"
+												aria-pressed={isPlayingVisibleVerse}
+												aria-label={`Play from v.${visibleVerse}`}
+												title={`Play from v.${visibleVerse}`}
+												className={`rail-sync-toggle ${isPlayingVisibleVerse ? "active" : ""}`.trim()}
+												onClick={onSyncToVisibleVerse}
+											>
+												<Crosshair size={10} />
+												<span>v.{visibleVerse}</span>
+											</button>
+										</dd>
+									</div>
+								</dl>
 							) : (
 								activeTrack && (
 									<p className="rail-sync-hint">Verse sync unavailable for this audio</p>

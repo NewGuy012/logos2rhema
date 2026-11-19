@@ -164,6 +164,18 @@ button {
 	background: none;
 }
 
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
 .app-shell {
 	min-height: 100vh;
 	display: flex;
@@ -1246,7 +1258,7 @@ button:focus-visible {
 	grid-template-columns: 36px minmax(0, 1fr) 36px;
 	align-items: center;
 	gap: 0.25rem;
-	padding: 6px;
+	padding: 6px 6px 8px;
 	min-height: 48px;
 	border-bottom: 1px solid var(--border-hairline);
 }
@@ -1280,11 +1292,18 @@ button:focus-visible {
 .panel-subtitle {
 	margin: 0;
 	max-width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.08rem;
 	font-size: 0.7rem;
+	line-height: 1.25;
 	color: var(--text-secondary);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
+}
+
+.panel-subtitle-line {
+	max-width: 100%;
+	overflow-wrap: break-word;
 }
 
 .dict-minimize-btn,
@@ -1375,23 +1394,29 @@ button:focus-visible {
 	padding: 0.48rem 0.75rem 0;
 }
 
+.right-rail-tabs {
+	grid-auto-flow: row;
+	grid-auto-columns: auto;
+	grid-template-columns: minmax(0, 1fr);
+	grid-auto-rows: minmax(0, 1fr);
+}
+
 .right-rail-tabs .right-rail-tab {
-	display: inline-flex;
+	display: flex;
 	align-items: center;
 	justify-content: center;
+	width: 100%;
 	min-width: 0;
-	gap: 0.2rem;
-	padding: 0.28rem 0.22rem;
-	font-size: 0.64rem;
+	gap: 0.34rem;
+	padding: 0.34rem 0.55rem;
+	font-size: 0.74rem;
 	white-space: nowrap;
-	overflow: hidden;
 }
 
 .right-rail-tab svg {
 	flex-shrink: 0;
 }
 
-.right-rail-tab span,
 .commentary-source-row .segmented-btn {
 	min-width: 0;
 	overflow: hidden;
@@ -2658,7 +2683,6 @@ button:focus-visible {
 
 .home-subtitle {
 	margin: 0;
-	max-width: 68ch;
 	font-size: 0.96rem;
 	line-height: 1.6;
 	color: var(--text-secondary);
@@ -3121,16 +3145,405 @@ button:focus-visible {
 
 .home-grouping-toggle {
 	flex-shrink: 0;
+	display: inline-flex;
+	flex-wrap: wrap;
+	max-width: 100%;
 }
 
 .home-grouping-toggle .segmented-btn {
-	padding: 0.3rem 0.78rem;
+	padding: 0.3rem 0.68rem;
 	font-size: 0.78rem;
 	white-space: nowrap;
 }
 
 .home-grouping-toggle .segmented-btn:hover:not(.active) {
 	color: var(--text-primary);
+}
+
+.home-browse-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 0.9rem;
+}
+
+.home-study-browser {
+	display: flex;
+	flex-direction: column;
+	gap: 0.95rem;
+}
+
+.home-study-card {
+	border-radius: 14px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-hairline);
+	overflow: hidden;
+}
+
+.home-study-toolbar {
+	padding: 0.9rem 1.05rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.72rem;
+}
+
+.home-study-toolbar .footnote-search {
+	font-size: 0.84rem;
+	padding: 0.48rem 0.85rem 0.48rem 2rem;
+}
+
+.home-study-toolbar .dict-search-icon {
+	left: 0.75rem;
+}
+
+.home-study-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.14rem 0.48rem;
+	border-radius: 999px;
+	font-size: 0.67rem;
+	font-weight: 600;
+	background: var(--accent-soft);
+	color: var(--accent);
+	white-space: nowrap;
+}
+
+.home-passage-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.65rem;
+	flex-wrap: wrap;
+}
+
+.home-passage-controls {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+	min-width: 0;
+}
+
+.home-select-wrap {
+	display: inline-flex;
+	min-width: 0;
+}
+
+.home-passage-select {
+	height: 34px;
+	padding: 0 0.65rem;
+	border-radius: 9px;
+	border: 1px solid var(--border-strong);
+	background: var(--bg-page);
+	font-size: 0.82rem;
+	font-weight: 500;
+	color: var(--text-primary);
+	max-width: 100%;
+}
+
+.home-chapter-select {
+	min-width: 108px;
+}
+
+.home-passage-steppers {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.28rem;
+}
+
+.home-step-btn {
+	width: 34px;
+	height: 34px;
+	border-radius: 9px;
+	border: 1px solid var(--border-hairline);
+	background: var(--bg-page);
+}
+
+.home-open-reader-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.38rem;
+	padding: 0.44rem 0.85rem;
+	border-radius: 999px;
+	font-size: 0.78rem;
+	font-weight: 600;
+	background: var(--accent-soft);
+	color: var(--accent);
+	border: 1px solid var(--accent-border);
+	white-space: nowrap;
+	transition:
+		background-color 140ms ease,
+		transform 120ms ease;
+}
+
+.home-open-reader-btn:hover {
+	background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.home-open-reader-btn:active {
+	transform: scale(0.97);
+}
+
+.home-study-passage-title {
+	margin: 0;
+	font-family: var(--font-en);
+	font-size: 1.12rem;
+	font-weight: 500;
+	line-height: 1.25;
+	color: var(--text-primary);
+}
+
+/* Home Audio Browser */
+.home-audio-card {
+	padding: 1rem 1.1rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.85rem;
+}
+
+.home-audio-card-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.home-audio-title-group {
+	display: flex;
+	flex-direction: column;
+	gap: 0.22rem;
+	min-width: 0;
+}
+
+.home-audio-eyebrow {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	font-size: 0.72rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--accent);
+}
+
+.home-audio-track-label {
+	margin: 0;
+	font-size: 0.78rem;
+	color: var(--text-muted);
+}
+
+.home-audio-head-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+}
+
+.home-audio-controls {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+	padding-top: 0.72rem;
+	border-top: 1px solid var(--border-hairline);
+}
+
+.home-audio-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.home-audio-transport {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+}
+
+.home-audio-transport .rail-play-btn {
+	padding: 0.4rem 0.9rem;
+	font-size: 0.8rem;
+}
+
+.home-audio-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.48rem;
+	font-size: 0.75rem;
+	color: var(--text-muted);
+}
+
+.home-audio-scrubber {
+	display: flex;
+	align-items: center;
+}
+
+.home-audio-scrubber .audio-range {
+	width: 100%;
+	min-width: 0;
+}
+
+.home-audio-unavailable,
+.home-audio-live {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+}
+
+.home-audio-chapters {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+}
+
+.home-audio-chapters-grid {
+	grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+	gap: 0.4rem;
+}
+
+.home-audio-chapters-grid .chapter-cell {
+	padding: 0.45rem 0.3rem;
+	font-size: 0.82rem;
+}
+
+/* Home Commentary Browser */
+.home-commentary-controls-row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.home-commentary-source-toggle {
+	flex-shrink: 0;
+}
+
+.home-commentary-source-toggle .segmented-btn {
+	padding: 0.3rem 0.75rem;
+	font-size: 0.78rem;
+	white-space: nowrap;
+}
+
+.home-source-desc {
+	margin: 0;
+	font-size: 0.78rem;
+	color: var(--text-muted);
+}
+
+.home-commentary-card-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+	padding: 0.85rem 1.05rem;
+	border-bottom: 1px solid var(--border-hairline);
+}
+
+.home-commentary-body-card .dict-disclosure-btn {
+	padding: 0.72rem 1.05rem;
+	font-size: 0.82rem;
+}
+
+.home-commentary-body-card .commentary-intro-body {
+	padding: 0.65rem 1.05rem 0.85rem;
+}
+
+.home-commentary-body-card .commentary-card {
+	padding: 0.85rem 1.05rem;
+}
+
+.home-commentary-body-card .commentary-heading {
+	font-size: 0.9rem;
+}
+
+.home-commentary-body-card .commentary-prose {
+	font-size: 0.85rem;
+	line-height: 1.6;
+}
+
+/* Home Dictionary Browser */
+.home-dict-header-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.65rem;
+	flex-wrap: wrap;
+}
+
+.home-dict-mode-toggle {
+	display: inline-flex;
+	flex-wrap: wrap;
+	max-width: 100%;
+}
+
+.home-dict-mode-toggle .segmented-btn {
+	padding: 0.28rem 0.72rem;
+	font-size: 0.76rem;
+	white-space: nowrap;
+}
+
+.home-dict-count {
+	font-size: 0.75rem;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.home-dict-filters {
+	display: flex;
+	align-items: center;
+	gap: 0.38rem;
+	flex-wrap: wrap;
+}
+
+.home-dict-results-card {
+	display: flex;
+	flex-direction: column;
+}
+
+.home-dict-results-head {
+	padding: 0.75rem 1.05rem 0.55rem;
+	border-bottom: 1px solid var(--border-hairline);
+}
+
+.home-dict-grid {
+	padding: 0.85rem 1.05rem;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 0.65rem;
+}
+
+.home-dict-card {
+	padding: 0.72rem 0.88rem;
+	border-radius: 11px;
+	border: 1px solid var(--border-hairline);
+	background: var(--bg-page);
+	display: flex;
+	flex-direction: column;
+	gap: 0.22rem;
+}
+
+.home-dict-verses {
+	display: flex;
+	align-items: center;
+	gap: 0.3rem;
+	flex-wrap: wrap;
+	margin-top: 0.28rem;
+}
+
+.home-dict-more {
+	padding: 0 1.05rem 0.95rem;
+	display: flex;
+	justify-content: center;
+}
+
+.home-dict-grammar-list {
+	padding: 0.75rem 1.05rem 0.9rem;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+	gap: 0.65rem;
 }
 
 .home-testaments {
@@ -3198,7 +3611,6 @@ button:focus-visible {
 
 .home-about-copy {
 	margin: 0;
-	max-width: 72ch;
 	font-size: 0.9rem;
 	line-height: 1.65;
 	color: var(--text-secondary);
@@ -3408,17 +3820,17 @@ button:focus-visible {
 	white-space: nowrap;
 }
 
+.rail-sync-control {
+	margin: 0;
+	display: flex;
+	align-items: center;
+}
+
 .rail-sync-hint {
 	margin: 0;
 	font-size: 0.7rem;
 	line-height: 1.35;
 	color: var(--text-muted);
-}
-
-.rail-sync-actions {
-	display: flex;
-	flex-direction: column;
-	gap: 0.35rem;
 }
 
 .rail-sync-btn {
@@ -3528,5 +3940,13 @@ button:focus-visible {
 	.quick-dict-btn {
 		padding: 0.32rem 0.52rem;
 		font-size: 0.74rem;
+	}
+	.home-grouping-toggle .segmented-btn {
+		padding: 0.28rem 0.54rem;
+		font-size: 0.74rem;
+	}
+	.home-dict-grid,
+	.home-dict-grammar-list {
+		grid-template-columns: minmax(0, 1fr);
 	}
 }

@@ -1077,13 +1077,22 @@ describe("Reader UI & audio hooks", () => {
 				row.querySelector("dd")?.textContent,
 			]);
 		const settingsBtn = getButton(rail.container, "Settings");
+		expect(
+			Array.from(rail.container.querySelectorAll(".panel-subtitle .panel-subtitle-line")).map(
+				(el) => el.textContent,
+			),
+		).toEqual(["John 3", "요한복음 3장"]);
 		expect(settingsBtn.querySelector(".rail-settings-label svg")).not.toBeNull();
 		fireClick(settingsBtn);
 		expect(readSyncDetails()).toEqual([
 			["Reading", "v.16"],
 			["Playing", "v.12"],
+			["Play from", "v.16"],
 		]);
-		fireClick(getButton(rail.container, "Play from v.16"));
+		const playFromV16 = getButton(rail.container, "Play from v.16");
+		expect(playFromV16.getAttribute("aria-pressed")).toBe("false");
+		expect(playFromV16.className).not.toContain("active");
+		fireClick(playFromV16);
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
 
 		const pausedRailProps = {
@@ -1110,8 +1119,11 @@ describe("Reader UI & audio hooks", () => {
 				activeVerse={null}
 			/>,
 		);
-		expect(readSyncDetails()).toEqual([["Reading", "v.1"]]);
-		expect(getButton(rail.container, "Play from v.1")).toBeDefined();
+		expect(readSyncDetails()).toEqual([
+			["Reading", "v.1"],
+			["Play from", "v.1"],
+		]);
+		expect(getButton(rail.container, "Play from v.1").className).not.toContain("active");
 
 		rail.rerender(
 			<AudioControlRail
@@ -1125,8 +1137,11 @@ describe("Reader UI & audio hooks", () => {
 		expect(readSyncDetails()).toEqual([
 			["Reading", "v.12"],
 			["Playing", "v.12"],
+			["Play from", "v.12"],
 		]);
-		expect(rail.container.querySelector(".rail-sync-actions")).toBeNull();
+		const playFromV12 = getButton(rail.container, "Play from v.12");
+		expect(playFromV12.getAttribute("aria-pressed")).toBe("true");
+		expect(playFromV12.className).toContain("active");
 
 		const audioAside = rail.container.querySelector(".audio-rail") as HTMLElement;
 		fireDrag(rail.container.querySelector("input[type='range']") as Element, [20, 20], [160, 120]);
