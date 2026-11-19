@@ -1,8 +1,9 @@
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { AudioTrackOption } from "../../shared/types";
 import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
+import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
 import { ChevronDown } from "./Icons";
 
 export function formatTime(totalSeconds: number): string {
@@ -73,12 +74,6 @@ export function AudioScrubber({
 	);
 }
 
-interface SpeedMenuPos {
-	left: number;
-	top: number;
-	placeBelow: boolean;
-}
-
 export function AudioSpeedSelect({
 	playbackRate,
 	onChangeSpeed,
@@ -89,52 +84,26 @@ export function AudioSpeedSelect({
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const menuRef = useRef<HTMLDivElement | null>(null);
 	const [open, setOpen] = useState(false);
-	const [pos, setPos] = useState<SpeedMenuPos | null>(null);
+	const [pos, setPos] = useState<AnchorPos | null>(null);
 
 	const updatePosition = useCallback(() => {
-		const el = triggerRef.current;
-		if (!el) return;
-		const rect = el.getBoundingClientRect();
-		const spaceBelow = window.innerHeight - rect.bottom;
-		const placeBelow = spaceBelow >= 56 || spaceBelow >= rect.top;
-		const centerX = rect.left + rect.width / 2;
-		const minHalfWidth = Math.min(148, window.innerWidth / 2 - 8);
-		const clampedLeft = Math.max(minHalfWidth, Math.min(window.innerWidth - minHalfWidth, centerX));
-		setPos({
-			left: clampedLeft,
-			top: placeBelow ? rect.bottom + 6 : rect.top - 6,
-			placeBelow,
-		});
+		if (!triggerRef.current) return;
+		setPos(
+			computeAnchorPos(triggerRef.current.getBoundingClientRect(), {
+				minSpace: 56,
+				halfWidth: 148,
+				gap: 6,
+			}),
+		);
 	}, []);
 
-	useEffect(() => {
-		if (!open) return;
-		updatePosition();
-		const handleOutside = (event: MouseEvent) => {
-			const target = event.target as Node | null;
-			if (!target) return;
-			if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-			setOpen(false);
-		};
-		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				setOpen(false);
-			}
-		};
-		const handleViewportChange = () => {
-			setOpen(false);
-		};
-		document.addEventListener("mousedown", handleOutside);
-		document.addEventListener("keydown", handleKey);
-		window.addEventListener("scroll", handleViewportChange, { passive: true });
-		window.addEventListener("resize", handleViewportChange);
-		return () => {
-			document.removeEventListener("mousedown", handleOutside);
-			document.removeEventListener("keydown", handleKey);
-			window.removeEventListener("scroll", handleViewportChange);
-			window.removeEventListener("resize", handleViewportChange);
-		};
-	}, [open, updatePosition]);
+	const close = useCallback(() => setOpen(false), []);
+	useDismissListeners(open, {
+		refs: [triggerRef, menuRef],
+		onDismiss: close,
+		onScroll: true,
+		onResize: true,
+	});
 
 	return (
 		<div className="speed-select-wrap">
@@ -163,7 +132,7 @@ export function AudioSpeedSelect({
 						ref={menuRef}
 						role="menu"
 						aria-label="Playback speed options"
-						className={`speed-menu ${pos.placeBelow ? "place-below" : "place-above"}`}
+						className="speed-menu"
 						style={{
 							left: `${pos.left}px`,
 							top: `${pos.top}px`,

@@ -96,7 +96,7 @@ export function FootnotesGuide({
 		>
 			<div className="dict-panel-header">
 				<span aria-hidden="true" />
-				<div className="panel-header-text dict-header-text">
+				<div className="panel-header-text">
 					<h2 className="panel-title">Dictionary</h2>
 					<p className="panel-subtitle">
 						{bookEn} {chapter} ·{" "}

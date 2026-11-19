@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { romanizeHangul } from "../../shared/hangul";
 import type { GlossToken, HighlightItem } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
+import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
 import { renderHighlightedText } from "./HighlightText";
 import { ArrowRight, Volume2 } from "./Icons";
 
@@ -12,12 +13,6 @@ interface KoreanTokenProps {
 	tokenOffset?: number;
 	highlights?: readonly HighlightItem[];
 	onSelectFootnote?: (footnoteId: string) => void;
-}
-
-interface TooltipPos {
-	left: number;
-	top: number;
-	placeBelow: boolean;
 }
 
 export function KoreanToken({
@@ -31,7 +26,7 @@ export function KoreanToken({
 	const pointerDownRef = useRef(false);
 	const closeTimerRef = useRef<number | null>(null);
 	const [open, setOpen] = useState(false);
-	const [pos, setPos] = useState<TooltipPos | null>(null);
+	const [pos, setPos] = useState<AnchorPos | null>(null);
 	const {
 		speakingKey: speakingTarget,
 		speechErrorKey,
@@ -61,59 +56,34 @@ export function KoreanToken({
 		}, 150);
 	}, [cancelClose]);
 
-	useEffect(() => {
-		return () => {
-			cancelClose();
-		};
-	}, [cancelClose]);
+	useEffect(() => () => cancelClose(), [cancelClose]);
 
 	const updatePosition = useCallback(() => {
-		const el = buttonRef.current;
-		if (!el) return;
-		const rect = el.getBoundingClientRect();
-		const spaceBelow = window.innerHeight - rect.bottom;
-		const placeBelow = spaceBelow >= 170 || spaceBelow >= rect.top;
-		const centerX = rect.left + rect.width / 2;
-		const clampedLeft = Math.max(145, Math.min(window.innerWidth - 145, centerX));
-		setPos({
-			left: clampedLeft,
-			top: placeBelow ? rect.bottom + 8 : rect.top - 8,
-			placeBelow,
-		});
+		if (!buttonRef.current) return;
+		setPos(
+			computeAnchorPos(buttonRef.current.getBoundingClientRect(), {
+				minSpace: 170,
+				halfWidth: 145,
+				gap: 8,
+			}),
+		);
 	}, []);
 
+	const dismiss = useCallback(() => {
+		cancelClose();
+		setOpen(false);
+	}, [cancelClose]);
+
 	useEffect(() => {
-		if (!open) {
-			clearSpeechError();
-			return;
-		}
-		updatePosition();
-		const handleScroll = () => {
-			cancelClose();
-			setOpen(false);
-		};
-		window.addEventListener("scroll", handleScroll, { passive: true });
-		const handleOutsidePointer = (event: MouseEvent) => {
-			const target = event.target as Node | null;
-			if (!target) return;
-			if (buttonRef.current?.contains(target) || tooltipRef.current?.contains(target)) return;
-			cancelClose();
-			setOpen(false);
-		};
-		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				cancelClose();
-				setOpen(false);
-			}
-		};
-		document.addEventListener("mousedown", handleOutsidePointer);
-		document.addEventListener("keydown", handleKey);
-		return () => {
-			window.removeEventListener("scroll", handleScroll);
-			document.removeEventListener("mousedown", handleOutsidePointer);
-			document.removeEventListener("keydown", handleKey);
-		};
-	}, [open, updatePosition, cancelClose, clearSpeechError]);
+		if (open) updatePosition();
+		else clearSpeechError();
+	}, [open, updatePosition, clearSpeechError]);
+
+	useDismissListeners(open, {
+		refs: [buttonRef, tooltipRef],
+		onDismiss: dismiss,
+		onScroll: true,
+	});
 
 	if (!token.word || !token.gloss) {
 		return <span>{renderHighlightedText(token.raw, tokenOffset, highlights)}</span>;

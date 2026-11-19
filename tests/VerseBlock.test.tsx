@@ -447,7 +447,7 @@ describe("Reader UI & audio hooks", () => {
 				onContinueReading={onContinueReading}
 				onOpenPassage={onTopOpenPassage}
 				onRemoveFavorite={onTopRemoveFavorite}
-				onFlipStackOrder={onFlip}
+				onChangeStackOrder={onFlip}
 				onOpenSearch={onOpenSearch}
 				onChangeTheme={noop}
 				onChangeFontScale={noop}
@@ -831,12 +831,8 @@ describe("Reader UI & audio hooks", () => {
 			expect(document.body.querySelector('[role="tooltip"]') === null).toBe(true);
 
 			// Minimize dictionary to move the right rail out of the way, then restore via the toggle pill
-			const workspace = container.querySelector(".reader-workspace");
-			expect(workspace?.className).toContain("with-right-rail");
 			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("expanded");
 			fireClick(getButton(container, "Minimize dictionary"));
-			expect(workspace?.className).not.toContain("with-right-rail");
-			expect(workspace?.className).toContain("with-minimized-rail");
 			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("minimized");
 			expect(
 				container.querySelector('aside[aria-label="Korean Dictionary & Grammar Guide"]'),
@@ -845,18 +841,14 @@ describe("Reader UI & audio hooks", () => {
 			expect(expandBtn.closest(".dict-sidebar-wrap")).not.toBeNull();
 			expect(expandBtn.getAttribute("aria-expanded")).toBe("false");
 			fireClick(expandBtn);
-			expect(workspace?.className).toContain("with-right-rail");
 			expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("expanded");
 			expect(
 				container.querySelector('aside[aria-label="Korean Dictionary & Grammar Guide"]'),
 			).not.toBeNull();
 
 			// Minimize audio rail to move the left rail out of the way, then restore via the toggle pill
-			expect(workspace?.className).toContain("with-left-rail");
 			expect(container.querySelector(".audio-rail-wrap")?.className).toContain("expanded");
 			fireClick(getButton(container, "Minimize audio"));
-			expect(workspace?.className).not.toContain("with-left-rail");
-			expect(workspace?.className).toContain("with-minimized-left-rail");
 			expect(container.querySelector(".audio-rail-wrap")?.className).toContain("minimized");
 			expect(
 				container.querySelector('aside[aria-label="Audio Playback and Verse Sync"]'),
@@ -865,7 +857,6 @@ describe("Reader UI & audio hooks", () => {
 			expect(expandAudioBtn.closest(".audio-rail-wrap")).not.toBeNull();
 			expect(expandAudioBtn.getAttribute("aria-expanded")).toBe("false");
 			fireClick(expandAudioBtn);
-			expect(workspace?.className).toContain("with-left-rail");
 			expect(container.querySelector(".audio-rail-wrap")?.className).toContain("expanded");
 			expect(
 				container.querySelector('aside[aria-label="Audio Playback and Verse Sync"]'),
@@ -1154,7 +1145,7 @@ describe("Reader UI & audio hooks", () => {
 		);
 		fireClick(getButton(rail.container, "Drama"));
 		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
-		expect(rail.container.querySelector(".rail-header-top .panel-title")?.textContent).toBe(
+		expect(rail.container.querySelector(".rail-panel-header .panel-title")?.textContent).toBe(
 			"Audio",
 		);
 		const audioMinimizeBtn = getButton(rail.container, "Minimize audio");

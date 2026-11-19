@@ -27,6 +27,7 @@ import { PassagePicker } from "./components/PassagePicker";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
 import { useHumanAudio } from "./hooks/useHumanAudio";
+import { computeAnchorPos } from "./hooks/usePopover";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import {
 	alignChapterVerses,
@@ -49,13 +50,11 @@ import {
 	toggleHighlightSpans,
 	writeStoredHighlights,
 } from "./lib/highlights";
+import { readJsonStorage, writeJsonStorage } from "./lib/storage";
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
 
-interface StoredPrefs {
-	bookNumber: number;
-	chapter: number;
-	verse: number;
+interface DisplayPrefs {
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
@@ -64,16 +63,26 @@ interface StoredPrefs {
 	autoSync: boolean;
 }
 
-const DEFAULT_PREFS: StoredPrefs = {
-	bookNumber: 1,
-	chapter: 1,
-	verse: 1,
+interface StoredPrefs extends DisplayPrefs {
+	bookNumber: number;
+	chapter: number;
+	verse: number;
+}
+
+const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	stackOrder: "en-first",
 	theme: "paper",
 	fontScale: 1,
 	koFontStyle: "serif",
 	studyMask: "none",
 	autoSync: true,
+};
+
+const DEFAULT_PREFS: StoredPrefs = {
+	bookNumber: 1,
+	chapter: 1,
+	verse: 1,
+	...DEFAULT_DISPLAY_PREFS,
 };
 
 type AppRoute =
@@ -102,56 +111,49 @@ function isOneOf<T extends string>(val: unknown, allowed: readonly T[]): val is 
 }
 
 function readStoredPrefs(): StoredPrefs {
-	if (typeof localStorage === "undefined") return DEFAULT_PREFS;
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return DEFAULT_PREFS;
-		const parsed = JSON.parse(raw) as Record<string, unknown>;
-		const book =
-			typeof parsed.bookNumber === "number" ? getBookByNumber(parsed.bookNumber) : undefined;
-		const chapter =
-			book && typeof parsed.chapter === "number" && Number.isInteger(parsed.chapter)
-				? Math.max(1, Math.min(book.chapters, parsed.chapter))
-				: DEFAULT_PREFS.chapter;
-		const verse =
-			typeof parsed.verse === "number" && Number.isInteger(parsed.verse) && parsed.verse >= 1
-				? parsed.verse
-				: DEFAULT_PREFS.verse;
-		return {
-			bookNumber: book ? book.number : DEFAULT_PREFS.bookNumber,
-			chapter,
-			verse,
-			stackOrder: isOneOf(parsed.stackOrder, ["en-first", "ko-first"])
-				? parsed.stackOrder
-				: DEFAULT_PREFS.stackOrder,
-			theme: isOneOf(parsed.theme, ["paper", "sepia", "dark"]) ? parsed.theme : DEFAULT_PREFS.theme,
-			fontScale:
-				typeof parsed.fontScale === "number" &&
-				Number.isFinite(parsed.fontScale) &&
-				parsed.fontScale >= 0.75 &&
-				parsed.fontScale <= 1.5
-					? parsed.fontScale
-					: DEFAULT_PREFS.fontScale,
-			koFontStyle: isOneOf(parsed.koFontStyle, ["serif", "sans"])
-				? parsed.koFontStyle
-				: DEFAULT_PREFS.koFontStyle,
-			studyMask: isOneOf(parsed.studyMask, ["none", "mask-en", "mask-ko"])
-				? parsed.studyMask
-				: DEFAULT_PREFS.studyMask,
-			autoSync: typeof parsed.autoSync === "boolean" ? parsed.autoSync : DEFAULT_PREFS.autoSync,
-		};
-	} catch {
-		return DEFAULT_PREFS;
-	}
+	const raw = readJsonStorage(STORAGE_KEY);
+	if (!raw || typeof raw !== "object") return DEFAULT_PREFS;
+	const parsed = raw as Record<string, unknown>;
+	const book =
+		typeof parsed.bookNumber === "number" ? getBookByNumber(parsed.bookNumber) : undefined;
+	const chapter =
+		book && typeof parsed.chapter === "number" && Number.isInteger(parsed.chapter)
+			? Math.max(1, Math.min(book.chapters, parsed.chapter))
+			: DEFAULT_PREFS.chapter;
+	const verse =
+		typeof parsed.verse === "number" && Number.isInteger(parsed.verse) && parsed.verse >= 1
+			? parsed.verse
+			: DEFAULT_PREFS.verse;
+	return {
+		bookNumber: book ? book.number : DEFAULT_PREFS.bookNumber,
+		chapter,
+		verse,
+		stackOrder: isOneOf(parsed.stackOrder, ["en-first", "ko-first"])
+			? parsed.stackOrder
+			: DEFAULT_PREFS.stackOrder,
+		theme: isOneOf(parsed.theme, ["paper", "sepia", "dark"]) ? parsed.theme : DEFAULT_PREFS.theme,
+		fontScale:
+			typeof parsed.fontScale === "number" &&
+			Number.isFinite(parsed.fontScale) &&
+			parsed.fontScale >= 0.75 &&
+			parsed.fontScale <= 1.5
+				? parsed.fontScale
+				: DEFAULT_PREFS.fontScale,
+		koFontStyle: isOneOf(parsed.koFontStyle, ["serif", "sans"])
+			? parsed.koFontStyle
+			: DEFAULT_PREFS.koFontStyle,
+		studyMask: isOneOf(parsed.studyMask, ["none", "mask-en", "mask-ko"])
+			? parsed.studyMask
+			: DEFAULT_PREFS.studyMask,
+		autoSync: typeof parsed.autoSync === "boolean" ? parsed.autoSync : DEFAULT_PREFS.autoSync,
+	};
 }
 
-function scrollToVerse(verseNum: number): boolean {
+function scrollToVerse(verseNum: number): void {
 	const el = document.getElementById(`verse-${verseNum}`);
-	if (!el) return false;
-	if (typeof el.scrollIntoView === "function") {
+	if (el && typeof el.scrollIntoView === "function") {
 		el.scrollIntoView({ behavior: "smooth", block: "center" });
 	}
-	return true;
 }
 
 function useIsDesktopLayout(): boolean {
@@ -185,18 +187,25 @@ export default function App() {
 	const [chapter, setChapter] = useState(
 		initialRoute.view === "reader" ? initialRoute.chapter : initialPrefs.chapter,
 	);
-	const [lastVerse, setLastVerse] = useState<number>(() =>
+	const [lastVerse, setLastVerse] = useState(() =>
 		initialRoute.view === "reader" ? (initialRoute.verse ?? 1) : initialPrefs.verse,
 	);
+	const [prefs, setPrefs] = useState<DisplayPrefs>({
+		stackOrder: initialPrefs.stackOrder,
+		theme: initialPrefs.theme,
+		fontScale: initialPrefs.fontScale,
+		koFontStyle: initialPrefs.koFontStyle,
+		studyMask: initialPrefs.studyMask,
+		autoSync: initialPrefs.autoSync,
+	});
+
+	const updatePref = useCallback(<K extends keyof DisplayPrefs>(key: K, value: DisplayPrefs[K]) => {
+		setPrefs((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+	}, []);
+
 	const [selectedEn, setSelectedEn] = useState<TranslationMeta>(CANONICAL_BIBLES.en);
 	const [selectedKo, setSelectedKo] = useState<TranslationMeta>(CANONICAL_BIBLES.ko);
 	const [bibleBrainEnabled, setBibleBrainEnabled] = useState(false);
-	const [stackOrder, setStackOrder] = useState<StackOrder>(initialPrefs.stackOrder);
-	const [theme, setTheme] = useState<ReaderTheme>(initialPrefs.theme);
-	const [fontScale, setFontScale] = useState<number>(initialPrefs.fontScale);
-	const [koFontStyle, setKoFontStyle] = useState<KoreanFontStyle>(initialPrefs.koFontStyle);
-	const [studyMask, setStudyMask] = useState<StudyMaskMode>(initialPrefs.studyMask);
-	const [autoSync, setAutoSync] = useState<boolean>(initialPrefs.autoSync);
 
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [rawEnVerses, setRawEnVerses] = useState<VerseEntry[]>([]);
@@ -230,7 +239,6 @@ export default function App() {
 	);
 
 	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
-
 	const prevChapterTarget = useMemo(
 		() => getAdjacentChapter(bookNumber, chapter, -1),
 		[bookNumber, chapter],
@@ -267,37 +275,21 @@ export default function App() {
 	}, [view, loadingChapter, verseNumbers.length, visibleVerse, pendingScrollVerse]);
 
 	useEffect(() => {
-		try {
-			const prefs: StoredPrefs = {
-				bookNumber,
-				chapter,
-				verse: lastVerse,
-				stackOrder,
-				theme,
-				fontScale,
-				koFontStyle,
-				studyMask,
-				autoSync,
-			};
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-		} catch {
-			// Ignore storage quota errors
-		}
-	}, [
-		bookNumber,
-		chapter,
-		lastVerse,
-		stackOrder,
-		theme,
-		fontScale,
-		koFontStyle,
-		studyMask,
-		autoSync,
-	]);
+		writeJsonStorage(STORAGE_KEY, {
+			bookNumber,
+			chapter,
+			verse: lastVerse,
+			...prefs,
+		} satisfies StoredPrefs);
+	}, [bookNumber, chapter, lastVerse, prefs]);
 
 	useEffect(() => {
 		writeStoredFavorites(favorites);
 	}, [favorites]);
+
+	useEffect(() => {
+		writeStoredHighlights(highlights);
+	}, [highlights]);
 
 	const favoriteIds = useMemo(() => new Set(favorites.map((item) => item.id)), [favorites]);
 	const isChapterFavorited = favoriteIds.has(makeFavoriteId(bookNumber, chapter));
@@ -324,22 +316,11 @@ export default function App() {
 	const handleRemoveFavorite = useCallback((id: string) => {
 		setFavorites((prev) => prev.filter((item) => item.id !== id));
 	}, []);
-
-	const handleClearFavorites = useCallback(() => {
-		setFavorites([]);
-	}, []);
-
-	useEffect(() => {
-		writeStoredHighlights(highlights);
-	}, [highlights]);
-
+	const handleClearFavorites = useCallback(() => setFavorites([]), []);
 	const handleRemoveHighlight = useCallback((id: string) => {
 		setHighlights((prev) => prev.filter((item) => item.id !== id));
 	}, []);
-
-	const handleClearHighlights = useCallback(() => {
-		setHighlights([]);
-	}, []);
+	const handleClearHighlights = useCallback(() => setHighlights([]), []);
 
 	const alignedVerseMap = useMemo(
 		() => new Map(alignedVerses.map((v) => [v.verse, v])),
@@ -393,15 +374,14 @@ export default function App() {
 			setSelectionToolbar(null);
 			return;
 		}
-		const rect = selection.getRangeAt(0).getBoundingClientRect();
-		const centerX = rect.left + rect.width / 2;
-		const left = Math.max(95, Math.min(window.innerWidth - 95, centerX));
-		const placeBelow = rect.top < 110;
-		const top = placeBelow ? rect.bottom + 8 : rect.top - 8;
+		const pos = computeAnchorPos(selection.getRangeAt(0).getBoundingClientRect(), {
+			minSpace: 110,
+			halfWidth: 95,
+			gap: 8,
+			prefer: "above",
+		});
 		setSelectionToolbar({
-			left,
-			top,
-			placeBelow,
+			...pos,
 			alreadyHighlighted: areSpansHighlighted(highlights, bookNumber, chapter, spans),
 		});
 	}, [view, loadingChapter, highlights, bookNumber, chapter]);
@@ -412,15 +392,13 @@ export default function App() {
 			return;
 		}
 		const handlePointerStart = (e: MouseEvent) => {
-			const target = e.target as HTMLElement | null;
-			if (target?.closest(".selection-highlight-bar")) return;
-			setSelectionToolbar(null);
+			if (!(e.target as HTMLElement | null)?.closest(".selection-highlight-bar")) {
+				setSelectionToolbar(null);
+			}
 		};
 		const handleSelectionChange = () => {
 			const selection = typeof window !== "undefined" ? window.getSelection() : null;
-			if (!selection || selection.isCollapsed) {
-				setSelectionToolbar(null);
-			}
+			if (!selection || selection.isCollapsed) setSelectionToolbar(null);
 		};
 		const handleScroll = () => setSelectionToolbar(null);
 
@@ -441,22 +419,35 @@ export default function App() {
 	}, [view, syncSelectionToolbar]);
 
 	useEffect(() => {
-		document.documentElement.setAttribute("data-theme", theme);
-	}, [theme]);
+		document.documentElement.setAttribute("data-theme", prefs.theme);
+	}, [prefs.theme]);
+
+	const openReaderRoute = useCallback(
+		(targetBook: number, targetChapter: number, verse?: number) => {
+			setView("reader");
+			setBookNumber(targetBook);
+			setChapter(targetChapter);
+			setLastVerse(verse ?? 1);
+			setSelectedVerse(verse ?? null);
+			setHighlightedFootnoteId(null);
+			setSelectionToolbar(null);
+			setPendingScrollVerse(verse ?? null);
+			if (!verse) {
+				window.scrollTo({ top: 0, behavior: "smooth" });
+			}
+		},
+		[],
+	);
 
 	useEffect(() => {
 		const syncFromLocation = () => {
 			const route = parseLocationHash();
 			if (route.view === "home") {
 				setView("home");
+				setSelectionToolbar(null);
 				return;
 			}
-			setView("reader");
-			setBookNumber(route.bookNumber);
-			setChapter(route.chapter);
-			setLastVerse(route.verse ?? 1);
-			setSelectedVerse(route.verse ?? null);
-			setPendingScrollVerse(route.verse ?? null);
+			openReaderRoute(route.bookNumber, route.chapter, route.verse);
 		};
 		window.addEventListener("hashchange", syncFromLocation);
 		window.addEventListener("popstate", syncFromLocation);
@@ -464,7 +455,7 @@ export default function App() {
 			window.removeEventListener("hashchange", syncFromLocation);
 			window.removeEventListener("popstate", syncFromLocation);
 		};
-	}, []);
+	}, [openReaderRoute]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -485,6 +476,8 @@ export default function App() {
 	useEffect(() => {
 		if (view !== "reader") return;
 		let cancelled = false;
+		setRawEnVerses([]);
+		setRawKoVerses([]);
 		setLoadingChapter(true);
 		setChapterError(null);
 
@@ -512,10 +505,8 @@ export default function App() {
 	useEffect(() => {
 		if (view !== "reader") return;
 		let cancelled = false;
-		loadSyncedChapterAudio({
-			usfm: currentBook.usfm,
-			chapter,
-		}).then((res) => {
+		setAudioTracks([]);
+		loadSyncedChapterAudio({ usfm: currentBook.usfm, chapter }).then((res) => {
 			if (!cancelled) setAudioTracks(res.tracks);
 		});
 		return () => {
@@ -533,31 +524,15 @@ export default function App() {
 			if (window.location.hash !== targetHash) {
 				window.history.pushState(null, "", targetHash);
 			}
-			if (book.number !== bookNumber || clampedChapter !== chapter) {
-				setRawEnVerses([]);
-				setRawKoVerses([]);
-				setLoadingChapter(true);
-				setChapterError(null);
-			}
-			setView("reader");
-			setBookNumber(book.number);
-			setChapter(clampedChapter);
-			setLastVerse(verse ?? 1);
-			setSelectedVerse(verse ?? null);
-			setHighlightedFootnoteId(null);
-			setPendingScrollVerse(verse ?? null);
-			if (!verse) {
-				window.scrollTo({ top: 0, behavior: "smooth" });
-			}
+			openReaderRoute(book.number, clampedChapter, verse);
 		},
-		[bookNumber, chapter],
+		[openReaderRoute],
 	);
 
 	useEffect(() => {
 		if (!pendingScrollVerse || loadingChapter) return;
-		if (scrollToVerse(pendingScrollVerse)) {
-			setPendingScrollVerse(null);
-		}
+		scrollToVerse(pendingScrollVerse);
+		setPendingScrollVerse(null);
 	}, [pendingScrollVerse, loadingChapter]);
 
 	const prepareNextPlayRef = useRef<() => void>(() => {});
@@ -571,59 +546,59 @@ export default function App() {
 	const audio = useHumanAudio({
 		tracks: audioTracks,
 		visibleVerse,
-		autoSync,
+		autoSync: prefs.autoSync,
 		onChapterEnded: handleChapterEnded,
 	});
+	const {
+		isPlaying,
+		activeVerse,
+		isFollowingAudio,
+		pause,
+		skipBy,
+		jumpToVerse,
+		setIsFollowingAudio,
+	} = audio;
 	prepareNextPlayRef.current = audio.prepareAutoAdvancePlay;
 
 	const goHome = useCallback(() => {
-		audio.pause();
+		pause();
 		setView("home");
 		if (window.location.hash !== "#/" && window.location.hash !== "") {
 			window.history.pushState(null, "", "#/");
 		}
 		window.scrollTo({ top: 0, behavior: "smooth" });
-	}, [audio]);
+	}, [pause]);
 
 	const handleContinueReading = useCallback(() => {
-		if (lastVerse > 1) {
-			navigateTo(bookNumber, chapter, lastVerse);
-		} else {
-			navigateTo(bookNumber, chapter);
-		}
+		navigateTo(bookNumber, chapter, lastVerse > 1 ? lastVerse : undefined);
 	}, [bookNumber, chapter, lastVerse, navigateTo]);
 
-	// Pause auto-scroll follow when user manually scrolls via wheel/touch while audio plays
+	// Pause auto-scroll follow when user manually scrolls via wheel/touch while audio plays.
 	useEffect(() => {
-		if (!audio.isPlaying || !autoSync) return;
-		const pauseFollow = () => audio.setIsFollowingAudio(false);
+		if (!isPlaying || !prefs.autoSync) return;
+		const pauseFollow = () => setIsFollowingAudio(false);
 		window.addEventListener("wheel", pauseFollow, { passive: true });
 		window.addEventListener("touchmove", pauseFollow, { passive: true });
 		return () => {
 			window.removeEventListener("wheel", pauseFollow);
 			window.removeEventListener("touchmove", pauseFollow);
 		};
-	}, [audio, autoSync]);
+	}, [isPlaying, prefs.autoSync, setIsFollowingAudio]);
 
 	useEffect(() => {
-		if (audio.activeVerse) {
-			setLastVerse(audio.activeVerse);
-		}
-	}, [audio.activeVerse]);
+		if (activeVerse) setLastVerse(activeVerse);
+	}, [activeVerse]);
 
 	useEffect(() => {
-		if (!audio.activeVerse || !autoSync || !audio.isFollowingAudio) return;
-		scrollToVerse(audio.activeVerse);
-	}, [audio.activeVerse, autoSync, audio.isFollowingAudio]);
+		if (!activeVerse || !prefs.autoSync || !isFollowingAudio) return;
+		scrollToVerse(activeVerse);
+	}, [activeVerse, prefs.autoSync, isFollowingAudio]);
 
 	const handleFollowActiveVerse = useCallback(() => {
-		audio.setIsFollowingAudio(true);
-		if (audio.activeVerse) {
-			scrollToVerse(audio.activeVerse);
-		}
-	}, [audio]);
+		setIsFollowingAudio(true);
+		if (activeVerse) scrollToVerse(activeVerse);
+	}, [activeVerse, setIsFollowingAudio]);
 
-	// Keyboard shortcuts: Cmd/Ctrl+K to jump, Cmd/Ctrl+H to highlight selection, ArrowLeft/ArrowRight skip 10s while playing or turn chapters otherwise
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			const tag = (e.target as HTMLElement | null)?.tagName;
@@ -632,25 +607,22 @@ export default function App() {
 				setPickerOpen((prev) => !prev);
 				return;
 			}
+			if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
 			if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "h") {
-				if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
-				if (applySelectionHighlight()) {
-					e.preventDefault();
-				}
+				if (applySelectionHighlight()) e.preventDefault();
 				return;
 			}
-			if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
 			if (e.key === "ArrowLeft") {
-				if (audio.isPlaying) {
+				if (isPlaying) {
 					e.preventDefault();
-					audio.skipBy(-10);
+					skipBy(-10);
 				} else if (prevChapterTarget) {
 					navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter);
 				}
 			} else if (e.key === "ArrowRight") {
-				if (audio.isPlaying) {
+				if (isPlaying) {
 					e.preventDefault();
-					audio.skipBy(10);
+					skipBy(10);
 				} else if (nextChapterTarget) {
 					navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
 				}
@@ -664,7 +636,8 @@ export default function App() {
 		prevChapterTarget,
 		nextChapterTarget,
 		navigateTo,
-		audio,
+		isPlaying,
+		skipBy,
 		applySelectionHighlight,
 	]);
 
@@ -672,30 +645,20 @@ export default function App() {
 		(verseNum: number) => {
 			setSelectedVerse((prev) => (prev === verseNum ? null : verseNum));
 			setLastVerse(verseNum);
-			if (audio.isPlaying) {
-				audio.jumpToVerse(verseNum);
-			}
+			if (isPlaying) jumpToVerse(verseNum);
 		},
-		[audio],
+		[isPlaying, jumpToVerse],
 	);
 
-	const handleToggleAudioRail = useCallback(() => {
-		setAudioRailOpen((prev) => !prev);
-	}, []);
-
+	const handleToggleAudioRail = useCallback(() => setAudioRailOpen((prev) => !prev), []);
 	const handleToggleDictionary = useCallback(() => {
-		if (isDesktop) {
-			setSidebarOpen((prev) => !prev);
-		} else {
-			setSheetOpen((prev) => !prev);
-		}
+		if (isDesktop) setSidebarOpen((prev) => !prev);
+		else setSheetOpen((prev) => !prev);
 	}, [isDesktop]);
 
 	useEffect(() => {
 		return () => {
-			if (highlightTimerRef.current !== null) {
-				window.clearTimeout(highlightTimerRef.current);
-			}
+			if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
 		};
 	}, []);
 
@@ -703,14 +666,9 @@ export default function App() {
 		(footnoteId: string) => {
 			setHighlightedFootnoteId(footnoteId);
 			setHighlightSeq((seq) => seq + 1);
-			if (isDesktop) {
-				setSidebarOpen(true);
-			} else {
-				setSheetOpen(true);
-			}
-			if (highlightTimerRef.current !== null) {
-				window.clearTimeout(highlightTimerRef.current);
-			}
+			if (isDesktop) setSidebarOpen(true);
+			else setSheetOpen(true);
+			if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
 			highlightTimerRef.current = window.setTimeout(() => {
 				highlightTimerRef.current = null;
 				setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
@@ -728,11 +686,11 @@ export default function App() {
 	const readerStyle = useMemo(
 		() =>
 			({
-				"--reader-scale": fontScale,
+				"--reader-scale": prefs.fontScale,
 				"--reader-ko-font":
-					koFontStyle === "serif" ? "var(--font-ko-serif)" : "var(--font-ko-sans)",
+					prefs.koFontStyle === "serif" ? "var(--font-ko-serif)" : "var(--font-ko-sans)",
 			}) as CSSProperties,
-		[fontScale, koFontStyle],
+		[prefs.fontScale, prefs.koFontStyle],
 	);
 
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
@@ -757,7 +715,6 @@ export default function App() {
 				<ChevronLeft size={placement === "header" ? 15 : 16} />
 				<span>Previous Chapter</span>
 			</button>
-
 			<button
 				type="button"
 				className={`nav-chapter-btn ${placement === "header" ? "nav-chapter-btn-compact" : ""}`.trim()}
@@ -777,7 +734,7 @@ export default function App() {
 		tracks: audioTracks,
 		preferredLang: audio.preferredLang,
 		activeTrack: audio.activeTrack,
-		isPlaying: audio.isPlaying,
+		isPlaying,
 		isLoading: audio.isLoading,
 		currentTime: audio.currentTime,
 		duration: audio.duration,
@@ -787,7 +744,7 @@ export default function App() {
 		activeKoCode: selectedKo.code,
 		onTogglePlay: audio.togglePlay,
 		onSeek: audio.seekTo,
-		onSkipBy: audio.skipBy,
+		onSkipBy: skipBy,
 		onSelectTrack: audio.selectTrack,
 		onSelectLanguage: audio.selectLanguage,
 		onChangeSpeed: audio.setPlaybackRate,
@@ -819,11 +776,11 @@ export default function App() {
 				highlights={highlights}
 				selectedEn={selectedEn}
 				selectedKo={selectedKo}
-				stackOrder={stackOrder}
-				theme={theme}
-				fontScale={fontScale}
-				koFontStyle={koFontStyle}
-				studyMask={studyMask}
+				stackOrder={prefs.stackOrder}
+				theme={prefs.theme}
+				fontScale={prefs.fontScale}
+				koFontStyle={prefs.koFontStyle}
+				studyMask={prefs.studyMask}
 				onGoHome={goHome}
 				onContinueReading={handleContinueReading}
 				onOpenPassage={navigateTo}
@@ -831,14 +788,12 @@ export default function App() {
 				onRemoveHighlight={handleRemoveHighlight}
 				onClearFavorites={handleClearFavorites}
 				onClearHighlights={handleClearHighlights}
-				onFlipStackOrder={() =>
-					setStackOrder((prev) => (prev === "en-first" ? "ko-first" : "en-first"))
-				}
+				onChangeStackOrder={(v) => updatePref("stackOrder", v)}
 				onOpenSearch={() => setPickerOpen(true)}
-				onChangeTheme={setTheme}
-				onChangeFontScale={setFontScale}
-				onChangeKoFontStyle={setKoFontStyle}
-				onChangeStudyMask={setStudyMask}
+				onChangeTheme={(v) => updatePref("theme", v)}
+				onChangeFontScale={(v) => updatePref("fontScale", v)}
+				onChangeKoFontStyle={(v) => updatePref("koFontStyle", v)}
+				onChangeStudyMask={(v) => updatePref("studyMask", v)}
 			/>
 
 			{view === "home" ? (
@@ -859,27 +814,25 @@ export default function App() {
 				/>
 			) : (
 				<>
-					<div
-						className={`reader-workspace ${isDesktop ? "desktop-layout" : ""} ${isDesktop && audioRailOpen ? "with-left-rail" : ""} ${isDesktop && !audioRailOpen ? "with-minimized-left-rail" : ""} ${isDesktop && sidebarOpen ? "with-right-rail" : ""} ${isDesktop && showDictionary && !sidebarOpen ? "with-minimized-rail" : ""}`}
-					>
+					<div className={`reader-workspace ${isDesktop ? "desktop-layout" : ""}`.trim()}>
 						{isDesktop && (
 							<div className={`audio-rail-wrap ${audioRailOpen ? "expanded" : "minimized"}`}>
 								{audioRailOpen ? (
 									<AudioControlRail
 										{...sharedAudioControls}
 										visibleVerse={visibleVerse}
-										activeVerse={audio.activeVerse}
-										autoSync={autoSync}
-										isFollowingAudio={audio.isFollowingAudio}
-										onToggleAutoSync={() => setAutoSync((prev) => !prev)}
-										onSyncToVisibleVerse={() => audio.jumpToVerse(visibleVerse)}
+										activeVerse={activeVerse}
+										autoSync={prefs.autoSync}
+										isFollowingAudio={isFollowingAudio}
+										onToggleAutoSync={() => updatePref("autoSync", !prefs.autoSync)}
+										onSyncToVisibleVerse={() => jumpToVerse(visibleVerse)}
 										onFollowActiveVerse={handleFollowActiveVerse}
 										onMinimize={handleToggleAudioRail}
 									/>
 								) : (
 									<button
 										type="button"
-										className={`rail-minimized-pill audio-minimized-pill ${audio.isPlaying ? "playing" : ""}`.trim()}
+										className={`rail-minimized-pill audio-minimized-pill ${isPlaying ? "playing" : ""}`.trim()}
 										onClick={handleToggleAudioRail}
 										aria-expanded={false}
 										aria-label="Expand audio"
@@ -968,10 +921,10 @@ export default function App() {
 											<VerseBlock
 												key={verse.verse}
 												verse={verse}
-												stackOrder={stackOrder}
-												studyMask={studyMask}
+												stackOrder={prefs.stackOrder}
+												studyMask={prefs.studyMask}
 												isSelected={selectedVerse === verse.verse}
-												isAudioActive={audio.activeVerse === verse.verse}
+												isAudioActive={activeVerse === verse.verse}
 												isFavorited={favoriteIds.has(
 													makeFavoriteId(bookNumber, chapter, verse.verse),
 												)}

@@ -106,7 +106,7 @@ export function AudioControlRail({
 					) : (
 						<span aria-hidden="true" />
 					)}
-					<div className="panel-header-text rail-header-top">
+					<div className="panel-header-text">
 						<h2 className="panel-title">Audio</h2>
 						<p className="panel-subtitle">
 							{bookEn} {chapter} ·{" "}

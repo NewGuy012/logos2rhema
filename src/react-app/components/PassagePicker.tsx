@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { BIBLE_BOOKS, filterBooks, parsePassageReference } from "../../shared/books";
+import { filterBooks, getBookByNumber } from "../../shared/books";
 import type { BookMeta, Testament } from "../../shared/types";
-import { BookChapterGrid, TestamentTabs } from "./BookChapterBrowser";
+import { useDismissListeners } from "../hooks/usePopover";
+import { BookChapterGrid, submitPassageQuery, TestamentTabs } from "./BookChapterBrowser";
 import { ArrowLeft, X } from "./Icons";
 
 interface PassagePickerProps {
@@ -27,21 +28,14 @@ export function PassagePicker({
 
 	useEffect(() => {
 		if (!isOpen) return;
-		const book = BIBLE_BOOKS.find((b) => b.number === currentBookNumber) ?? null;
+		const book = getBookByNumber(currentBookNumber);
 		setTestament(book?.testament ?? "OT");
 		setActiveBook(null);
 		setQuery("");
 		requestAnimationFrame(() => inputRef.current?.focus());
 	}, [isOpen, currentBookNumber]);
 
-	useEffect(() => {
-		if (!isOpen) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onClose();
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [isOpen, onClose]);
+	useDismissListeners(isOpen, { onDismiss: onClose });
 
 	const filteredBooks = useMemo(() => filterBooks(query, testament), [query, testament]);
 
@@ -54,17 +48,12 @@ export function PassagePicker({
 
 	const handleSubmitReference = (e: React.FormEvent) => {
 		e.preventDefault();
-		const parsed = parsePassageReference(query);
-		if (parsed) {
-			selectChapter(parsed.bookNumber, parsed.chapter, parsed.verse);
-		} else if (filteredBooks.length === 1) {
-			const only = filteredBooks[0];
-			if (only.chapters === 1) {
-				selectChapter(only.number, 1);
-			} else {
-				setActiveBook(only);
-			}
-		}
+		submitPassageQuery(
+			query,
+			filteredBooks.length === 1 ? filteredBooks[0] : undefined,
+			selectChapter,
+			setActiveBook,
+		);
 	};
 
 	return (

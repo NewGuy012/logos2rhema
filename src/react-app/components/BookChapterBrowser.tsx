@@ -1,8 +1,23 @@
 import type { CSSProperties } from "react";
 
-import { BIBLE_GENRES, getBookByNumber } from "../../shared/books";
+import { BIBLE_GENRES, getBookByNumber, parsePassageReference } from "../../shared/books";
 import type { BookMeta, Testament } from "../../shared/types";
 import { ArrowLeft } from "./Icons";
+
+export function submitPassageQuery(
+	query: string,
+	singleCandidate: BookMeta | undefined,
+	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void,
+	onSelectBook: (book: BookMeta) => void,
+): void {
+	const parsed = parsePassageReference(query);
+	if (parsed) {
+		onOpenPassage(parsed.bookNumber, parsed.chapter, parsed.verse);
+	} else if (singleCandidate) {
+		if (singleCandidate.chapters === 1) onOpenPassage(singleCandidate.number, 1);
+		else onSelectBook(singleCandidate);
+	}
+}
 
 export function TestamentTabs({
 	testament,
@@ -11,26 +26,24 @@ export function TestamentTabs({
 	testament: Testament;
 	onChange: (next: Testament) => void;
 }) {
+	const tabs: ReadonlyArray<{ id: Testament; label: string }> = [
+		{ id: "OT", label: "Old Testament · 구약 (39)" },
+		{ id: "NT", label: "New Testament · 신약 (27)" },
+	];
 	return (
 		<div className="filter-tabs" role="tablist" aria-label="Testament">
-			<button
-				type="button"
-				role="tab"
-				aria-selected={testament === "OT"}
-				className={`filter-tab ${testament === "OT" ? "active" : ""}`}
-				onClick={() => onChange("OT")}
-			>
-				Old Testament · 구약 (39)
-			</button>
-			<button
-				type="button"
-				role="tab"
-				aria-selected={testament === "NT"}
-				className={`filter-tab ${testament === "NT" ? "active" : ""}`}
-				onClick={() => onChange("NT")}
-			>
-				New Testament · 신약 (27)
-			</button>
+			{tabs.map((tab) => (
+				<button
+					key={tab.id}
+					type="button"
+					role="tab"
+					aria-selected={testament === tab.id}
+					className={`filter-tab ${testament === tab.id ? "active" : ""}`}
+					onClick={() => onChange(tab.id)}
+				>
+					{tab.label}
+				</button>
+			))}
 		</div>
 	);
 }
@@ -41,7 +54,7 @@ export function BookChapterGrid({
 	currentBookNumber,
 	currentChapter,
 	showChapterCount = false,
-	classPrefix = "",
+	compact = false,
 	verticalColumns,
 	onSelectBook,
 	onSelectChapter,
@@ -51,14 +64,14 @@ export function BookChapterGrid({
 	currentBookNumber: number;
 	currentChapter: number;
 	showChapterCount?: boolean;
-	classPrefix?: string;
+	compact?: boolean;
 	verticalColumns?: number;
 	onSelectBook: (book: BookMeta) => void;
 	onSelectChapter: (bookNumber: number, chapter: number) => void;
 }) {
 	if (selectedBook) {
 		return (
-			<div className={`chapters-grid ${classPrefix ? `${classPrefix}-chapters-grid` : ""}`.trim()}>
+			<div className={`chapters-grid ${compact ? "top-genre-chapters-grid" : ""}`.trim()}>
 				{Array.from({ length: selectedBook.chapters }, (_, i) => i + 1).map((ch) => (
 					<button
 						key={ch}
@@ -84,7 +97,7 @@ export function BookChapterGrid({
 
 	return (
 		<div
-			className={`books-grid ${verticalColumns ? "books-grid-vertical" : ""} ${classPrefix ? `${classPrefix}-books-grid` : ""}`.trim()}
+			className={`books-grid ${verticalColumns ? "books-grid-vertical" : ""}`.trim()}
 			style={verticalStyle}
 		>
 			{books.map((book) => (
@@ -92,13 +105,9 @@ export function BookChapterGrid({
 					key={book.usfm}
 					type="button"
 					className={`book-cell ${book.number === currentBookNumber ? "current" : ""}`}
-					onClick={() => {
-						if (book.chapters === 1) {
-							onSelectChapter(book.number, 1);
-						} else {
-							onSelectBook(book);
-						}
-					}}
+					onClick={() =>
+						book.chapters === 1 ? onSelectChapter(book.number, 1) : onSelectBook(book)
+					}
 				>
 					<div className="book-cell-en">{book.en}</div>
 					<div className="book-cell-ko" lang="ko">
@@ -148,8 +157,8 @@ export function GenresBrowser({
 					currentBookNumber={currentBookNumber}
 					currentChapter={currentChapter}
 					showChapterCount={true}
-					classPrefix={compact ? "top-genre" : "home"}
-					onSelectBook={(book) => onSelectBook(book)}
+					compact={compact}
+					onSelectBook={onSelectBook}
 					onSelectChapter={onSelectChapter}
 				/>
 			</div>
@@ -181,13 +190,9 @@ export function GenresBrowser({
 									key={book.usfm}
 									type="button"
 									className={`home-genre-chip ${book.number === currentBookNumber ? "current" : ""}`}
-									onClick={() => {
-										if (book.chapters === 1) {
-											onSelectChapter(book.number, 1);
-										} else {
-											onSelectBook(book);
-										}
-									}}
+									onClick={() =>
+										book.chapters === 1 ? onSelectChapter(book.number, 1) : onSelectBook(book)
+									}
 									title={`${book.en} · ${book.ko} (${book.chapters}ch)`}
 								>
 									<span>{book.en}</span>

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { FavoriteItem, HighlightItem } from "../../shared/types";
 import { formatFavoriteLabel } from "../lib/favorites";
 import { formatHighlightLabel } from "../lib/highlights";
@@ -12,6 +14,88 @@ interface FavoritesListProps {
 	onRemoveHighlight?: (id: string) => void;
 	onClearFavorites?: () => void;
 	onClearHighlights?: () => void;
+}
+
+function SavedItemCard({
+	icon,
+	refEn,
+	refKo,
+	kindLabel,
+	preview,
+	removeLabel,
+	onOpen,
+	onRemove,
+}: {
+	icon: ReactNode;
+	refEn: string;
+	refKo: string;
+	kindLabel: string;
+	preview: ReactNode;
+	removeLabel: string;
+	onOpen: () => void;
+	onRemove?: () => void;
+}) {
+	return (
+		<div className="home-favorite-card">
+			<button type="button" className="home-favorite-open" onClick={onOpen}>
+				<div className="home-favorite-head">
+					<span className="home-favorite-ref">
+						{icon}
+						<span>{refEn}</span>
+						<span className="home-favorite-ko" lang="ko">
+							· {refKo}
+						</span>
+					</span>
+					<span className="home-favorite-kind">{kindLabel}</span>
+				</div>
+				{preview}
+			</button>
+			{onRemove && (
+				<button
+					type="button"
+					className="home-favorite-remove"
+					onClick={onRemove}
+					aria-label={removeLabel}
+					title={removeLabel}
+				>
+					<X size={14} />
+				</button>
+			)}
+		</div>
+	);
+}
+
+function SavedGroup({
+	title,
+	clearLabel,
+	clearAriaLabel,
+	onClear,
+	children,
+}: {
+	title: string;
+	clearLabel: string;
+	clearAriaLabel: string;
+	onClear?: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<div className="home-favorites-group">
+			<div className="home-favorites-group-head">
+				<h3 className="home-favorites-group-title">{title}</h3>
+				{onClear && (
+					<button
+						type="button"
+						className="home-clear-btn"
+						onClick={onClear}
+						aria-label={clearAriaLabel}
+					>
+						{clearLabel}
+					</button>
+				)}
+			</div>
+			<div className="home-favorites-list">{children}</div>
+		</div>
+	);
 }
 
 export function FavoritesList({
@@ -55,135 +139,79 @@ export function FavoritesList({
 			)}
 
 			{favorites.length > 0 && (
-				<div className="home-favorites-group">
-					<div className="home-favorites-group-head">
-						<h3 className="home-favorites-group-title">Bookmarks ({favorites.length})</h3>
-						{onClearFavorites && (
-							<button
-								type="button"
-								className="home-clear-btn"
-								onClick={onClearFavorites}
-								aria-label="Clear all bookmarks"
-							>
-								Clear bookmarks
-							</button>
-						)}
-					</div>
-					<div className="home-favorites-list">
-						{favorites.map((item) => {
-							const { refEn, refKo, kind } = formatFavoriteLabel(item);
-							return (
-								<div key={item.id} className="home-favorite-card">
-									<button
-										type="button"
-										className="home-favorite-open"
-										onClick={() => onSelectFavorite(item.bookNumber, item.chapter, item.verse)}
-									>
-										<div className="home-favorite-head">
-											<span className="home-favorite-ref">
-												<Bookmark size={13} filled={true} className="home-favorite-icon" />
-												<span>{refEn}</span>
-												<span className="home-favorite-ko" lang="ko">
-													· {refKo}
-												</span>
-											</span>
-											<span className="home-favorite-kind">
-												{kind === "chapter" ? "Chapter" : "Verse"}
-											</span>
+				<SavedGroup
+					title={`Bookmarks (${favorites.length})`}
+					clearLabel="Clear bookmarks"
+					clearAriaLabel="Clear all bookmarks"
+					onClear={onClearFavorites}
+				>
+					{favorites.map((item) => {
+						const { refEn, refKo, kind } = formatFavoriteLabel(item);
+						return (
+							<SavedItemCard
+								key={item.id}
+								icon={<Bookmark size={13} filled={true} className="home-favorite-icon" />}
+								refEn={refEn}
+								refKo={refKo}
+								kindLabel={kind === "chapter" ? "Chapter" : "Verse"}
+								onOpen={() => onSelectFavorite(item.bookNumber, item.chapter, item.verse)}
+								removeLabel={`Remove ${refEn} from favorites`}
+								onRemove={onRemoveFavorite ? () => onRemoveFavorite(item.id) : undefined}
+								preview={
+									(item.enText || item.koText) && (
+										<div className="home-favorite-preview">
+											{item.enText && <p className="home-favorite-preview-en">{item.enText}</p>}
+											{item.koText && (
+												<p className="home-favorite-preview-ko" lang="ko">
+													{item.koText}
+												</p>
+											)}
 										</div>
-										{(item.enText || item.koText) && (
-											<div className="home-favorite-preview">
-												{item.enText && <p className="home-favorite-preview-en">{item.enText}</p>}
-												{item.koText && (
-													<p className="home-favorite-preview-ko" lang="ko">
-														{item.koText}
-													</p>
-												)}
-											</div>
-										)}
-									</button>
-									{onRemoveFavorite && (
-										<button
-											type="button"
-											className="home-favorite-remove"
-											onClick={() => onRemoveFavorite(item.id)}
-											aria-label={`Remove ${refEn} from favorites`}
-											title={`Remove ${refEn} from favorites`}
-										>
-											<X size={14} />
-										</button>
-									)}
-								</div>
-							);
-						})}
-					</div>
-				</div>
+									)
+								}
+							/>
+						);
+					})}
+				</SavedGroup>
 			)}
 
 			{highlights.length > 0 && (
-				<div className="home-favorites-group">
-					<div className="home-favorites-group-head">
-						<h3 className="home-favorites-group-title">Highlights ({highlights.length})</h3>
-						{onClearHighlights && (
-							<button
-								type="button"
-								className="home-clear-btn"
-								onClick={onClearHighlights}
-								aria-label="Clear all highlights"
-							>
-								Clear highlights
-							</button>
-						)}
-					</div>
-					<div className="home-favorites-list">
-						{highlights.map((item) => {
-							const { refEn, refKo, langLabel } = formatHighlightLabel(item);
-							return (
-								<div key={item.id} className="home-favorite-card home-highlight-card">
-									<button
-										type="button"
-										className="home-favorite-open"
-										onClick={() => onSelectFavorite(item.bookNumber, item.chapter, item.verse)}
-									>
-										<div className="home-favorite-head">
-											<span className="home-favorite-ref">
-												<Highlighter size={13} className="home-highlight-icon" />
-												<span>{refEn}</span>
-												<span className="home-favorite-ko" lang="ko">
-													· {refKo}
-												</span>
-											</span>
-											<span className="home-favorite-kind">Highlight · {langLabel}</span>
-										</div>
-										<div className="home-favorite-preview">
-											<p
-												className={
-													item.lang === "ko"
-														? "home-favorite-preview-ko home-highlight-line"
-														: "home-favorite-preview-en home-highlight-line"
-												}
-												lang={item.lang === "ko" ? "ko" : undefined}
-											>
-												<mark className="verse-highlight home-highlight-excerpt">{item.text}</mark>
-											</p>
-										</div>
-									</button>
-									{onRemoveHighlight && (
-										<button
-											type="button"
-											className="home-favorite-remove"
-											onClick={() => onRemoveHighlight(item.id)}
-											aria-label={`Remove highlight from ${refEn}`}
-											title={`Remove highlight from ${refEn}`}
+				<SavedGroup
+					title={`Highlights (${highlights.length})`}
+					clearLabel="Clear highlights"
+					clearAriaLabel="Clear all highlights"
+					onClear={onClearHighlights}
+				>
+					{highlights.map((item) => {
+						const { refEn, refKo, langLabel } = formatHighlightLabel(item);
+						return (
+							<SavedItemCard
+								key={item.id}
+								icon={<Highlighter size={13} className="home-highlight-icon" />}
+								refEn={refEn}
+								refKo={refKo}
+								kindLabel={`Highlight · ${langLabel}`}
+								onOpen={() => onSelectFavorite(item.bookNumber, item.chapter, item.verse)}
+								removeLabel={`Remove highlight from ${refEn}`}
+								onRemove={onRemoveHighlight ? () => onRemoveHighlight(item.id) : undefined}
+								preview={
+									<div className="home-favorite-preview">
+										<p
+											className={
+												item.lang === "ko"
+													? "home-favorite-preview-ko home-highlight-line"
+													: "home-favorite-preview-en home-highlight-line"
+											}
+											lang={item.lang === "ko" ? "ko" : undefined}
 										>
-											<X size={14} />
-										</button>
-									)}
-								</div>
-							);
-						})}
-					</div>
-				</div>
+											<mark className="verse-highlight home-highlight-excerpt">{item.text}</mark>
+										</p>
+									</div>
+								}
+							/>
+						);
+					})}
+				</SavedGroup>
 			)}
 		</div>
 	);

@@ -1,13 +1,8 @@
 import { Fragment, useId, useMemo, useState } from "react";
 
-import {
-	BIBLE_BOOKS,
-	filterBooks,
-	getBookByNumber,
-	parsePassageReference,
-} from "../../shared/books";
+import { BIBLE_BOOKS, filterBooks, getBookByNumber } from "../../shared/books";
 import type { BookMeta, FavoriteItem, HighlightItem, TranslationMeta } from "../../shared/types";
-import { BookChapterGrid, GenresBrowser } from "./BookChapterBrowser";
+import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList } from "./FavoritesList";
 import {
 	ArrowLeft,
@@ -65,33 +60,27 @@ export function HomePage({
 
 	const { otBooks, ntBooks, totalMatches } = useMemo(() => {
 		const matches = filterBooks(query);
-		const ot = matches.filter((b) => b.testament === "OT");
-		const nt = matches.filter((b) => b.testament === "NT");
-		return { otBooks: ot, ntBooks: nt, totalMatches: matches.length };
+		return {
+			otBooks: matches.filter((b) => b.testament === "OT"),
+			ntBooks: matches.filter((b) => b.testament === "NT"),
+			totalMatches: matches.length,
+		};
 	}, [query]);
 
 	const handleSearchSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
-		const parsed = parsePassageReference(query);
-		if (parsed) {
-			onOpenPassage(parsed.bookNumber, parsed.chapter, parsed.verse);
-			return;
-		}
-		if (totalMatches === 1) {
-			const only = otBooks[0] ?? ntBooks[0];
-			if (only.chapters === 1) {
-				onOpenPassage(only.number, 1);
-			} else {
-				setSelectedBook(only);
-			}
-		}
+		submitPassageQuery(
+			query,
+			totalMatches === 1 ? (otBooks[0] ?? ntBooks[0]) : undefined,
+			onOpenPassage,
+			setSelectedBook,
+		);
 	};
 
 	return (
 		<main className="home-container">
 			<section className="home-hero">
 				<h1 className="home-title">Logos2Rhema</h1>
-
 				<div className="home-kicker">
 					<span className="home-sync-pill">
 						<Headphones size={12} />
@@ -120,9 +109,7 @@ export function HomePage({
 						type="button"
 						className="home-continue-btn"
 						onClick={() =>
-							lastVerse > 1
-								? onOpenPassage(lastBook.number, lastChapter, lastVerse)
-								: onOpenPassage(lastBook.number, lastChapter)
+							onOpenPassage(lastBook.number, lastChapter, lastVerse > 1 ? lastVerse : undefined)
 						}
 					>
 						<BookOpen size={15} />
@@ -178,12 +165,8 @@ export function HomePage({
 						aria-expanded={genresOpen}
 						aria-controls={genresOpen ? genresPanelId : undefined}
 						onClick={() => {
-							if (genresOpen) {
-								setSelectedGenreBook(null);
-								setGenresOpen(false);
-							} else {
-								setGenresOpen(true);
-							}
+							if (genresOpen) setSelectedGenreBook(null);
+							setGenresOpen((prev) => !prev);
 						}}
 					>
 						<span>Browse Genres</span>
@@ -250,7 +233,6 @@ export function HomePage({
 						currentBookNumber={lastBook.number}
 						currentChapter={lastChapter}
 						showChapterCount={true}
-						classPrefix="home"
 						onSelectBook={setSelectedBook}
 						onSelectChapter={onOpenPassage}
 					/>
@@ -278,7 +260,6 @@ export function HomePage({
 											currentBookNumber={lastBook.number}
 											currentChapter={lastChapter}
 											showChapterCount={true}
-											classPrefix="home"
 											verticalColumns={2}
 											onSelectBook={setSelectedBook}
 											onSelectChapter={onOpenPassage}

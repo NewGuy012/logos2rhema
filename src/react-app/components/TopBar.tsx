@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
 import type { BookMeta, FavoriteItem, HighlightItem, TranslationMeta } from "../../shared/types";
+import { useDismissListeners } from "../hooks/usePopover";
 import { GenresBrowser } from "./BookChapterBrowser";
 import { FavoritesList } from "./FavoritesList";
 import {
@@ -40,7 +41,7 @@ interface TopBarProps {
 	onRemoveHighlight?: (id: string) => void;
 	onClearFavorites?: () => void;
 	onClearHighlights?: () => void;
-	onFlipStackOrder: () => void;
+	onChangeStackOrder: (order: StackOrder) => void;
 	onOpenSearch: () => void;
 	onChangeTheme: (theme: ReaderTheme) => void;
 	onChangeFontScale: (scale: number) => void;
@@ -49,6 +50,50 @@ interface TopBarProps {
 }
 
 type OpenPopover = "favorites" | "genres" | "display" | null;
+
+function SegmentedSetting<T extends string | number>({
+	title,
+	value,
+	options,
+	onChange,
+	groupAriaLabel,
+	usePressed = false,
+}: {
+	title: string;
+	value: T;
+	options: ReadonlyArray<{ label: string; val: T }>;
+	onChange: (val: T) => void;
+	groupAriaLabel?: string;
+	usePressed?: boolean;
+}) {
+	return (
+		<div className="settings-group">
+			<p className="popover-title">{title}</p>
+			<div
+				className="segmented-row"
+				role={groupAriaLabel ? "group" : undefined}
+				aria-label={groupAriaLabel}
+			>
+				{options.map((opt) => {
+					const active = value === opt.val;
+					return (
+						<button
+							key={String(opt.val)}
+							type="button"
+							className={`segmented-btn ${active ? "active" : ""}`}
+							aria-pressed={usePressed ? active : undefined}
+							onClick={() => {
+								if (!active) onChange(opt.val);
+							}}
+						>
+							{opt.label}
+						</button>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
 
 export function TopBar({
 	isHome = false,
@@ -71,7 +116,7 @@ export function TopBar({
 	onRemoveHighlight,
 	onClearFavorites,
 	onClearHighlights,
-	onFlipStackOrder,
+	onChangeStackOrder,
 	onOpenSearch,
 	onChangeTheme,
 	onChangeFontScale,
@@ -87,37 +132,22 @@ export function TopBar({
 		[lastBookNumber],
 	);
 
-	const closePopovers = () => {
+	const closePopovers = useCallback(() => {
 		setOpenPopover(null);
 		setSelectedGenreBook(null);
-	};
+	}, []);
 
 	const togglePopover = (target: Exclude<OpenPopover, null>) => {
 		setSelectedGenreBook(null);
 		setOpenPopover((prev) => (prev === target ? null : target));
 	};
 
-	useEffect(() => {
-		if (!openPopover) return;
-		const handleOutside = (event: MouseEvent) => {
-			if (navRef.current && !navRef.current.contains(event.target as Node)) {
-				setOpenPopover(null);
-				setSelectedGenreBook(null);
-			}
-		};
-		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				setOpenPopover(null);
-				setSelectedGenreBook(null);
-			}
-		};
-		document.addEventListener("mousedown", handleOutside);
-		document.addEventListener("keydown", handleKey);
-		return () => {
-			document.removeEventListener("mousedown", handleOutside);
-			document.removeEventListener("keydown", handleKey);
-		};
-	}, [openPopover]);
+	useDismissListeners(Boolean(openPopover), {
+		refs: [navRef],
+		onDismiss: closePopovers,
+	});
+
+	const savedCount = favorites.length + highlights.length;
 
 	return (
 		<header className="top-bar" ref={navRef}>
@@ -176,11 +206,9 @@ export function TopBar({
 								aria-haspopup="true"
 								title="Open favorites"
 							>
-								<Bookmark size={15} filled={favorites.length + highlights.length > 0} />
+								<Bookmark size={15} filled={savedCount > 0} />
 								<span>Favorites</span>
-								{favorites.length + highlights.length > 0 && (
-									<span className="top-nav-count">{favorites.length + highlights.length}</span>
-								)}
+								{savedCount > 0 && <span className="top-nav-count">{savedCount}</span>}
 								<ChevronDown size={13} className="top-nav-caret" />
 							</button>
 
@@ -282,119 +310,57 @@ export function TopBar({
 
 						{openPopover === "display" && (
 							<div className="popover-card">
-								<div className="settings-group">
-									<p className="popover-title">Theme</p>
-									<div className="segmented-row">
-										{(["paper", "sepia", "dark"] as const).map((mode) => (
-											<button
-												key={mode}
-												type="button"
-												className={`segmented-btn ${theme === mode ? "active" : ""}`}
-												onClick={() => onChangeTheme(mode)}
-											>
-												{mode === "paper" ? "Paper" : mode === "sepia" ? "Sepia" : "Dark"}
-											</button>
-										))}
-									</div>
-								</div>
-
-								<div className="settings-group">
-									<p className="popover-title">Text Size</p>
-									<div className="segmented-row">
-										{[
-											{ label: "S", val: 0.9 },
-											{ label: "M", val: 1 },
-											{ label: "L", val: 1.12 },
-											{ label: "XL", val: 1.24 },
-										].map((opt) => (
-											<button
-												key={opt.label}
-												type="button"
-												className={`segmented-btn ${fontScale === opt.val ? "active" : ""}`}
-												onClick={() => onChangeFontScale(opt.val)}
-											>
-												{opt.label}
-											</button>
-										))}
-									</div>
-								</div>
-
-								<div className="settings-group">
-									<p className="popover-title">Korean Font</p>
-									<div className="segmented-row">
-										<button
-											type="button"
-											className={`segmented-btn ${koFontStyle === "serif" ? "active" : ""}`}
-											onClick={() => onChangeKoFontStyle("serif")}
-										>
-											Serif (명조)
-										</button>
-										<button
-											type="button"
-											className={`segmented-btn ${koFontStyle === "sans" ? "active" : ""}`}
-											onClick={() => onChangeKoFontStyle("sans")}
-										>
-											Sans (고딕)
-										</button>
-									</div>
-								</div>
-
-								<div className="settings-group">
-									<p className="popover-title">Stack Order</p>
-									<div
-										className="segmented-row"
-										role="group"
-										aria-label="Flip language stack order"
-									>
-										<button
-											type="button"
-											className={`segmented-btn ${stackOrder === "en-first" ? "active" : ""}`}
-											onClick={() => {
-												if (stackOrder !== "en-first") onFlipStackOrder();
-											}}
-											aria-pressed={stackOrder === "en-first"}
-										>
-											EN / 한
-										</button>
-										<button
-											type="button"
-											className={`segmented-btn ${stackOrder === "ko-first" ? "active" : ""}`}
-											onClick={() => {
-												if (stackOrder !== "ko-first") onFlipStackOrder();
-											}}
-											aria-pressed={stackOrder === "ko-first"}
-										>
-											한 / EN
-										</button>
-									</div>
-								</div>
-
-								<div className="settings-group">
-									<p className="popover-title">Study Mode (Hover to Reveal)</p>
-									<div className="segmented-row">
-										<button
-											type="button"
-											className={`segmented-btn ${studyMask === "none" ? "active" : ""}`}
-											onClick={() => onChangeStudyMask("none")}
-										>
-											Both
-										</button>
-										<button
-											type="button"
-											className={`segmented-btn ${studyMask === "mask-en" ? "active" : ""}`}
-											onClick={() => onChangeStudyMask("mask-en")}
-										>
-											Blur EN
-										</button>
-										<button
-											type="button"
-											className={`segmented-btn ${studyMask === "mask-ko" ? "active" : ""}`}
-											onClick={() => onChangeStudyMask("mask-ko")}
-										>
-											Blur KO
-										</button>
-									</div>
-								</div>
+								<SegmentedSetting
+									title="Theme"
+									value={theme}
+									onChange={onChangeTheme}
+									options={[
+										{ label: "Paper", val: "paper" },
+										{ label: "Sepia", val: "sepia" },
+										{ label: "Dark", val: "dark" },
+									]}
+								/>
+								<SegmentedSetting
+									title="Text Size"
+									value={fontScale}
+									onChange={onChangeFontScale}
+									options={[
+										{ label: "S", val: 0.9 },
+										{ label: "M", val: 1 },
+										{ label: "L", val: 1.12 },
+										{ label: "XL", val: 1.24 },
+									]}
+								/>
+								<SegmentedSetting
+									title="Korean Font"
+									value={koFontStyle}
+									onChange={onChangeKoFontStyle}
+									options={[
+										{ label: "Serif (명조)", val: "serif" },
+										{ label: "Sans (고딕)", val: "sans" },
+									]}
+								/>
+								<SegmentedSetting
+									title="Stack Order"
+									value={stackOrder}
+									onChange={onChangeStackOrder}
+									groupAriaLabel="Flip language stack order"
+									usePressed={true}
+									options={[
+										{ label: "EN / 한", val: "en-first" },
+										{ label: "한 / EN", val: "ko-first" },
+									]}
+								/>
+								<SegmentedSetting
+									title="Study Mode (Hover to Reveal)"
+									value={studyMask}
+									onChange={onChangeStudyMask}
+									options={[
+										{ label: "Both", val: "none" },
+										{ label: "Blur EN", val: "mask-en" },
+										{ label: "Blur KO", val: "mask-ko" },
+									]}
+								/>
 							</div>
 						)}
 					</div>
