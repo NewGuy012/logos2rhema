@@ -13,6 +13,7 @@ import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
+import { scrollChildIntoContainer } from "../lib/scroll";
 import { ChevronDown, ChevronRight, Search, Volume2, X } from "./Icons";
 
 interface VerseRefSelectProps {
@@ -151,6 +152,7 @@ interface FootnotesGuideProps {
 	highlightedFootnoteId: string | null;
 	highlightSeq?: number;
 	variant?: "sidebar" | "sheet";
+	embedded?: boolean;
 	onMinimize?: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
 }
@@ -164,6 +166,7 @@ export function FootnotesGuide({
 	highlightedFootnoteId,
 	highlightSeq = 0,
 	variant = "sidebar",
+	embedded = false,
 	onMinimize,
 	onJumpToVerse,
 }: FootnotesGuideProps) {
@@ -205,19 +208,7 @@ export function FootnotesGuide({
 		);
 		if (!targetEl) return;
 
-		const containerRect = container.getBoundingClientRect();
-		const targetRect = targetEl.getBoundingClientRect();
-		if (containerRect.height > 0) {
-			const topOffset = Math.max(12, Math.round(containerRect.height * 0.2));
-			const nextTop = container.scrollTop + (targetRect.top - containerRect.top) - topOffset;
-			if (typeof container.scrollTo === "function") {
-				container.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
-			} else {
-				container.scrollTop = Math.max(0, nextTop);
-			}
-		} else if (typeof targetEl.scrollIntoView === "function") {
-			targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-		}
+		scrollChildIntoContainer(container, targetEl);
 	}, [highlightedFootnoteId, highlightSeq, query, wordsOpen, footnotes]);
 
 	const visibleEntries = useMemo(() => {
@@ -233,37 +224,8 @@ export function FootnotesGuide({
 
 	const hasGrammarSection = grammarNotes.length > 0 && !query.trim();
 
-	return (
-		<aside
-			id="footnotes"
-			className={`dict-panel dict-panel-${variant}`}
-			aria-label="Korean Dictionary & Grammar Guide"
-		>
-			<div className="dict-panel-header">
-				<span aria-hidden="true" />
-				<div className="panel-header-text">
-					<h2 className="panel-title">Dictionary</h2>
-					<p className="panel-subtitle">
-						{bookEn} {chapter} ·{" "}
-						<span lang="ko">
-							{bookKo} {chapter}장
-						</span>
-					</p>
-				</div>
-				{onMinimize && (
-					<button
-						type="button"
-						className="pill-nav-btn dict-minimize-btn"
-						onClick={onMinimize}
-						aria-expanded={true}
-						aria-label="Minimize dictionary"
-						title="Minimize dictionary"
-					>
-						{variant === "sheet" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-					</button>
-				)}
-			</div>
-
+	const bodyContent = (
+		<>
 			<div className="dict-panel-controls">
 				<div className="dict-search-wrap">
 					<Search size={13} className="dict-search-icon" />
@@ -413,6 +375,42 @@ export function FootnotesGuide({
 					</section>
 				)}
 			</div>
+		</>
+	);
+
+	if (embedded) return bodyContent;
+
+	return (
+		<aside
+			id="footnotes"
+			className={`dict-panel dict-panel-${variant}`}
+			aria-label="Korean Dictionary & Grammar Guide"
+		>
+			<div className="dict-panel-header">
+				<span aria-hidden="true" />
+				<div className="panel-header-text">
+					<h2 className="panel-title">Dictionary</h2>
+					<p className="panel-subtitle">
+						{bookEn} {chapter} ·{" "}
+						<span lang="ko">
+							{bookKo} {chapter}장
+						</span>
+					</p>
+				</div>
+				{onMinimize && (
+					<button
+						type="button"
+						className="pill-nav-btn dict-minimize-btn"
+						onClick={onMinimize}
+						aria-expanded={true}
+						aria-label="Minimize dictionary"
+						title="Minimize dictionary"
+					>
+						{variant === "sheet" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+					</button>
+				)}
+			</div>
+			{bodyContent}
 		</aside>
 	);
 }

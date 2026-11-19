@@ -5,14 +5,22 @@ import type {
 	AlignedVerse,
 	BookBibleData,
 	ChapterAudioResponse,
+	ChapterCommentaryResponse,
+	CommentaryId,
 	LexiconMap,
 	ReaderConfigResponse,
 	TranslationMeta,
 	VerseEntry,
 } from "../../shared/types";
 
+const MAX_COMMENTARY_CACHE_ENTRIES = 50;
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
+const commentaryCache = new Map<string, Promise<ChapterCommentaryResponse>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
+
+export function clearCommentaryCache(): void {
+	commentaryCache.clear();
+}
 
 export async function loadLexicon(): Promise<LexiconMap> {
 	if (!lexiconPromise) {
@@ -95,6 +103,48 @@ export async function loadSyncedChapterAudio(options: {
 		chapter: options.chapter,
 		tracks: [],
 	};
+}
+
+export function loadChapterCommentary(options: {
+	commentaryId: CommentaryId;
+	usfm: string;
+	chapter: number;
+}): Promise<ChapterCommentaryResponse> {
+	const key = `${options.commentaryId}:${options.usfm}:${options.chapter}`;
+	const existing = commentaryCache.get(key);
+	if (existing) {
+		commentaryCache.delete(key);
+		commentaryCache.set(key, existing);
+		return existing;
+	}
+
+	if (commentaryCache.size >= MAX_COMMENTARY_CACHE_ENTRIES) {
+		const oldestKey = commentaryCache.keys().next().value;
+		if (oldestKey) commentaryCache.delete(oldestKey);
+	}
+
+	const url = `/api/commentary/${encodeURIComponent(options.commentaryId)}/${encodeURIComponent(options.usfm)}/${options.chapter}`;
+	const promise = fetch(url)
+		.then(async (res) => {
+			if (!res.ok) {
+				let message = "Unable to load commentary.";
+				try {
+					const payload = (await res.json()) as { error?: string };
+					if (payload?.error) message = payload.error;
+				} catch {
+					// Ignore non-JSON error body
+				}
+				throw new Error(message);
+			}
+			return (await res.json()) as ChapterCommentaryResponse;
+		})
+		.catch((err) => {
+			commentaryCache.delete(key);
+			throw err;
+		});
+
+	commentaryCache.set(key, promise);
+	return promise;
 }
 
 export function alignChapterVerses(

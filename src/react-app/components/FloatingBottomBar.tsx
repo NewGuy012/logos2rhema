@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { AudioTrackOption } from "../../shared/types";
+import type { AudioTrackOption, RightRailTab } from "../../shared/types";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
@@ -10,6 +10,7 @@ import {
 } from "./AudioShared";
 import {
 	BookOpen,
+	BookText,
 	ChevronLeft,
 	ChevronRight,
 	Headphones,
@@ -39,6 +40,7 @@ interface FloatingBottomBarProps {
 	errorMessage: string | null;
 	activeEnCode: string;
 	activeKoCode: string;
+	rightRailTab?: RightRailTab;
 	dictionaryOpen: boolean;
 	dictionarySheet?: ReactNode;
 	onToggleDictionary: () => void;
@@ -70,6 +72,7 @@ export function FloatingBottomBar({
 	errorMessage,
 	activeEnCode,
 	activeKoCode,
+	rightRailTab = "dictionary",
 	dictionaryOpen,
 	dictionarySheet,
 	onToggleDictionary,
@@ -208,11 +211,17 @@ export function FloatingBottomBar({
 						className={`quick-dict-btn ${dictionaryOpen ? "active" : ""}`}
 						onClick={onToggleDictionary}
 						aria-expanded={dictionaryOpen}
-						aria-label="Toggle Korean dictionary"
-						title="Toggle Korean dictionary & grammar guide"
+						aria-label={
+							rightRailTab === "commentary" ? "Toggle commentary" : "Toggle Korean dictionary"
+						}
+						title={
+							rightRailTab === "commentary"
+								? "Toggle commentary & study notes"
+								: "Toggle Korean dictionary & grammar guide"
+						}
 					>
-						<BookOpen size={14} />
-						<span>어휘</span>
+						{rightRailTab === "commentary" ? <BookText size={14} /> : <BookOpen size={14} />}
+						<span>{rightRailTab === "commentary" ? "Notes" : "어휘"}</span>
 					</button>
 				</div>
 			</nav>
