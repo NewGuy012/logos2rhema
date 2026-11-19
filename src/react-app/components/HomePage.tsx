@@ -109,10 +109,16 @@ export function HomePage({
 						<span>Audio Available</span>
 					</span>
 				</div>
-				<p className="home-subtitle">
-					Read {CANONICAL_BIBLES.en.code} and {CANONICAL_BIBLES.ko.code} side-by-side, hover any
-					Korean word for instant dictionary and grammar notes, and listen along verse by verse.
-				</p>
+				<div className="home-features">
+					<h2 className="home-section-title">Features</h2>
+					<ul className="home-subtitle">
+						<li>
+							Read {CANONICAL_BIBLES.en.code} and {CANONICAL_BIBLES.ko.code} side-by-side
+						</li>
+						<li>Hover any Korean word for instant dictionary and grammar notes</li>
+						<li>Listen along verse by verse</li>
+					</ul>
+				</div>
 			</section>
 
 			<section

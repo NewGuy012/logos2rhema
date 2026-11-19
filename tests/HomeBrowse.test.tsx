@@ -77,6 +77,18 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
 					);
 
+					expect(container.querySelector(".home-features .home-section-title")?.textContent).toBe(
+						"Features",
+					);
+					const heroItems = Array.from(container.querySelectorAll(".home-subtitle li")).map(
+						(el) => el.textContent,
+					);
+					expect(heroItems).toEqual([
+						"Read ESV and 개역한글 side-by-side",
+						"Hover any Korean word for instant dictionary and grammar notes",
+						"Listen along verse by verse",
+					]);
+
 					const browseSection = container.querySelector(
 						'section[aria-label="Browse"]',
 					) as ParentNode;

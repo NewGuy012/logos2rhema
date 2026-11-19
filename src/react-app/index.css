@@ -2681,10 +2681,21 @@ button:focus-visible {
 	line-height: 1.1;
 }
 
+.home-features {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	margin-top: 0.25rem;
+}
+
 .home-subtitle {
 	margin: 0;
+	padding-left: 1.25rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
 	font-size: 0.96rem;
-	line-height: 1.6;
+	line-height: 1.55;
 	color: var(--text-secondary);
 }
 
