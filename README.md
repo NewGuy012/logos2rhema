@@ -22,7 +22,7 @@
 - **Instant Korean Dictionary & Grammar** — Hover or tap any Korean word for morphological analysis, **Revised Romanization**, **Web Speech (`ko-KR`)** pronunciation, and a chapter-synced **Words & Grammar** panel.
 - **Verse-Synced Audio** — Listen to **Supertonic 3 (`Daniel`)** Korean narration synced verse by verse (two-way scroll follow, speed controls, `±10s` skip) alongside **Crossway ESV** English audio.
 - **Integrated Commentary** — Switch between **Tyndale Open Study Notes** and **Matthew Henry Commentary** synced to your active verse, with keyword/verse search and book/chapter introductions.
-- **Fast Navigation & Personalization** — Jump via bilingual references (`John 3:16`, `요 3:16`, `시 23`), toggle **Scripture** / **Genres** book groupings on Home, save **Bookmarks** and **Highlights**, and choose Paper, Sepia, or Dark themes, Serif/Sans Korean fonts, and `S`–`XL` text scaling.
+- **Fast Navigation & Personalization** — Jump via bilingual references (`John 3:16`, `요 3:16`, `시 23`), toggle **Scripture** / **Genres** book groupings on Home, save **Bookmarks** and **Highlights**, drag and snap back desktop side rails, and choose Paper, Sepia, or Dark themes, English (`Newsreader` / `Lora` / `Inter`) and Korean (`Serif` / `Sans`) fonts, and `S`–`XL` text scaling.
 
 ## Keyboard Shortcuts
 
@@ -52,25 +52,24 @@ Bundled Scripture text, Korean lexicon, and HelloAO commentaries work out of the
 
 ### Scripts
 
-| Command                      | Description                                                 |
-| :--------------------------- | :---------------------------------------------------------- |
-| `bun run dev`                | Start Bun dev server with HMR + local Hono API              |
-| `bun test`                   | Run unit, Worker API, and `happy-dom` React tests           |
-| `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking   |
-| `bun run format`             | Format codebase with `bun fmt`                              |
-| `bun run build`              | Typecheck and build client SPA bundle into `dist/client/`   |
-| `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                   |
-| `bun run data:build`         | Rebuild bundled ESV/KRV chapters and Korean lexicon         |
-| `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings           |
-| `bun run audio:upload-krv`   | Upload local KRV MP3s to private Cloudflare R2 via Wrangler |
+| Command                      | Description                                                                   |
+| :--------------------------- | :---------------------------------------------------------------------------- |
+| `bun run dev`                | Start Bun dev server with HMR + local Hono API (binds `127.0.0.1` by default) |
+| `bun test`                   | Run unit, Worker API, and `happy-dom` React tests                             |
+| `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking                     |
+| `bun run format`             | Format codebase with `bun fmt`                                                |
+| `bun run build`              | Typecheck and build client SPA bundle into `dist/client/`                     |
+| `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                                     |
+| `bun run data:build`         | Rebuild bundled ESV/KRV chapters and Korean lexicon                           |
+| `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings                             |
+| `bun run audio:upload-krv`   | Upload local KRV MP3s to private Cloudflare R2 via Wrangler                   |
 
 ## API Endpoints
 
-All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security headers, HTTPS upstream validation, and `502` / `no-store` error boundaries.
+All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security headers, HTTPS upstream validation, upstream redirect/size limits on commentary fetches, and `no-store` error boundaries.
 
 | Endpoint                                           | Purpose                                                                 |
 | :------------------------------------------------- | :---------------------------------------------------------------------- |
-| `GET /api/config`                                  | Korean verse-synced audio capability flag (`krvSyncedAudioEnabled`)     |
 | `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3) and English (Crossway ESV) chapter tracks |
 | `GET /api/audio/krv/:usfm/:chapter`                | Stream Korean Supertonic 3 chapter MP3 from private R2 (`Range` + ETag) |
 | `GET /api/audio/esv/:usfm/:chapter`                | Proxy or redirect Crossway ESV chapter audio                            |
