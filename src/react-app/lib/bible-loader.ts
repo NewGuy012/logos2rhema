@@ -34,6 +34,32 @@ export function clearAudioTimingsCache(): void {
 	bundledTimingsCache.clear();
 }
 
+function cachedFetch<T>(
+	cache: Map<string, Promise<T>>,
+	key: string,
+	loader: () => Promise<T>,
+	maxEntries?: number,
+): Promise<T> {
+	const existing = cache.get(key);
+	if (existing) {
+		if (maxEntries) {
+			cache.delete(key);
+			cache.set(key, existing);
+		}
+		return existing;
+	}
+	if (maxEntries && cache.size >= maxEntries) {
+		const oldestKey = cache.keys().next().value;
+		if (oldestKey) cache.delete(oldestKey);
+	}
+	const promise = loader().catch((err) => {
+		cache.delete(key);
+		throw err;
+	});
+	cache.set(key, promise);
+	return promise;
+}
+
 export async function loadLexicon(): Promise<LexiconMap> {
 	if (!lexiconPromise) {
 		lexiconPromise = fetch("/data/lexicon.json")
@@ -52,33 +78,11 @@ export async function loadLexicon(): Promise<LexiconMap> {
 export async function loadReaderConfig(): Promise<ReaderConfigResponse> {
 	try {
 		const res = await fetch("/api/config");
-		if (res.ok) {
-			return (await res.json()) as ReaderConfigResponse;
-		}
+		if (res.ok) return (await res.json()) as ReaderConfigResponse;
 	} catch {
-		// Fallback when API is unreachable during isolated testing
+		// Offline/test fallback
 	}
 	return { krvSyncedAudioEnabled: false };
-}
-
-async function fetchBundledBook(translationId: string, usfm: string): Promise<BookBibleData> {
-	const cacheKey = `${translationId}:${usfm}`;
-	const existing = bundledBookCache.get(cacheKey);
-	if (existing) return existing;
-
-	const promise = fetch(`/data/bibles/${translationId}/${usfm}.json`)
-		.then((res) => {
-			if (!res.ok) {
-				throw new Error(`Failed to load ${translationId} ${usfm}`);
-			}
-			return res.json() as Promise<BookBibleData>;
-		})
-		.catch((err) => {
-			bundledBookCache.delete(cacheKey);
-			throw err;
-		});
-	bundledBookCache.set(cacheKey, promise);
-	return promise;
 }
 
 export async function loadTranslationChapter(
@@ -89,7 +93,11 @@ export async function loadTranslationChapter(
 	const book = getBookByNumber(bookNumber);
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
 
-	const data = await fetchBundledBook(translationId, book.usfm);
+	const data = await cachedFetch(bundledBookCache, `${translationId}:${book.usfm}`, async () => {
+		const res = await fetch(`/data/bibles/${translationId}/${book.usfm}.json`);
+		if (!res.ok) throw new Error(`Failed to load ${translationId} ${book.usfm}`);
+		return (await res.json()) as BookBibleData;
+	});
 	return data.chapters[String(chapter)] ?? [];
 }
 
@@ -97,23 +105,14 @@ function fetchStaticBookTimings(
 	timingsKey: string,
 	usfm: string,
 ): Promise<BookAudioTimingsData | null> {
-	const cacheKey = `${timingsKey}:${usfm}`;
-	const existing = bundledTimingsCache.get(cacheKey);
-	if (existing) return existing;
-
-	const promise = fetch(
-		`/data/timings/${encodeURIComponent(timingsKey)}/${encodeURIComponent(usfm)}.json`,
-	)
-		.then((res) => {
-			if (!res.ok) return null;
-			return res.json() as Promise<BookAudioTimingsData>;
-		})
-		.catch(() => {
-			bundledTimingsCache.delete(cacheKey);
-			return null;
-		});
-	bundledTimingsCache.set(cacheKey, promise);
-	return promise;
+	return cachedFetch(bundledTimingsCache, `${timingsKey}:${usfm}`, async () => {
+		const res = await fetch(
+			`/data/timings/${encodeURIComponent(timingsKey)}/${encodeURIComponent(usfm)}.json`,
+		);
+		if (res.status === 404) return null;
+		if (!res.ok) throw new Error(`Failed to load timings ${usfm}`);
+		return (await res.json()) as BookAudioTimingsData;
+	}).catch(() => null);
 }
 
 export async function loadSyncedChapterAudio(options: {
@@ -122,9 +121,7 @@ export async function loadSyncedChapterAudio(options: {
 }): Promise<ChapterAudioResponse> {
 	try {
 		const res = await fetch(`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`);
-		if (!res.ok) {
-			return { tracks: [] };
-		}
+		if (!res.ok) return { tracks: [] };
 		const payload = (await res.json()) as ChapterAudioResponse;
 		const tracks = await Promise.all(
 			payload.tracks.map(async (track) => {
@@ -141,9 +138,8 @@ export async function loadSyncedChapterAudio(options: {
 		);
 		return { tracks };
 	} catch {
-		// Fallback gracefully when running offline or in isolated DOM tests
+		return { tracks: [] };
 	}
-	return { tracks: [] };
 }
 
 export function loadChapterCommentary(options: {
@@ -152,21 +148,12 @@ export function loadChapterCommentary(options: {
 	chapter: number;
 }): Promise<ChapterCommentaryResponse> {
 	const key = `${options.commentaryId}:${options.usfm}:${options.chapter}`;
-	const existing = commentaryCache.get(key);
-	if (existing) {
-		commentaryCache.delete(key);
-		commentaryCache.set(key, existing);
-		return existing;
-	}
-
-	if (commentaryCache.size >= MAX_COMMENTARY_CACHE_ENTRIES) {
-		const oldestKey = commentaryCache.keys().next().value;
-		if (oldestKey) commentaryCache.delete(oldestKey);
-	}
-
 	const url = `/api/commentary/${encodeURIComponent(options.commentaryId)}/${encodeURIComponent(options.usfm)}/${options.chapter}`;
-	const promise = fetch(url)
-		.then(async (res) => {
+	return cachedFetch(
+		commentaryCache,
+		key,
+		async () => {
+			const res = await fetch(url);
 			if (!res.ok) {
 				let message = "Unable to load commentary.";
 				try {
@@ -178,14 +165,9 @@ export function loadChapterCommentary(options: {
 				throw new Error(message);
 			}
 			return (await res.json()) as ChapterCommentaryResponse;
-		})
-		.catch((err) => {
-			commentaryCache.delete(key);
-			throw err;
-		});
-
-	commentaryCache.set(key, promise);
-	return promise;
+		},
+		MAX_COMMENTARY_CACHE_ENTRIES,
+	);
 }
 
 export function alignChapterVerses(

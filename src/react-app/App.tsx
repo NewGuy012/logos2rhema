@@ -597,12 +597,10 @@ export default function App() {
 		setPendingScrollVerse(null);
 	}, [pendingScrollVerse, loadingChapter]);
 
-	const prepareNextPlayRef = useRef<() => void>(() => {});
-
 	const handleChapterEnded = useCallback(() => {
-		if (!nextChapterTarget) return;
-		prepareNextPlayRef.current();
+		if (!nextChapterTarget) return false;
 		navigateTo(nextChapterTarget.bookNumber, nextChapterTarget.chapter);
+		return true;
 	}, [nextChapterTarget, navigateTo]);
 
 	const audio = useHumanAudio({
@@ -620,7 +618,6 @@ export default function App() {
 		jumpToVerse,
 		setIsFollowingAudio,
 	} = audio;
-	prepareNextPlayRef.current = audio.prepareAutoAdvancePlay;
 
 	const goHome = useCallback(() => {
 		pause();
@@ -893,7 +890,6 @@ export default function App() {
 		onTogglePlay: audio.togglePlay,
 		onSeek: audio.seekTo,
 		onSkipBy: skipBy,
-		onSelectTrack: audio.selectTrack,
 		onSelectLanguage: audio.selectLanguage,
 		onChangeSpeed: audio.setPlaybackRate,
 	};

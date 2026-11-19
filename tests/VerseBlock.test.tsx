@@ -832,18 +832,12 @@ describe("Reader UI & audio hooks", () => {
 			url: "https://cdn.example.com/JHN/3.mp3",
 			verseTimings: { 1: 2.3, 12: 34.5, 16: 48.2 },
 		};
-		const altTrack = {
-			...supertonicTrack,
-			id: "custom:krv:alt",
-			label: "개역한글 · Alternative (AI)",
-		};
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 1.5)).toBeNull();
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 2.1)).toBe(1);
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 48.5)).toBe(16);
 		expect(resolveTimeForVerse(supertonicTrack.verseTimings, 17)).toBe(48.2);
 
 		const onSyncToVisible = mock(() => {});
-		const onSelectTrack = mock(() => {});
 		const onChangeSpeed = mock((_rate: number) => {});
 		const onFollowActive = mock(() => {});
 		const rail = render(
@@ -852,7 +846,7 @@ describe("Reader UI & audio hooks", () => {
 				bookEn="John"
 				bookKo="요한복음"
 				chapter={3}
-				tracks={[supertonicTrack, altTrack]}
+				tracks={[supertonicTrack]}
 				preferredLang="ko"
 				activeTrack={supertonicTrack}
 				isPlaying={true}
@@ -861,7 +855,6 @@ describe("Reader UI & audio hooks", () => {
 				activeVerse={12}
 				autoSync={true}
 				isFollowingAudio={false}
-				onSelectTrack={onSelectTrack}
 				onChangeSpeed={onChangeSpeed}
 				onToggleAutoSync={noop}
 				onSyncToVisibleVerse={onSyncToVisible}
@@ -912,9 +905,6 @@ describe("Reader UI & audio hooks", () => {
 		);
 		fireClick(getButton(mobileSyncBar.container, "Follow v.12"));
 		expect(onMobileFollow).toHaveBeenCalledTimes(1);
-
-		fireClick(getButton(rail.container, "개역한글 · Alternative (AI)"));
-		expect(onSelectTrack).toHaveBeenCalledWith(altTrack);
 
 		fireClick(
 			rail.container.querySelector('button[aria-label="Playback speed"]') as HTMLButtonElement,
@@ -983,19 +973,25 @@ describe("Reader UI & audio hooks", () => {
 			expect(mockCurrentTime).toBe(48.2);
 			expect(result.current.activeVerse).toBe(16);
 
-			const unsafeHook = renderHook(() =>
-				useHumanAudio({
-					tracks: [
-						{
-							id: "bad",
-							label: "Bad",
-							language: "ko",
-							url: "javascript:alert(1)",
-						},
-					],
-				}),
-			);
-			expect(unsafeHook.result.current.errorMessage).toBe("Audio stream URL was rejected.");
+			for (const badUrl of [
+				"javascript:alert(1)",
+				"https://user:pass@cdn.example.com/krv.mp3",
+				"/api/audio/../../secret",
+			]) {
+				const unsafeHook = renderHook(() =>
+					useHumanAudio({
+						tracks: [
+							{
+								id: "bad",
+								label: "Bad",
+								language: "ko",
+								url: badUrl,
+							},
+						],
+					}),
+				);
+				expect(unsafeHook.result.current.errorMessage).toBe("Audio stream URL was rejected.");
+			}
 
 			// Pre-metadata seek: queues target verse when readyState === 0 and seeks on loadedmetadata
 			mockCurrentTime = 0;
@@ -1034,9 +1030,10 @@ describe("Reader UI & audio hooks", () => {
 		}
 	});
 
-	it("hydrates static KRV timings for Supertonic custom tracks while preserving ESV", async () => {
+	it("hydrates static KRV timings, retries transient 5xx failures, and preserves ESV", async () => {
 		clearAudioTimingsCache();
 		const originalFetch = globalThis.fetch;
+		let timingCalls = 0;
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url === "/api/audio/JHN/3") {
@@ -1058,6 +1055,10 @@ describe("Reader UI & audio hooks", () => {
 				});
 			}
 			if (url === "/data/timings/krv-supertonic/JHN.json") {
+				timingCalls++;
+				if (timingCalls === 1) {
+					return new Response("Gateway Timeout", { status: 503 });
+				}
 				return Response.json({
 					chapters: {
 						"3": { "1": 2.345, "16": 51.789, bad: "x" },
@@ -1068,14 +1069,20 @@ describe("Reader UI & audio hooks", () => {
 		}) as unknown as typeof fetch;
 
 		try {
+			// First load hits 503 on timings: audio track survives, and 503 is not poisoned in cache
+			const first = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
+			expect(first.tracks.find((t) => t.id === SUPERTONIC_TRACK_ID)?.verseTimings).toBeUndefined();
+
 			const res = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
 			const supertonicTrack = res.tracks.find((t) => t.id === SUPERTONIC_TRACK_ID);
 			const esvTrack = res.tracks.find((t) => t.id === "esv-api:JHN:3");
+			expect(timingCalls).toBe(2);
 			expect(supertonicTrack?.verseTimings).toEqual({ 1: 2.345, 16: 51.789 });
 			expect(esvTrack?.verseTimings).toBeUndefined();
 
-			// Gracefully handles missing timing JSON (404)
+			// Gracefully handles missing chapter inside timing JSON without refetching
 			const missing = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 99 });
+			expect(timingCalls).toBe(2);
 			expect(
 				missing.tracks.find((t) => t.id === SUPERTONIC_TRACK_ID)?.verseTimings,
 			).toBeUndefined();

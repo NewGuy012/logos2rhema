@@ -6,9 +6,18 @@ import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
 
 function isSafeAudioSrc(url: string): boolean {
-	if (url.startsWith("/api/audio/")) return true;
+	if (!url || /[\u0000-\u001f\u007f]/.test(url)) return false;
+	if (url.startsWith("/")) {
+		try {
+			const parsed = new URL(url, "https://app.local");
+			return parsed.origin === "https://app.local" && parsed.pathname.startsWith("/api/audio/");
+		} catch {
+			return false;
+		}
+	}
 	try {
-		return new URL(url).protocol === "https:";
+		const parsed = new URL(url);
+		return parsed.protocol === "https:" && !parsed.username && !parsed.password;
 	} catch {
 		return false;
 	}
@@ -62,7 +71,7 @@ interface UseHumanAudioOptions {
 	tracks: AudioTrackOption[];
 	visibleVerse?: number;
 	autoSync?: boolean;
-	onChapterEnded?: () => void;
+	onChapterEnded?: () => boolean;
 }
 
 export function useHumanAudio({
@@ -83,7 +92,6 @@ export function useHumanAudio({
 	autoSyncRef.current = autoSync;
 
 	const [preferredLang, setPreferredLang] = useState<TranslationLanguage>("ko");
-	const [selectedTrackId, setSelectedTrackId] = useState("");
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [currentTime, setCurrentTime] = useState(0);
@@ -95,11 +103,10 @@ export function useHumanAudio({
 	const playbackRateRef = useRef(playbackRate);
 	playbackRateRef.current = playbackRate;
 
-	const activeTrack = useMemo(() => {
-		const langTracks = tracks.filter((t) => t.language === preferredLang);
-		if (langTracks.length === 0) return null;
-		return langTracks.find((t) => t.id === selectedTrackId) ?? langTracks[0];
-	}, [tracks, preferredLang, selectedTrackId]);
+	const activeTrack = useMemo(
+		() => tracks.find((t) => t.language === preferredLang) ?? null,
+		[tracks, preferredLang],
+	);
 
 	const activeTrackRef = useRef(activeTrack);
 	activeTrackRef.current = activeTrack;
@@ -159,7 +166,10 @@ export function useHumanAudio({
 			},
 			ended: () => {
 				setIsPlaying(false);
-				onEndedRef.current?.();
+				if (onEndedRef.current?.()) {
+					shouldAutoPlayOnTrackSwapRef.current = true;
+					pendingSyncVerseRef.current = null;
+				}
 			},
 			error: () => {
 				pendingSyncVerseRef.current = null;
@@ -297,32 +307,16 @@ export function useHumanAudio({
 		[seekTo],
 	);
 
-	const switchTrackOrLanguage = useCallback(
-		(lang: TranslationLanguage, trackId: string) => {
+	const selectLanguage = useCallback(
+		(lang: TranslationLanguage) => {
 			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
 			pendingSyncVerseRef.current = autoSyncRef.current
 				? (activeVerse ?? visibleVerseRef.current)
 				: null;
 			setPreferredLang(lang);
-			setSelectedTrackId(trackId);
 		},
 		[isPlaying, activeVerse],
 	);
-
-	const selectTrack = useCallback(
-		(track: AudioTrackOption) => switchTrackOrLanguage(track.language, track.id),
-		[switchTrackOrLanguage],
-	);
-
-	const selectLanguage = useCallback(
-		(lang: TranslationLanguage) => switchTrackOrLanguage(lang, ""),
-		[switchTrackOrLanguage],
-	);
-
-	const prepareAutoAdvancePlay = useCallback(() => {
-		shouldAutoPlayOnTrackSwapRef.current = true;
-		pendingSyncVerseRef.current = null;
-	}, []);
 
 	const jumpToVerse = useCallback(
 		(verseNumber: number) => {
@@ -362,9 +356,7 @@ export function useHumanAudio({
 			pause,
 			seekTo,
 			skipBy,
-			selectTrack,
 			selectLanguage,
-			prepareAutoAdvancePlay,
 			jumpToVerse,
 			setPlaybackRate: selectPlaybackRate,
 		}),
@@ -383,9 +375,7 @@ export function useHumanAudio({
 			pause,
 			seekTo,
 			skipBy,
-			selectTrack,
 			selectLanguage,
-			prepareAutoAdvancePlay,
 			jumpToVerse,
 			selectPlaybackRate,
 		],

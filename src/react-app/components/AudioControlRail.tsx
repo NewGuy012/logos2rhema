@@ -43,7 +43,6 @@ interface AudioControlRailProps {
 	onTogglePlay: () => void;
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
-	onSelectTrack: (track: AudioTrackOption) => void;
 	onSelectLanguage: (lang: TranslationLanguage) => void;
 	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync: () => void;
@@ -72,7 +71,6 @@ export function AudioControlRail({
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
-	onSelectTrack,
 	onSelectLanguage,
 	onChangeSpeed,
 	onToggleAutoSync,
@@ -81,7 +79,6 @@ export function AudioControlRail({
 	onMinimize,
 }: AudioControlRailProps) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
-	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = CANONICAL_BIBLES[preferredLang].code;
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
@@ -199,22 +196,6 @@ export function AudioControlRail({
 									{duration > 0 ? formatTime(duration) : "--:--"}
 								</span>
 							</div>
-
-							{langTracks.length > 1 && (
-								<div className="rail-track-list" role="group" aria-label="Audio track">
-									{langTracks.map((track) => (
-										<button
-											key={track.id}
-											type="button"
-											className={`quick-inline-chip ${track.id === activeTrack.id ? "active" : ""}`}
-											onClick={() => onSelectTrack(track)}
-											title={track.label}
-										>
-											{track.label}
-										</button>
-									))}
-								</div>
-							)}
 
 							{showFollowButton && activeVerse && (
 								<button

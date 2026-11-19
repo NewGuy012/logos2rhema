@@ -51,7 +51,6 @@ interface FloatingBottomBarProps {
 	onTogglePlay: () => void;
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
-	onSelectTrack: (track: AudioTrackOption) => void;
 	onSelectLanguage: (lang: TranslationLanguage) => void;
 	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync?: () => void;
@@ -86,13 +85,11 @@ export function FloatingBottomBar({
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
-	onSelectTrack,
 	onSelectLanguage,
 	onChangeSpeed,
 	onToggleAutoSync,
 	onFollowActiveVerse,
 }: FloatingBottomBarProps) {
-	const langTracks = tracks.filter((t) => t.language === preferredLang);
 	const activeLangCode = CANONICAL_BIBLES[preferredLang].code;
 	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
 	const showUnavailable = Boolean(!activeTrack);
@@ -101,13 +98,6 @@ export function FloatingBottomBar({
 	const showFollowChip = Boolean(
 		syncActive && isPlaying && !isFollowingAudio && activeVerse && onFollowActiveVerse,
 	);
-
-	const handleCycleNarrator = () => {
-		if (langTracks.length <= 1 || !activeTrack) return;
-		const idx = langTracks.findIndex((t) => t.id === activeTrack.id);
-		const next = langTracks[(idx + 1) % langTracks.length];
-		onSelectTrack(next);
-	};
 
 	return (
 		<div className="floating-dock">
@@ -134,16 +124,6 @@ export function FloatingBottomBar({
 								<span className="quick-time">{formatTime(currentTime)}</span>
 								<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
 								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>
-								{langTracks.length > 1 && activeTrack && (
-									<button
-										type="button"
-										className="quick-inline-chip"
-										onClick={handleCycleNarrator}
-										title={`Switch narrator (${activeTrack.label})`}
-									>
-										{activeTrack.label.split(" ")[0]} ↻
-									</button>
-								)}
 								{showFollowChip && activeVerse && onFollowActiveVerse ? (
 									<button
 										type="button"

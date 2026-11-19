@@ -3287,13 +3287,6 @@ button {
 	justify-self: end;
 }
 
-.rail-track-list {
-	display: flex;
-	align-items: center;
-	gap: 0.35rem;
-	flex-wrap: wrap;
-}
-
 .rail-unavailable {
 	display: flex;
 	flex-direction: column;
