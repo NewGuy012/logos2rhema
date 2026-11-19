@@ -4,12 +4,7 @@ import { createPortal } from "react-dom";
 import { romanizeHangul } from "../../shared/hangul";
 import type { GlossToken, HighlightItem } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
-import {
-	type AnchorPos,
-	anchorPosStyle,
-	computeAnchorPos,
-	useDismissListeners,
-} from "../hooks/usePopover";
+import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { renderHighlightedText } from "./HighlightText";
 import { Volume2 } from "./Icons";
 
@@ -20,18 +15,48 @@ interface KoreanTokenProps {
 	onSelectFootnote?: (footnoteId: string) => void;
 }
 
+function SpeakButton({
+	text,
+	label,
+	title,
+	speaking,
+	small = false,
+	onSpeak,
+}: {
+	text: string;
+	label: string;
+	title: string;
+	speaking: boolean;
+	small?: boolean;
+	onSpeak: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={`ko-tooltip-speak-btn ${small ? "ko-tooltip-speak-btn-sm" : ""} ${speaking ? "speaking" : ""}`.trim()}
+			onMouseDown={(e) => e.preventDefault()}
+			onPointerDown={(e) => e.stopPropagation()}
+			onClick={(e) => {
+				e.stopPropagation();
+				onSpeak();
+			}}
+			aria-label={label}
+			title={title || `Pronounce ${text}`}
+		>
+			<Volume2 size={small ? 11 : 13} />
+		</button>
+	);
+}
+
 export function KoreanToken({
 	token,
 	tokenOffset = 0,
 	highlights = [],
 	onSelectFootnote,
 }: KoreanTokenProps) {
-	const buttonRef = useRef<HTMLButtonElement | null>(null);
-	const tooltipRef = useRef<HTMLDivElement | null>(null);
 	const pointerDownRef = useRef(false);
 	const closeTimerRef = useRef<number | null>(null);
 	const [open, setOpen] = useState(false);
-	const [pos, setPos] = useState<AnchorPos | null>(null);
 	const {
 		speakingKey: speakingTarget,
 		speechErrorKey,
@@ -63,32 +88,28 @@ export function KoreanToken({
 
 	useEffect(() => () => cancelClose(), [cancelClose]);
 
-	const updatePosition = useCallback(() => {
-		if (!buttonRef.current) return;
-		setPos(
-			computeAnchorPos(buttonRef.current.getBoundingClientRect(), {
-				minSpace: 170,
-				halfWidth: 145,
-				gap: 8,
-			}),
-		);
-	}, []);
-
 	const dismiss = useCallback(() => {
 		cancelClose();
 		setOpen(false);
 	}, [cancelClose]);
 
+	const {
+		triggerRef: buttonRef,
+		menuRef: tooltipRef,
+		pos,
+		updatePosition,
+	} = useAnchoredPopover(open, {
+		minSpace: 170,
+		halfWidth: 145,
+		gap: 8,
+		onDismiss: dismiss,
+		onScroll: true,
+	});
+
 	useEffect(() => {
 		if (open) updatePosition();
 		else clearSpeechError();
 	}, [open, updatePosition, clearSpeechError]);
-
-	useDismissListeners(open, {
-		refs: [buttonRef, tooltipRef],
-		onDismiss: dismiss,
-		onScroll: true,
-	});
 
 	if (!token.word || !token.gloss) {
 		return <span>{renderHighlightedText(token.raw, tokenOffset, highlights)}</span>;
@@ -178,20 +199,13 @@ export function KoreanToken({
 									{token.word}
 									{token.hanja ? ` (${token.hanja})` : ""}
 								</span>
-								<button
-									type="button"
-									className={`ko-tooltip-speak-btn ${speakingTarget === "word" ? "speaking" : ""}`.trim()}
-									onMouseDown={(e) => e.preventDefault()}
-									onPointerDown={(e) => e.stopPropagation()}
-									onClick={(e) => {
-										e.stopPropagation();
-										handleSpeak(token.word, "word");
-									}}
-									aria-label={`Pronounce ${token.word}`}
+								<SpeakButton
+									text={token.word}
+									label={`Pronounce ${token.word}`}
 									title={`Pronounce ${token.word}`}
-								>
-									<Volume2 size={13} />
-								</button>
+									speaking={speakingTarget === "word"}
+									onSpeak={() => handleSpeak(token.word, "word")}
+								/>
 							</div>
 							{token.pos && <span className="ko-tooltip-pos">{token.pos}</span>}
 						</div>
@@ -205,20 +219,14 @@ export function KoreanToken({
 										{lemmaRomanized && (
 											<span className="ko-tooltip-root-phonetics"> [{lemmaRomanized}]</span>
 										)}
-										<button
-											type="button"
-											className={`ko-tooltip-speak-btn ko-tooltip-speak-btn-sm ${speakingTarget === "lemma" ? "speaking" : ""}`.trim()}
-											onMouseDown={(e) => e.preventDefault()}
-											onPointerDown={(e) => e.stopPropagation()}
-											onClick={(e) => {
-												e.stopPropagation();
-												handleSpeak(token.lemma, "lemma");
-											}}
-											aria-label={`Pronounce root ${token.lemma}`}
+										<SpeakButton
+											text={token.lemma}
+											label={`Pronounce root ${token.lemma}`}
 											title={`Pronounce root (${token.lemma})`}
-										>
-											<Volume2 size={11} />
-										</button>
+											speaking={speakingTarget === "lemma"}
+											small={true}
+											onSpeak={() => handleSpeak(token.lemma, "lemma")}
+										/>
 									</span>
 								)}
 								{token.lemma !== token.word && token.grammarNote && <span> · </span>}

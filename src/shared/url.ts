@@ -58,3 +58,16 @@ export function isSafeHttpsUrl(
 		return false;
 	}
 }
+
+export function isSafeAudioSrc(url: string): boolean {
+	if (!url || CONTROL_CHAR_RE.test(url)) return false;
+	if (url.startsWith("/")) {
+		try {
+			const parsed = new URL(url, "https://app.local");
+			return parsed.origin === "https://app.local" && parsed.pathname.startsWith("/api/audio/");
+		} catch {
+			return false;
+		}
+	}
+	return isSafeHttpsUrl(url);
+}

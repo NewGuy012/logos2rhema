@@ -55,8 +55,6 @@ export function VerseBlock({
 	onToggleFavorite,
 	onSelectFootnote,
 }: VerseBlockProps) {
-	const heading = verse.enHeading ?? verse.koHeading;
-
 	const englishLine = (
 		<p
 			key="en"
@@ -130,7 +128,7 @@ export function VerseBlock({
 			className={`verse-block ${isSelected ? "selected" : ""} ${isAudioActive ? "audio-active" : ""}`}
 			onClick={handleBlockClick}
 		>
-			{heading && <h3 className="verse-heading">{heading}</h3>}
+			{verse.heading && <h3 className="verse-heading">{verse.heading}</h3>}
 			<div className="verse-grid">
 				<div className="verse-gutter">
 					<button

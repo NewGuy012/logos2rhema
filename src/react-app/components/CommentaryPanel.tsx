@@ -39,21 +39,14 @@ function getEffectiveVerseEnd(
 	return entry.verseStart;
 }
 
-function formatEntryVerseLabel(
-	entry: CommentaryEntry,
-	index: number,
-	entries: readonly CommentaryEntry[],
-	source: CommentaryId,
-	maxVerseInChapter?: number,
-): string {
-	const end = getEffectiveVerseEnd(entry, index, entries, source, maxVerseInChapter);
-	if (Number.isFinite(end) && end > entry.verseStart) {
-		return `v.${entry.verseStart}–${end}`;
+function formatEntryVerseLabel(verseStart: number, effectiveEnd: number): string {
+	if (Number.isFinite(effectiveEnd) && effectiveEnd > verseStart) {
+		return `v.${verseStart}–${effectiveEnd}`;
 	}
-	if (!Number.isFinite(end)) {
-		return `v.${entry.verseStart}+`;
+	if (!Number.isFinite(effectiveEnd)) {
+		return `v.${verseStart}+`;
 	}
-	return `v.${entry.verseStart}`;
+	return `v.${verseStart}`;
 }
 
 function buildEntryPreview(paragraphs: readonly string[]): {
@@ -113,7 +106,6 @@ export function CommentaryPanel({
 
 	useEffect(() => {
 		setBookIntroOpen(false);
-		setExpandedIds(new Set());
 	}, [bookEn, source]);
 
 	useEffect(() => {
@@ -126,11 +118,14 @@ export function CommentaryPanel({
 
 	const indexedEntries = useMemo(
 		() =>
-			entries.map((entry, idx) => ({
-				entry,
-				effectiveEnd: getEffectiveVerseEnd(entry, idx, entries, source, maxVerseInChapter),
-				verseLabel: formatEntryVerseLabel(entry, idx, entries, source, maxVerseInChapter),
-			})),
+			entries.map((entry, idx) => {
+				const effectiveEnd = getEffectiveVerseEnd(entry, idx, entries, source, maxVerseInChapter);
+				return {
+					entry,
+					effectiveEnd,
+					verseLabel: formatEntryVerseLabel(entry.verseStart, effectiveEnd),
+				};
+			}),
 		[entries, source, maxVerseInChapter],
 	);
 

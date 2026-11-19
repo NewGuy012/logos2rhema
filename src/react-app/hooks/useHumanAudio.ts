@@ -2,26 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+import { isSafeAudioSrc } from "../../shared/url";
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
-
-function isSafeAudioSrc(url: string): boolean {
-	if (!url || /[\u0000-\u001f\u007f]/.test(url)) return false;
-	if (url.startsWith("/")) {
-		try {
-			const parsed = new URL(url, "https://app.local");
-			return parsed.origin === "https://app.local" && parsed.pathname.startsWith("/api/audio/");
-		} catch {
-			return false;
-		}
-	}
-	try {
-		const parsed = new URL(url);
-		return parsed.protocol === "https:" && !parsed.username && !parsed.password;
-	} catch {
-		return false;
-	}
-}
 
 export function resolveVerseAtTime(
 	timings: Record<number, number> | undefined,
@@ -188,6 +171,16 @@ export function useHumanAudio({
 		};
 	}, []);
 
+	const playAudio = useCallback((audio: HTMLAudioElement, blockedMessage?: string) => {
+		setErrorMessage(null);
+		setIsLoading(true);
+		audio.play().catch(() => {
+			setIsLoading(false);
+			setIsPlaying(false);
+			if (blockedMessage) setErrorMessage(blockedMessage);
+		});
+	}, []);
+
 	const activeTrackKey = activeTrack ? `${activeTrack.id}|${activeTrack.url}` : "";
 
 	// Sync audio src when activeTrack changes without resetting position on speed changes.
@@ -202,6 +195,7 @@ export function useHumanAudio({
 
 		const track = activeTrackRef.current;
 		if (!track?.url || !isSafeAudioSrc(track.url)) {
+			shouldAutoPlayOnTrackSwapRef.current = false;
 			audio.pause();
 			audio.removeAttribute("src");
 			audio.load();
@@ -216,20 +210,16 @@ export function useHumanAudio({
 		const resumePlayback = shouldAutoPlayOnTrackSwapRef.current;
 		shouldAutoPlayOnTrackSwapRef.current = false;
 
-		if (audio.src !== track.url) {
+		if (audio.getAttribute("src") !== track.url) {
 			audio.src = track.url;
 			audio.load();
 		}
 		applyPlaybackRate(audio, playbackRateRef.current);
 
 		if (resumePlayback) {
-			setIsLoading(true);
-			audio.play().catch(() => {
-				setIsLoading(false);
-				setIsPlaying(false);
-			});
+			playAudio(audio);
 		}
-	}, [activeTrackKey]);
+	}, [activeTrackKey, playAudio]);
 
 	useEffect(() => {
 		if (audioRef.current) applyPlaybackRate(audioRef.current, playbackRate);
@@ -285,16 +275,11 @@ export function useHumanAudio({
 			if (shouldSnap) seekOrQueueVerse(targetVerse, targetSec);
 		}
 
-		setErrorMessage(null);
-		setIsLoading(true);
-		audio.play().catch(() => {
-			setIsLoading(false);
-			setIsPlaying(false);
-			setErrorMessage("Playback blocked or unavailable for this chapter.");
-		});
-	}, [seekOrQueueVerse]);
+		playAudio(audio, "Playback blocked or unavailable for this chapter.");
+	}, [seekOrQueueVerse, playAudio]);
 
 	const pause = useCallback(() => {
+		shouldAutoPlayOnTrackSwapRef.current = false;
 		const audio = audioRef.current;
 		if (audio && !audio.paused) audio.pause();
 	}, []);
@@ -320,17 +305,19 @@ export function useHumanAudio({
 
 	const jumpToVerse = useCallback(
 		(verseNumber: number) => {
+			const audio = audioRef.current;
 			const track = activeTrackRef.current;
-			const startSec = resolveTimeForVerse(track?.verseTimings, verseNumber);
+			if (!audio || !track || !isSafeAudioSrc(track.url)) return false;
+			const startSec = resolveTimeForVerse(track.verseTimings, verseNumber);
 			if (startSec === null) return false;
 			setIsFollowingAudio(true);
 			seekOrQueueVerse(verseNumber, startSec);
-			if (audioRef.current?.paused) {
-				audioRef.current.play().catch(() => {});
+			if (audio.paused) {
+				playAudio(audio, "Playback blocked or unavailable for this chapter.");
 			}
 			return true;
 		},
-		[seekOrQueueVerse],
+		[seekOrQueueVerse, playAudio],
 	);
 
 	const selectPlaybackRate = useCallback((rate: number) => {

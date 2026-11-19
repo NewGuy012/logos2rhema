@@ -1,4 +1,11 @@
-import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
+import {
+	type CSSProperties,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 export interface AnchorPos {
 	left: number;
@@ -77,4 +84,42 @@ export function useDismissListeners(
 			if (options.onResize) window.removeEventListener("resize", handleViewport);
 		};
 	}, [active, options.onScroll, options.onResize]);
+}
+
+export function useAnchoredPopover<TTrigger extends HTMLElement = HTMLButtonElement>(
+	isOpen: boolean,
+	options: {
+		minSpace: number;
+		halfWidth: number;
+		gap: number;
+		prefer?: "below" | "above";
+		onDismiss: () => void;
+		onScroll?: boolean;
+		onResize?: boolean;
+	},
+) {
+	const triggerRef = useRef<TTrigger | null>(null);
+	const menuRef = useRef<HTMLDivElement | null>(null);
+	const [pos, setPos] = useState<AnchorPos | null>(null);
+
+	const updatePosition = useCallback(() => {
+		if (!triggerRef.current) return;
+		setPos(
+			computeAnchorPos(triggerRef.current.getBoundingClientRect(), {
+				minSpace: options.minSpace,
+				halfWidth: options.halfWidth,
+				gap: options.gap,
+				prefer: options.prefer,
+			}),
+		);
+	}, [options.minSpace, options.halfWidth, options.gap, options.prefer]);
+
+	useDismissListeners(isOpen, {
+		refs: [triggerRef, menuRef],
+		onDismiss: options.onDismiss,
+		onScroll: options.onScroll,
+		onResize: options.onResize,
+	});
+
+	return { triggerRef, menuRef, pos, updatePosition };
 }

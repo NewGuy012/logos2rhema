@@ -135,7 +135,12 @@ export function installMockAudio(options?: {
 			currentTime = val;
 		}
 		load() {}
-		removeAttribute() {}
+		getAttribute(name: string) {
+			return name === "src" ? this.src || null : null;
+		}
+		removeAttribute(name: string) {
+			if (name === "src") this.src = "";
+		}
 		addEventListener(type: string, fn: () => void) {
 			listeners.set(type, [...(listeners.get(type) ?? []), fn]);
 		}

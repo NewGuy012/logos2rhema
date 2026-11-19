@@ -2,7 +2,6 @@ import { useState } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
 import {
 	AudioFallbackAction,
@@ -10,6 +9,7 @@ import {
 	AudioScrubber,
 	AudioSpeedSelect,
 	formatTime,
+	type SharedAudioControlProps,
 } from "./AudioShared";
 import {
 	ChevronDown,
@@ -26,19 +26,7 @@ import {
 } from "./Icons";
 import { PanelSnapBackButton } from "./RailShared";
 
-interface AudioControlRailProps {
-	bookEn: string;
-	bookKo: string;
-	chapter: number;
-	tracks: AudioTrackOption[];
-	preferredLang: TranslationLanguage;
-	activeTrack: AudioTrackOption | null;
-	isPlaying: boolean;
-	isLoading: boolean;
-	currentTime: number;
-	duration: number;
-	playbackRate: number;
-	errorMessage: string | null;
+interface AudioControlRailProps extends SharedAudioControlProps {
 	visibleVerse: number;
 	activeVerse: number | null;
 	autoSync: boolean;
@@ -47,11 +35,6 @@ interface AudioControlRailProps {
 	onFloatingPositionChange?: (pos: PanelPosition | null) => void;
 	isActiveFloating?: boolean;
 	onActivateFloating?: () => void;
-	onTogglePlay: () => void;
-	onSeek: (sec: number) => void;
-	onSkipBy: (delta: number) => void;
-	onSelectLanguage: (lang: TranslationLanguage) => void;
-	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync: () => void;
 	onSyncToVisibleVerse: () => void;
 	onFollowActiveVerse: () => void;

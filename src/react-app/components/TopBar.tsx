@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { FavoriteItem, HighlightItem } from "../../shared/types";
 import { useDismissListeners } from "../hooks/usePopover";
-import { FavoritesList } from "./FavoritesList";
+import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
 import { Bible, Bookmark, BookOpen, ChevronDown, Home, Search, Settings } from "./Icons";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
@@ -12,13 +11,11 @@ export type ReaderTheme = "paper" | "sepia" | "dark";
 export type EnglishFontStyle = "newsreader" | "lora" | "inter";
 export type KoreanFontStyle = "serif" | "sans";
 
-interface TopBarProps {
+interface TopBarProps extends SavedItemsProps {
 	isHome?: boolean;
 	lastBookNumber?: number;
 	lastChapter?: number;
 	lastVerse?: number;
-	favorites?: FavoriteItem[];
-	highlights?: HighlightItem[];
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
@@ -28,10 +25,6 @@ interface TopBarProps {
 	onGoHome: () => void;
 	onContinueReading?: () => void;
 	onOpenPassage?: (bookNumber: number, chapter: number, verse?: number) => void;
-	onRemoveFavorite?: (id: string) => void;
-	onRemoveHighlight?: (id: string) => void;
-	onClearFavorites?: () => void;
-	onClearHighlights?: () => void;
 	onChangeStackOrder: (order: StackOrder) => void;
 	onOpenSearch: () => void;
 	onChangeTheme: (theme: ReaderTheme) => void;

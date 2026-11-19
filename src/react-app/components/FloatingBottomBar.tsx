@@ -2,13 +2,14 @@ import type { ReactNode } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { AudioTrackOption, RightRailTab, TranslationLanguage } from "../../shared/types";
+import type { RightRailTab } from "../../shared/types";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
 	AudioScrubber,
 	AudioSpeedSelect,
 	formatTime,
+	type SharedAudioControlProps,
 } from "./AudioShared";
 import {
 	BookOpen,
@@ -23,24 +24,12 @@ import {
 	RotateCw,
 } from "./Icons";
 
-interface FloatingBottomBarProps {
-	bookEn: string;
-	bookKo: string;
-	chapter: number;
+interface FloatingBottomBarProps extends SharedAudioControlProps {
 	hasPrev: boolean;
 	hasNext: boolean;
 	onPrevChapter: () => void;
 	onNextChapter: () => void;
 	onOpenPicker: () => void;
-	tracks: AudioTrackOption[];
-	preferredLang: TranslationLanguage;
-	activeTrack: AudioTrackOption | null;
-	isPlaying: boolean;
-	isLoading: boolean;
-	currentTime: number;
-	duration: number;
-	playbackRate: number;
-	errorMessage: string | null;
 	activeVerse?: number | null;
 	autoSync?: boolean;
 	isFollowingAudio?: boolean;
@@ -48,11 +37,6 @@ interface FloatingBottomBarProps {
 	dictionaryOpen: boolean;
 	dictionarySheet?: ReactNode;
 	onToggleDictionary: () => void;
-	onTogglePlay: () => void;
-	onSeek: (sec: number) => void;
-	onSkipBy: (delta: number) => void;
-	onSelectLanguage: (lang: TranslationLanguage) => void;
-	onChangeSpeed: (rate: number) => void;
 	onToggleAutoSync?: () => void;
 	onFollowActiveVerse?: () => void;
 }

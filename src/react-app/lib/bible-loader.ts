@@ -25,12 +25,11 @@ const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>
 const commentaryCache = new Map<string, Promise<ChapterCommentaryResponse>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
 
-export function clearCommentaryCache(): void {
-	commentaryCache.clear();
-}
-
-export function clearAudioTimingsCache(): void {
+export function clearLoaderCaches(): void {
+	bundledBookCache.clear();
 	bundledTimingsCache.clear();
+	commentaryCache.clear();
+	lexiconPromise = null;
 }
 
 function cachedFetch<T>(
@@ -175,10 +174,9 @@ export function alignChapterVerses(
 		const koEntry = koMap.get(verseNum);
 		return {
 			verse: verseNum,
+			heading: enEntry?.heading ?? koEntry?.heading,
 			enText: enEntry?.text ?? null,
-			enHeading: enEntry?.heading,
 			koText: koEntry?.text ?? null,
-			koHeading: koEntry?.heading,
 			tokens: analysis.tokensByVerse.get(verseNum) ?? [],
 		};
 	});

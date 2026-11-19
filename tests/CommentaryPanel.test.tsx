@@ -4,7 +4,7 @@ import { act } from "react";
 
 import { CommentaryPanel } from "../src/react-app/components/CommentaryPanel";
 import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
-import { clearCommentaryCache, loadChapterCommentary } from "../src/react-app/lib/bible-loader";
+import { clearLoaderCaches, loadChapterCommentary } from "../src/react-app/lib/bible-loader";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import type { ChapterCommentaryResponse } from "../src/shared/types";
 import {
@@ -19,7 +19,7 @@ import {
 
 describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 	beforeEach(() => {
-		clearCommentaryCache();
+		clearLoaderCaches();
 	});
 
 	const sampleMhData: ChapterCommentaryResponse = {

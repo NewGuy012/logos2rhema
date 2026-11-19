@@ -12,12 +12,7 @@ import { createPortal } from "react-dom";
 import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
-import {
-	type AnchorPos,
-	anchorPosStyle,
-	computeAnchorPos,
-	useDismissListeners,
-} from "../hooks/usePopover";
+import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { scrollChildIntoContainer } from "../lib/scroll";
 import { ChevronDown, Volume2 } from "./Icons";
 import { PanelDisclosure, PanelSearchInput } from "./RailShared";
@@ -41,23 +36,10 @@ function VerseRefSelect({
 	onClose,
 	onJumpToVerse,
 }: VerseRefSelectProps) {
-	const triggerRef = useRef<HTMLButtonElement | null>(null);
-	const menuRef = useRef<HTMLDivElement | null>(null);
-	const [pos, setPos] = useState<AnchorPos | null>(null);
-
-	const updatePosition = useCallback(() => {
-		if (!triggerRef.current) return;
-		setPos(
-			computeAnchorPos(triggerRef.current.getBoundingClientRect(), {
-				minSpace: 160,
-				halfWidth: 108,
-				gap: 6,
-			}),
-		);
-	}, []);
-
-	useDismissListeners(isOpen, {
-		refs: [triggerRef, menuRef],
+	const { triggerRef, menuRef, pos, updatePosition } = useAnchoredPopover(isOpen, {
+		minSpace: 160,
+		halfWidth: 108,
+		gap: 6,
 		onDismiss: onClose,
 		onScroll: true,
 		onResize: true,

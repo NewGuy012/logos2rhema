@@ -1,16 +1,31 @@
-import { type CSSProperties, useCallback, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
-import {
-	type AnchorPos,
-	anchorPosStyle,
-	computeAnchorPos,
-	useDismissListeners,
-} from "../hooks/usePopover";
+import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { ChevronDown } from "./Icons";
+
+export interface SharedAudioControlProps {
+	bookEn: string;
+	bookKo: string;
+	chapter: number;
+	tracks: AudioTrackOption[];
+	preferredLang: TranslationLanguage;
+	activeTrack: AudioTrackOption | null;
+	isPlaying: boolean;
+	isLoading: boolean;
+	currentTime: number;
+	duration: number;
+	playbackRate: number;
+	errorMessage: string | null;
+	onTogglePlay: () => void;
+	onSeek: (sec: number) => void;
+	onSkipBy: (delta: number) => void;
+	onSelectLanguage: (lang: TranslationLanguage) => void;
+	onChangeSpeed: (rate: number) => void;
+}
 
 export function formatTime(totalSeconds: number): string {
 	if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
@@ -83,25 +98,12 @@ export function AudioSpeedSelect({
 	playbackRate: number;
 	onChangeSpeed: (rate: number) => void;
 }) {
-	const triggerRef = useRef<HTMLButtonElement | null>(null);
-	const menuRef = useRef<HTMLDivElement | null>(null);
 	const [open, setOpen] = useState(false);
-	const [pos, setPos] = useState<AnchorPos | null>(null);
-
-	const updatePosition = useCallback(() => {
-		if (!triggerRef.current) return;
-		setPos(
-			computeAnchorPos(triggerRef.current.getBoundingClientRect(), {
-				minSpace: 56,
-				halfWidth: 148,
-				gap: 6,
-			}),
-		);
-	}, []);
-
 	const close = useCallback(() => setOpen(false), []);
-	useDismissListeners(open, {
-		refs: [triggerRef, menuRef],
+	const { triggerRef, menuRef, pos, updatePosition } = useAnchoredPopover(open, {
+		minSpace: 56,
+		halfWidth: 148,
+		gap: 6,
 		onDismiss: close,
 		onScroll: true,
 		onResize: true,

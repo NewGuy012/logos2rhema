@@ -79,10 +79,9 @@ export interface BookBibleData {
 
 export interface AlignedVerse {
 	verse: number;
+	heading?: string;
 	enText: string | null;
-	enHeading?: string;
 	koText: string | null;
-	koHeading?: string;
 	tokens: GlossToken[];
 }
 

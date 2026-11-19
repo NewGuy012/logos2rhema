@@ -16,11 +16,7 @@ import {
 	resolveVerseAtTime,
 	useHumanAudio,
 } from "../src/react-app/hooks/useHumanAudio";
-import {
-	clearAudioTimingsCache,
-	clearCommentaryCache,
-	loadSyncedChapterAudio,
-} from "../src/react-app/lib/bible-loader";
+import { clearLoaderCaches, loadSyncedChapterAudio } from "../src/react-app/lib/bible-loader";
 import {
 	FAVORITES_STORAGE_KEY,
 	formatFavoriteLabel,
@@ -124,7 +120,6 @@ function baseBarProps() {
 		onTogglePlay: noop,
 		onSeek: noop,
 		onSkipBy: noop,
-		onSelectTrack: noop,
 		onSelectLanguage: noop,
 		onChangeSpeed: noop,
 	};
@@ -241,7 +236,7 @@ describe("Reader UI & audio hooks", () => {
 		const onToggleFavorite = mock(() => {});
 		const verseWithHeading = {
 			...sampleVerse,
-			enHeading: "The Creation of the World",
+			heading: "The Creation of the World",
 		};
 		const { container } = render(
 			<div>
@@ -676,7 +671,7 @@ describe("Reader UI & audio hooks", () => {
 		window.location.hash = "";
 		localStorage.clear();
 		localStorage.setItem("logos.reader.preferences.v1", JSON.stringify({ enFontStyle: "invalid" }));
-		clearCommentaryCache();
+		clearLoaderCaches();
 		const restoreMatchMedia = mockDesktopMatchMedia();
 
 		let audioLoadCount = 0;
@@ -795,9 +790,7 @@ describe("Reader UI & audio hooks", () => {
 
 					// Switch English reading font via settings popover and verify CSS var + persistence
 					const appShell = container.querySelector(".app-shell") as HTMLElement;
-					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe(
-						"var(--font-en-newsreader)",
-					);
+					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en)");
 					fireClick(getButton(container, "Reader appearance settings"));
 					const settingsPopover = container.querySelector(".settings-popover") as ParentNode;
 					fireClick(getButton(settingsPopover, "Lora"));
@@ -806,7 +799,7 @@ describe("Reader UI & audio hooks", () => {
 						'"enFontStyle":"lora"',
 					);
 					fireClick(getButton(settingsPopover, "Inter"));
-					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en-inter)");
+					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-ui)");
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
 						'"enFontStyle":"inter"',
 					);
@@ -1269,6 +1262,7 @@ describe("Reader UI & audio hooks", () => {
 			for (const badUrl of [
 				"javascript:alert(1)",
 				"https://user:pass@cdn.example.com/krv.mp3",
+				"https://localhost/krv.mp3",
 				"/api/audio/../../secret",
 			]) {
 				const unsafeHook = renderHook(() =>
@@ -1324,7 +1318,7 @@ describe("Reader UI & audio hooks", () => {
 	});
 
 	it("hydrates static KRV timings, retries transient 5xx failures, and preserves ESV", async () => {
-		clearAudioTimingsCache();
+		clearLoaderCaches();
 		let timingCalls = 0;
 		try {
 			await withMockFetch(
@@ -1383,15 +1377,14 @@ describe("Reader UI & audio hooks", () => {
 				},
 			);
 		} finally {
-			clearAudioTimingsCache();
+			clearLoaderCaches();
 		}
 	});
 
 	it("keeps audio follow active on popover/sidebar scroll and retries failed chapter loads", async () => {
 		window.location.hash = "#/RUT/1";
 		localStorage.clear();
-		clearCommentaryCache();
-		clearAudioTimingsCache();
+		clearLoaderCaches();
 
 		const restoreMatchMedia = mockDesktopMatchMedia();
 		const mockAudio = installMockAudio({ initialTime: 1.5, emitTimeUpdateOnPlay: true });
@@ -1484,7 +1477,7 @@ describe("Reader UI & audio hooks", () => {
 		} finally {
 			mockAudio.restore();
 			restoreMatchMedia();
-			clearAudioTimingsCache();
+			clearLoaderCaches();
 		}
 	});
 

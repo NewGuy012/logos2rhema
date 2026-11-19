@@ -98,24 +98,23 @@ export function useDraggablePanel<T extends HTMLElement>({
 		};
 	}, [enabled]);
 
+	const isFloating = enabled && currentPosition !== null;
+
 	useEffect(() => {
-		if (!enabled || !currentPosition || typeof window === "undefined") return;
+		if (!enabled || !isFloating || typeof window === "undefined") return;
 		const clampToViewport = () => {
+			const pos = positionRef.current;
+			if (!pos) return;
 			const rect = panelRef.current?.getBoundingClientRect();
-			const next = clampPosition(
-				currentPosition.x,
-				currentPosition.y,
-				rect?.width ?? 0,
-				rect?.height ?? 0,
-			);
-			if (next.x !== currentPosition.x || next.y !== currentPosition.y) {
+			const next = clampPosition(pos.x, pos.y, rect?.width ?? 0, rect?.height ?? 0);
+			if (next.x !== pos.x || next.y !== pos.y) {
 				commitPosition(next);
 			}
 		};
 		clampToViewport();
 		window.addEventListener("resize", clampToViewport);
 		return () => window.removeEventListener("resize", clampToViewport);
-	}, [enabled, currentPosition, commitPosition]);
+	}, [enabled, isFloating, commitPosition]);
 
 	const onMouseDownCapture = useCallback(() => {
 		if (!enabled) return;
@@ -176,7 +175,6 @@ export function useDraggablePanel<T extends HTMLElement>({
 		[enabled, ignoreSelector, onActivate, commitPosition],
 	);
 
-	const isFloating = enabled && currentPosition !== null;
 	const floatingStyle =
 		isFloating && currentPosition
 			? ({

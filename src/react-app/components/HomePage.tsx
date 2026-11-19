@@ -2,10 +2,10 @@ import { Fragment, useId, useMemo, useState } from "react";
 
 import { BIBLE_BOOKS, filterBooks, getBookByNumber } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { BookMeta, FavoriteItem, HighlightItem } from "../../shared/types";
+import type { BookMeta } from "../../shared/types";
 import { useIsDesktopLayout } from "../hooks/useMediaQuery";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
-import { FavoritesList } from "./FavoritesList";
+import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -16,17 +16,11 @@ import {
 	Search,
 } from "./Icons";
 
-interface HomePageProps {
+interface HomePageProps extends SavedItemsProps {
 	lastBookNumber: number;
 	lastChapter: number;
 	lastVerse?: number;
-	favorites?: FavoriteItem[];
-	highlights?: HighlightItem[];
 	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
-	onRemoveFavorite?: (id: string) => void;
-	onRemoveHighlight?: (id: string) => void;
-	onClearFavorites?: () => void;
-	onClearHighlights?: () => void;
 }
 
 type ScriptureGrouping = "scripture" | "genres";

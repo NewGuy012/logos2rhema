@@ -5,15 +5,19 @@ import { formatFavoriteLabel } from "../lib/favorites";
 import { formatHighlightLabel } from "../lib/highlights";
 import { Bookmark, Highlighter, X } from "./Icons";
 
-interface FavoritesListProps {
-	favorites: FavoriteItem[];
+export interface SavedItemsProps {
+	favorites?: FavoriteItem[];
 	highlights?: HighlightItem[];
-	compact?: boolean;
-	onSelectFavorite: (bookNumber: number, chapter: number, verse?: number) => void;
 	onRemoveFavorite?: (id: string) => void;
 	onRemoveHighlight?: (id: string) => void;
 	onClearFavorites?: () => void;
 	onClearHighlights?: () => void;
+}
+
+interface FavoritesListProps extends SavedItemsProps {
+	favorites: FavoriteItem[];
+	compact?: boolean;
+	onSelectFavorite: (bookNumber: number, chapter: number, verse?: number) => void;
 }
 
 function SavedItemCard({

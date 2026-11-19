@@ -97,9 +97,9 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 };
 
 const EN_FONT_VARS: Record<EnglishFontStyle, string> = {
-	newsreader: "var(--font-en-newsreader)",
+	newsreader: "var(--font-en)",
 	lora: "var(--font-en-lora)",
-	inter: "var(--font-en-inter)",
+	inter: "var(--font-ui)",
 };
 
 const DEFAULT_PREFS: StoredPrefs = {
@@ -232,31 +232,26 @@ function scrollToVerse(verseNum: number, mode: "jump" | "follow" = "jump"): void
 }
 
 export default function App() {
-	const initialPrefs = useMemo(() => readStoredPrefs(), []);
+	const {
+		bookNumber: initBookNumber,
+		chapter: initChapter,
+		verse: initVerse,
+		...initialDisplayPrefs
+	} = useMemo(() => readStoredPrefs(), []);
 	const initialRoute = useMemo(() => parseLocationHash(), []);
 	const isDesktop = useIsDesktopLayout();
 
 	const [view, setView] = useState<"home" | "reader">(initialRoute.view);
 	const [bookNumber, setBookNumber] = useState(
-		initialRoute.view === "reader" ? initialRoute.bookNumber : initialPrefs.bookNumber,
+		initialRoute.view === "reader" ? initialRoute.bookNumber : initBookNumber,
 	);
 	const [chapter, setChapter] = useState(
-		initialRoute.view === "reader" ? initialRoute.chapter : initialPrefs.chapter,
+		initialRoute.view === "reader" ? initialRoute.chapter : initChapter,
 	);
 	const [lastVerse, setLastVerse] = useState(() =>
-		initialRoute.view === "reader" ? (initialRoute.verse ?? 1) : initialPrefs.verse,
+		initialRoute.view === "reader" ? (initialRoute.verse ?? 1) : initVerse,
 	);
-	const [prefs, setPrefs] = useState<DisplayPrefs>({
-		stackOrder: initialPrefs.stackOrder,
-		theme: initialPrefs.theme,
-		fontScale: initialPrefs.fontScale,
-		enFontStyle: initialPrefs.enFontStyle,
-		koFontStyle: initialPrefs.koFontStyle,
-		studyMask: initialPrefs.studyMask,
-		autoSync: initialPrefs.autoSync,
-		rightRailTab: initialPrefs.rightRailTab,
-		commentarySource: initialPrefs.commentarySource,
-	});
+	const [prefs, setPrefs] = useState<DisplayPrefs>(initialDisplayPrefs);
 
 	const updatePref = useCallback(<K extends keyof DisplayPrefs>(key: K, value: DisplayPrefs[K]) => {
 		setPrefs((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
@@ -698,17 +693,28 @@ export default function App() {
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
-			const tag = (e.target as HTMLElement | null)?.tagName;
+			const target = e.target as HTMLElement | null;
+			const tag = target?.tagName;
 			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
 				e.preventDefault();
 				setPickerOpen((prev) => !prev);
 				return;
 			}
-			if (pickerOpen || view !== "reader" || tag === "INPUT" || tag === "TEXTAREA") return;
+			if (
+				pickerOpen ||
+				view !== "reader" ||
+				tag === "INPUT" ||
+				tag === "TEXTAREA" ||
+				tag === "SELECT" ||
+				target?.isContentEditable
+			) {
+				return;
+			}
 			if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "h") {
 				if (applySelectionHighlight()) e.preventDefault();
 				return;
 			}
+			if (e.metaKey || e.ctrlKey || e.altKey) return;
 			if (e.key === "ArrowLeft") {
 				if (isPlaying) {
 					e.preventDefault();
