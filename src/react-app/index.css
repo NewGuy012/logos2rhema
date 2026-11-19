@@ -289,6 +289,8 @@ button:focus-visible {
 
 .icon-btn.active,
 .chapter-favorite-btn.active,
+.vocab-speak-btn:hover,
+.vocab-speak-btn.speaking,
 .verse-ref-chip:hover,
 .verse-ref-select.active,
 .verse-ref-menu-item:hover,
@@ -1417,12 +1419,6 @@ button:focus-visible {
 	flex-shrink: 0;
 }
 
-.commentary-source-row .segmented-btn {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
 .right-rail-tabpanel {
 	flex: 1 1 auto;
 	min-height: 0;
@@ -1433,6 +1429,9 @@ button:focus-visible {
 }
 
 .commentary-source-row .segmented-btn {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	padding: 0.28rem 0.25rem;
 	font-size: 0.64rem;
 	white-space: nowrap;
@@ -1528,7 +1527,8 @@ button:focus-visible {
 	color: var(--accent);
 }
 
-.commentary-expand-btn:hover {
+.commentary-expand-btn:hover,
+.commentary-attribution a:hover {
 	text-decoration: underline;
 }
 
@@ -1561,10 +1561,6 @@ button:focus-visible {
 .commentary-attribution a {
 	color: var(--accent);
 	text-decoration: none;
-}
-
-.commentary-attribution a:hover {
-	text-decoration: underline;
 }
 
 .dict-panel-scroll {
@@ -1833,13 +1829,6 @@ button:focus-visible {
 	color: var(--text-secondary);
 	background: var(--glass-control);
 	border: 1px solid var(--border-hairline);
-}
-
-.vocab-speak-btn:hover,
-.vocab-speak-btn.speaking {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
 }
 
 .vocab-speak-btn:active {
@@ -2909,7 +2898,8 @@ button:focus-visible {
 	background: var(--bg-hover);
 }
 
-.home-section {
+.home-section,
+.home-browse-panel {
 	display: flex;
 	flex-direction: column;
 	gap: 0.9rem;
@@ -2922,7 +2912,8 @@ button:focus-visible {
 	border-bottom: 1px solid var(--border-hairline);
 }
 
-.home-disclosure-label {
+.home-disclosure-label,
+.home-audio-transport {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.45rem;
@@ -2954,7 +2945,8 @@ button:focus-visible {
 	justify-content: flex-end;
 }
 
-.home-favorites-group {
+.home-favorites-group,
+.rail-settings {
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
@@ -3019,14 +3011,6 @@ button:focus-visible {
 	gap: 0.55rem;
 }
 
-@media (min-width: 860px) {
-	.home-favorites-panel .home-favorites-list {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-		gap: 0.7rem;
-	}
-}
-
 .home-highlight-icon {
 	color: var(--highlight-icon);
 	flex-shrink: 0;
@@ -3063,7 +3047,8 @@ button:focus-visible {
 	border-radius: 12px;
 }
 
-.home-favorite-head {
+.home-favorite-head,
+.home-genre-head {
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
@@ -3198,14 +3183,6 @@ button:focus-visible {
 	gap: 0.5rem;
 }
 
-.home-genre-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 0.6rem;
-	flex-wrap: wrap;
-}
-
 .home-genre-title {
 	display: flex;
 	align-items: baseline;
@@ -3259,7 +3236,8 @@ button:focus-visible {
 	color: var(--text-muted);
 }
 
-.home-browser-header {
+.home-browser-header,
+.home-audio-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -3282,12 +3260,6 @@ button:focus-visible {
 
 .home-grouping-toggle .segmented-btn:hover:not(.active) {
 	color: var(--text-primary);
-}
-
-.home-browse-panel {
-	display: flex;
-	flex-direction: column;
-	gap: 0.9rem;
 }
 
 .home-study-browser {
@@ -3331,7 +3303,8 @@ button:focus-visible {
 	white-space: nowrap;
 }
 
-.home-passage-bar {
+.home-passage-bar,
+.home-dict-header-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -3442,7 +3415,8 @@ button:focus-visible {
 	color: var(--accent);
 }
 
-.home-audio-track-label {
+.home-audio-track-label,
+.home-source-desc {
 	margin: 0;
 	font-size: 0.78rem;
 	color: var(--text-muted);
@@ -3454,20 +3428,6 @@ button:focus-visible {
 	gap: 0.65rem;
 	padding-top: 0.72rem;
 	border-top: 1px solid var(--border-hairline);
-}
-
-.home-audio-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.75rem;
-	flex-wrap: wrap;
-}
-
-.home-audio-transport {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.45rem;
 }
 
 .home-audio-transport .rail-play-btn {
@@ -3488,7 +3448,8 @@ button:focus-visible {
 	align-items: center;
 }
 
-.home-audio-scrubber .audio-range {
+.home-audio-scrubber .audio-range,
+.rail-scrubber .audio-range {
 	width: 100%;
 	min-width: 0;
 }
@@ -3517,12 +3478,6 @@ button:focus-visible {
 	padding: 0.3rem 0.75rem;
 	font-size: 0.78rem;
 	white-space: nowrap;
-}
-
-.home-source-desc {
-	margin: 0;
-	font-size: 0.78rem;
-	color: var(--text-muted);
 }
 
 .home-commentary-card-header {
@@ -3558,14 +3513,6 @@ button:focus-visible {
 }
 
 /* Home Dictionary Browser */
-.home-dict-header-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.65rem;
-	flex-wrap: wrap;
-}
-
 .home-dict-mode-toggle {
 	display: inline-flex;
 	flex-wrap: wrap;
@@ -3682,17 +3629,6 @@ button:focus-visible {
 	color: var(--text-muted);
 }
 
-@media (max-width: 680px) {
-	.home-testaments {
-		grid-template-columns: minmax(0, 1fr);
-		gap: 1.1rem;
-	}
-	.home-testament-divider {
-		width: 100%;
-		height: 1px;
-	}
-}
-
 .home-about-section {
 	padding-top: 1.75rem;
 	border-top: 1px solid var(--border-hairline);
@@ -3757,11 +3693,6 @@ button:focus-visible {
 	display: flex;
 	align-items: center;
 	padding: 0.18rem 0;
-}
-
-.rail-scrubber .audio-range {
-	width: 100%;
-	min-width: 0;
 }
 
 .rail-transport-row {
@@ -3857,12 +3788,6 @@ button:focus-visible {
 	color: var(--text-muted);
 }
 
-.rail-settings {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-}
-
 .rail-sync-box {
 	display: flex;
 	flex-direction: column;
@@ -3953,6 +3878,14 @@ button:focus-visible {
 	transform: scale(0.97);
 }
 
+@media (min-width: 860px) {
+	.home-favorites-panel .home-favorites-list {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+		gap: 0.7rem;
+	}
+}
+
 @media (max-width: 1023px) {
 	.app-shell {
 		padding-bottom: 120px;
@@ -3989,6 +3922,17 @@ button:focus-visible {
 	.home-genres-list {
 		grid-template-columns: minmax(0, 1fr);
 		gap: 0.6rem;
+	}
+}
+
+@media (max-width: 680px) {
+	.home-testaments {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1.1rem;
+	}
+	.home-testament-divider {
+		width: 100%;
+		height: 1px;
 	}
 }
 
