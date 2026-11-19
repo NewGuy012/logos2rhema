@@ -118,19 +118,32 @@ const K_GROUP_FINALS = new Set([1, 2, 3, 9, 24]);
 const T_GROUP_FINALS = new Set([7, 19, 20, 22, 23, 25, 27]);
 const P_GROUP_FINALS = new Set([17, 18, 26]);
 
+function decodeSyllableAt(
+	word: string,
+	index: number,
+): { code: number; lead: number; vowel: number; final: number } | null {
+	if (index < 0 || index >= word.length) return null;
+	const code = word.charCodeAt(index);
+	if (code < HANGUL_START || code > HANGUL_END) return null;
+	const sIdx = code - HANGUL_START;
+	return {
+		code,
+		lead: Math.floor(sIdx / 588),
+		vowel: Math.floor((sIdx % 588) / 28),
+		final: sIdx % 28,
+	};
+}
+
 function romanizeHangulRun(run: string): string {
 	const syllables = Array.from(run, (ch) => {
-		const sIdx = ch.charCodeAt(0) - HANGUL_START;
-		const leadIdx = Math.floor(sIdx / 588);
-		const vowelIdx = Math.floor((sIdx % 588) / 28);
-		const trailIdx = sIdx % 28;
+		const s = decodeSyllableAt(ch, 0)!;
 		return {
-			leadIdx,
-			vowelIdx,
-			trailIdx,
-			leadStr: ROMAN_INITIALS[leadIdx] as string,
-			vowelStr: ROMAN_VOWELS[vowelIdx] as string,
-			trailStr: ROMAN_FINALS[trailIdx] as string,
+			leadIdx: s.lead,
+			vowelIdx: s.vowel,
+			trailIdx: s.final,
+			leadStr: ROMAN_INITIALS[s.lead] as string,
+			vowelStr: ROMAN_VOWELS[s.vowel] as string,
+			trailStr: ROMAN_FINALS[s.final] as string,
 		};
 	});
 
@@ -209,70 +222,50 @@ export function containsHangul(text: string): boolean {
 	return /[\uAC00-\uD7A3]/.test(text);
 }
 
-function getLastFinalIndex(word: string): { code: number; finalIdx: number } | null {
-	if (!word) return null;
-	const code = word.charCodeAt(word.length - 1);
-	if (code < HANGUL_START || code > HANGUL_END) return null;
-	return { code, finalIdx: (code - HANGUL_START) % 28 };
-}
-
 export function hasFinalConsonant(word: string): boolean {
-	const info = getLastFinalIndex(word);
-	return info !== null && info.finalIdx > 0;
+	const info = decodeSyllableAt(word, word.length - 1);
+	return info !== null && info.final > 0;
 }
 
 export function endsWithOpenAEoVowel(word: string): boolean {
-	const info = getLastFinalIndex(word);
-	if (!info || info.finalIdx !== 0) return false;
-	const jung = Math.floor((info.code - HANGUL_START) / 28) % 21;
+	const info = decodeSyllableAt(word, word.length - 1);
+	if (!info || info.final !== 0) return false;
 	// Open vowels ㅏ (0), ㅐ (1), ㅓ (4), ㅔ (5) drop redundant -아/-어 in connectives.
-	return jung === 0 || jung === 1 || jung === 4 || jung === 5;
+	return info.vowel === 0 || info.vowel === 1 || info.vowel === 4 || info.vowel === 5;
 }
 
 export function replaceLastFinalConsonant(word: string, finalJamo: string): string | null {
-	const info = getLastFinalIndex(word);
+	const info = decodeSyllableAt(word, word.length - 1);
 	if (!info) return null;
 	const targetFinalIdx = finalJamo === "" ? 0 : FINALS.indexOf(finalJamo) + 1;
 	if (finalJamo !== "" && targetFinalIdx === 0) return null;
-	return `${word.slice(0, -1)}${String.fromCharCode(info.code - info.finalIdx + targetFinalIdx)}`;
+	return `${word.slice(0, -1)}${String.fromCharCode(info.code - info.final + targetFinalIdx)}`;
 }
 
 export function stripLastFinalConsonant(word: string): { stem: string; final: string } | null {
-	const info = getLastFinalIndex(word);
-	if (!info || info.finalIdx === 0) return null;
+	const info = decodeSyllableAt(word, word.length - 1);
+	if (!info || info.final === 0) return null;
 	return {
-		stem: `${word.slice(0, -1)}${String.fromCharCode(info.code - info.finalIdx)}`,
-		final: FINALS[info.finalIdx - 1],
+		stem: `${word.slice(0, -1)}${String.fromCharCode(info.code - info.final)}`,
+		final: FINALS[info.final - 1],
 	};
 }
 
 export function getFirstInitialConsonant(word: string): string | null {
-	if (!word) return null;
-	const code = word.charCodeAt(0);
-	if (code < HANGUL_START || code > HANGUL_END) return null;
-	return INITIALS[Math.floor((code - HANGUL_START) / 588)];
+	const info = decodeSyllableAt(word, 0);
+	return info ? INITIALS[info.lead] : null;
 }
 
-/** True when the first syllable starts with silent ㅇ + vowel ㅗ (e.g. 오, 옵). */
+// True when the first syllable starts with silent ㅇ + vowel ㅗ (e.g. 오, 옵).
 export function startsWithOpenOVowel(word: string): boolean {
-	if (!word) return false;
-	const code = word.charCodeAt(0);
-	if (code < HANGUL_START || code > HANGUL_END) return false;
-	const sIdx = code - HANGUL_START;
-	return Math.floor(sIdx / 588) === 11 && Math.floor((sIdx % 588) / 28) === 8;
+	const info = decodeSyllableAt(word, 0);
+	return info !== null && info.lead === 11 && info.vowel === 8;
 }
 
-/**
- * Restores an ㅡ-irregular syllable whose vowel dropped before -아/-어/-았/-었
- * (e.g. 따라 -> 따르, 써 -> 쓰, 썼 -> 쓰, 기뻐 -> 기쁘).
- */
+// Restores an ㅡ-irregular syllable whose vowel dropped before -아/-어/-았/-었 (e.g. 따라 -> 따르, 썼 -> 쓰).
 export function restoreEuIrregularStem(word: string): string | null {
-	const info = getLastFinalIndex(word);
-	if (!info || (info.finalIdx !== 0 && info.finalIdx !== 20)) return null;
-	const sIdx = info.code - HANGUL_START;
-	const leadIdx = Math.floor(sIdx / 588);
-	const vowelIdx = Math.floor((sIdx % 588) / 28);
-	// ㅏ (0) or ㅓ (4) -> ㅡ (18)
-	if (vowelIdx !== 0 && vowelIdx !== 4) return null;
-	return `${word.slice(0, -1)}${String.fromCharCode(HANGUL_START + leadIdx * 588 + 18 * 28)}`;
+	const info = decodeSyllableAt(word, word.length - 1);
+	if (!info || (info.final !== 0 && info.final !== 20)) return null;
+	if (info.vowel !== 0 && info.vowel !== 4) return null;
+	return `${word.slice(0, -1)}${String.fromCharCode(HANGUL_START + info.lead * 588 + 18 * 28)}`;
 }

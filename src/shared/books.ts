@@ -99,78 +99,37 @@ interface BibleGenre {
 	bookNumbers: readonly number[];
 }
 
-export const BIBLE_GENRES: readonly BibleGenre[] = [
-	{
-		id: "law",
-		nameEn: "Law (Pentateuch)",
-		nameKo: "모세오경",
-		testament: "OT",
-		bookNumbers: [1, 2, 3, 4, 5],
-	},
-	{
-		id: "ot-history",
-		nameEn: "History",
-		nameKo: "역사서",
-		testament: "OT",
-		bookNumbers: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
-	},
-	{
-		id: "poetry-wisdom",
-		nameEn: "Poetry & Wisdom",
-		nameKo: "시가서",
-		testament: "OT",
-		bookNumbers: [18, 19, 20, 21, 22],
-	},
-	{
-		id: "major-prophets",
-		nameEn: "Major Prophets",
-		nameKo: "대선지서",
-		testament: "OT",
-		bookNumbers: [23, 24, 25, 26, 27],
-	},
-	{
-		id: "minor-prophets",
-		nameEn: "Minor Prophets",
-		nameKo: "소선지서",
-		testament: "OT",
-		bookNumbers: [28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
-	},
-	{
-		id: "gospels",
-		nameEn: "Gospels",
-		nameKo: "복음서",
-		testament: "NT",
-		bookNumbers: [40, 41, 42, 43],
-	},
-	{
-		id: "nt-history",
-		nameEn: "Church History",
-		nameKo: "역사서 (사도행전)",
-		testament: "NT",
-		bookNumbers: [44],
-	},
-	{
-		id: "pauline-epistles",
-		nameEn: "Pauline Epistles",
-		nameKo: "바울서신",
-		testament: "NT",
-		bookNumbers: [45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57],
-	},
-	{
-		id: "general-epistles",
-		nameEn: "General Epistles",
-		nameKo: "공동서신",
-		testament: "NT",
-		bookNumbers: [58, 59, 60, 61, 62, 63, 64, 65],
-	},
-	{
-		id: "prophecy",
-		nameEn: "Prophecy (Apocalyptic)",
-		nameKo: "예언서 (계시록)",
-		testament: "NT",
-		bookNumbers: [66],
-	},
+type GenreSpec = readonly [
+	id: string,
+	nameEn: string,
+	nameKo: string,
+	testament: Testament,
+	startBook: number,
+	endBook: number,
 ];
+
+const GENRE_SPECS: readonly GenreSpec[] = [
+	["law", "Law (Pentateuch)", "모세오경", "OT", 1, 5],
+	["ot-history", "History", "역사서", "OT", 6, 17],
+	["poetry-wisdom", "Poetry & Wisdom", "시가서", "OT", 18, 22],
+	["major-prophets", "Major Prophets", "대선지서", "OT", 23, 27],
+	["minor-prophets", "Minor Prophets", "소선지서", "OT", 28, 39],
+	["gospels", "Gospels", "복음서", "NT", 40, 43],
+	["nt-history", "Church History", "역사서 (사도행전)", "NT", 44, 44],
+	["pauline-epistles", "Pauline Epistles", "바울서신", "NT", 45, 57],
+	["general-epistles", "General Epistles", "공동서신", "NT", 58, 65],
+	["prophecy", "Prophecy (Apocalyptic)", "예언서 (계시록)", "NT", 66, 66],
+];
+
+export const BIBLE_GENRES: readonly BibleGenre[] = GENRE_SPECS.map(
+	([id, nameEn, nameKo, testament, startBook, endBook]) => ({
+		id,
+		nameEn,
+		nameKo,
+		testament,
+		bookNumbers: Array.from({ length: endBook - startBook + 1 }, (_, i) => startBook + i),
+	}),
+);
 
 const BOOKS_BY_NUMBER = new Map<number, BookMeta>(BIBLE_BOOKS.map((b) => [b.number, b]));
 const BOOKS_BY_USFM = new Map<string, BookMeta>(BIBLE_BOOKS.map((b) => [b.usfm, b]));
@@ -195,6 +154,19 @@ export function getBookByNumber(bookNumber: number): BookMeta | undefined {
 
 export function getBookByUsfm(usfm: string): BookMeta | undefined {
 	return BOOKS_BY_USFM.get(usfm.toUpperCase());
+}
+
+export function clampChapter(book: BookMeta, chapter: number): number {
+	if (!Number.isFinite(chapter)) return 1;
+	return Math.max(1, Math.min(book.chapters, Math.trunc(chapter)));
+}
+
+export function resolveBookChapter(
+	bookNumber: number,
+	chapter: number,
+): { book: BookMeta; chapter: number } {
+	const book = getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0];
+	return { book, chapter: clampChapter(book, chapter) };
 }
 
 export function filterBooks(query: string, testament?: Testament): BookMeta[] {
@@ -275,7 +247,7 @@ export function parsePassageReference(input: string): ParsedReference | null {
 
 	return {
 		bookNumber: book.number,
-		chapter: Math.max(1, Math.min(book.chapters, chapterNum)),
+		chapter: clampChapter(book, chapterNum),
 		verse: verseNum && !Number.isNaN(verseNum) ? verseNum : undefined,
 	};
 }

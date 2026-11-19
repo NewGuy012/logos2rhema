@@ -1539,7 +1539,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	지옥: { gloss: "hell / Gehenna", hanja: "地獄", pos: "noun" },
 };
 
-export interface KrvGrammarRule {
+interface KrvGrammarRule {
 	id: string;
 	pattern: string;
 	modern: string;
