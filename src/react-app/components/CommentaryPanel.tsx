@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	buildCommentaryPreview,
@@ -9,9 +9,103 @@ import {
 	type IndexedCommentaryEntry,
 } from "../../shared/commentaries";
 import type { ChapterCommentaryResponse, CommentaryId, CommentaryMeta } from "../../shared/types";
+import { loadChapterCommentary } from "../lib/bible-loader";
 import { scrollChildIntoContainer } from "../lib/scroll";
 import { Loader2 } from "./Icons";
 import { PanelDisclosure, PanelSearchInput } from "./RailShared";
+
+export function useChapterCommentary({
+	commentaryId,
+	usfm,
+	chapter,
+	enabled = true,
+}: {
+	commentaryId: CommentaryId;
+	usfm: string;
+	chapter: number;
+	enabled?: boolean;
+}) {
+	const [data, setData] = useState<ChapterCommentaryResponse | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [retrySeq, setRetrySeq] = useState(0);
+	const loadedKeyRef = useRef<string | null>(null);
+
+	useEffect(() => {
+		const targetKey = `${commentaryId}:${usfm}:${chapter}`;
+		const matchesCurrent = loadedKeyRef.current === targetKey;
+
+		if (!matchesCurrent) {
+			loadedKeyRef.current = null;
+			setData(null);
+		}
+		setError(null);
+
+		if (!enabled) {
+			setLoading(false);
+			return;
+		}
+
+		let cancelled = false;
+		setLoading(!matchesCurrent);
+		loadChapterCommentary({ commentaryId, usfm, chapter })
+			.then((res) => {
+				if (cancelled) return;
+				loadedKeyRef.current = targetKey;
+				setData(res);
+				setLoading(false);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				loadedKeyRef.current = null;
+				setError(err instanceof Error ? err.message : "Unable to load commentary.");
+				setLoading(false);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [commentaryId, usfm, chapter, enabled, retrySeq]);
+
+	const retry = useCallback(() => setRetrySeq((seq) => seq + 1), []);
+	return { data, loading, error, retry };
+}
+
+export function CommentarySourceToggle({
+	source,
+	onChangeSource,
+	className = "commentary-source-row",
+}: {
+	source: CommentaryId;
+	onChangeSource: (source: CommentaryId) => void;
+	className?: string;
+}) {
+	return (
+		<div
+			className={`segmented-row ${className}`.trim()}
+			role="group"
+			aria-label="Commentary source"
+		>
+			{COMMENTARY_SOURCES.map((item) => {
+				const active = source === item.id;
+				return (
+					<button
+						key={item.id}
+						type="button"
+						className={`segmented-btn ${active ? "active" : ""}`.trim()}
+						aria-pressed={active}
+						title={item.description}
+						onClick={() => {
+							if (!active) onChangeSource(item.id);
+						}}
+					>
+						{item.shortName}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
 
 interface CommentaryPanelProps {
 	bookEn: string;
@@ -39,9 +133,6 @@ interface CommentaryBodyProps {
 	matchedEntryId?: string | null;
 	onRetry: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
-	listClassName?: string;
-	cardClassName?: string;
-	statusClassName?: string;
 }
 
 export function CommentaryBody({
@@ -56,9 +147,6 @@ export function CommentaryBody({
 	matchedEntryId = null,
 	onRetry,
 	onJumpToVerse,
-	listClassName = "commentary-list",
-	cardClassName = "commentary-card",
-	statusClassName = "commentary-status",
 }: CommentaryBodyProps) {
 	const [chapterIntroOpen, setChapterIntroOpen] = useState(false);
 	const [bookIntroOpen, setBookIntroOpen] = useState(false);
@@ -89,7 +177,7 @@ export function CommentaryBody({
 
 	if (loading) {
 		return (
-			<div className={statusClassName} role="status">
+			<div className="commentary-status" role="status">
 				<Loader2 size={16} className="spin" />
 				<span>Loading {sourceMeta.shortName} notes...</span>
 			</div>
@@ -98,7 +186,7 @@ export function CommentaryBody({
 
 	if (error) {
 		return (
-			<div className={`${statusClassName} commentary-error`.trim()}>
+			<div className="commentary-status commentary-error">
 				<p className="commentary-status-text">{error}</p>
 				<button type="button" className="quick-inline-chip active" onClick={onRetry}>
 					Try again
@@ -109,7 +197,7 @@ export function CommentaryBody({
 
 	if (!data || (entries.length === 0 && chapterIntro.length === 0 && bookIntro.length === 0)) {
 		return (
-			<div className={statusClassName}>
+			<div className="commentary-status">
 				<p className="commentary-status-text">
 					No notes available in {sourceMeta.name} for {bookEn} {chapter}.
 				</p>
@@ -152,13 +240,13 @@ export function CommentaryBody({
 			)}
 
 			{visibleEntries.length === 0 ? (
-				<div className={statusClassName}>
+				<div className="commentary-status">
 					<p className="commentary-status-text">
 						No matching commentary notes for "{query.trim()}" in {bookEn} {chapter}.
 					</p>
 				</div>
 			) : (
-				<div className={listClassName}>
+				<div className="commentary-list">
 					{visibleEntries.map(({ entry, verseLabel }) => {
 						const { preview, isTruncated } = buildCommentaryPreview(entry.paragraphs);
 						const searchMatchesRemainder =
@@ -175,7 +263,7 @@ export function CommentaryBody({
 							<article
 								key={entry.id}
 								data-commentary-id={entry.id}
-								className={`${cardClassName} ${isHighlighted ? "highlighted" : ""}`.trim()}
+								className={`commentary-card ${isHighlighted ? "highlighted" : ""}`.trim()}
 							>
 								<div className="commentary-card-head">
 									<button
@@ -277,29 +365,7 @@ export function CommentaryPanel({
 	return (
 		<>
 			<div className="dict-panel-controls">
-				<div
-					className="segmented-row commentary-source-row"
-					role="group"
-					aria-label="Commentary source"
-				>
-					{COMMENTARY_SOURCES.map((item) => {
-						const active = source === item.id;
-						return (
-							<button
-								key={item.id}
-								type="button"
-								className={`segmented-btn ${active ? "active" : ""}`.trim()}
-								aria-pressed={active}
-								title={item.description}
-								onClick={() => {
-									if (!active) onChangeSource(item.id);
-								}}
-							>
-								{item.shortName}
-							</button>
-						);
-					})}
-				</div>
+				<CommentarySourceToggle source={source} onChangeSource={onChangeSource} />
 
 				<PanelSearchInput
 					value={query}

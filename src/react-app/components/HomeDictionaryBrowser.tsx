@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { BIBLICAL_GLOSSARY, KRV_GRAMMAR_RULES } from "../../shared/biblical-glossary";
-import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
 import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import { analyzeKoreanChapter } from "../../shared/korean-morphology";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { LexiconEntry, LexiconMap, RightRailTab, VerseEntry } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { loadLexicon, loadTranslationChapter } from "../lib/bible-loader";
-import { HomePassageBar } from "./HomeStudyShared";
-import { Loader2, Volume2 } from "./Icons";
-import { PanelDisclosure, PanelSearchInput } from "./RailShared";
+import { HomePassageBar, usePassageSelection } from "./HomeStudyShared";
+import { Loader2 } from "./Icons";
+import { GrammarRuleCard, PanelDisclosure, PanelSearchInput, VocabEntryBody } from "./RailShared";
 
 type DictionaryMode = "glossary" | "chapter" | "grammar";
 type GlossaryFilter = "all" | "biblical" | "noun" | "verb" | "adj" | "adv" | "name";
@@ -46,34 +45,26 @@ interface MergedDictEntry {
 
 function buildMergedEntries(lexicon: LexiconMap): MergedDictEntry[] {
 	const entries: MergedDictEntry[] = [];
+	const sources: ReadonlyArray<readonly [LexiconMap, boolean]> = [
+		[BIBLICAL_GLOSSARY, true],
+		[lexicon, false],
+	];
 
-	for (const [lemma, item] of Object.entries(BIBLICAL_GLOSSARY)) {
-		const romanized = containsHangul(lemma) ? romanizeHangul(lemma) : "";
-		entries.push({
-			lemma,
-			gloss: item.gloss,
-			glossLower: item.gloss.toLowerCase(),
-			hanja: item.hanja,
-			pos: item.pos,
-			romanized,
-			romanizedSearch: romanized.toLowerCase().replace(/-/g, ""),
-			isBiblical: true,
-		});
-	}
-
-	for (const [lemma, item] of Object.entries(lexicon)) {
-		if (!item || Object.hasOwn(BIBLICAL_GLOSSARY, lemma)) continue;
-		const romanized = containsHangul(lemma) ? romanizeHangul(lemma) : "";
-		entries.push({
-			lemma,
-			gloss: item.gloss,
-			glossLower: item.gloss.toLowerCase(),
-			hanja: item.hanja,
-			pos: item.pos,
-			romanized,
-			romanizedSearch: romanized.toLowerCase().replace(/-/g, ""),
-			isBiblical: false,
-		});
+	for (const [source, isBiblical] of sources) {
+		for (const [lemma, item] of Object.entries(source)) {
+			if (!item || (!isBiblical && Object.hasOwn(BIBLICAL_GLOSSARY, lemma))) continue;
+			const romanized = containsHangul(lemma) ? romanizeHangul(lemma) : "";
+			entries.push({
+				lemma,
+				gloss: item.gloss,
+				glossLower: item.gloss.toLowerCase(),
+				hanja: item.hanja,
+				pos: item.pos,
+				romanized,
+				romanizedSearch: romanized.toLowerCase().replace(/-/g, ""),
+				isBiblical,
+			});
+		}
 	}
 
 	return entries;
@@ -112,7 +103,6 @@ export function HomeDictionaryBrowser({
 	initialChapter,
 	onOpenPassage,
 }: HomeDictionaryBrowserProps) {
-	const initialBook = getBookByNumber(initialBookNumber) ?? BIBLE_BOOKS[0];
 	const [mode, setMode] = useState<DictionaryMode>("glossary");
 	const [glossaryQuery, setGlossaryQuery] = useState("");
 	const [posFilter, setPosFilter] = useState<GlossaryFilter>("all");
@@ -121,8 +111,11 @@ export function HomeDictionaryBrowser({
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [lexiconLoading, setLexiconLoading] = useState(true);
 
-	const [bookNumber, setBookNumber] = useState(initialBook.number);
-	const [chapter, setChapter] = useState(initialChapter);
+	const {
+		book: currentBook,
+		chapter,
+		selectPassage: handleChangePassage,
+	} = usePassageSelection(initialBookNumber, initialChapter);
 	const [chapterQuery, setChapterQuery] = useState("");
 	const [chapterVerses, setChapterVerses] = useState<VerseEntry[]>([]);
 	const [chapterLoading, setChapterLoading] = useState(false);
@@ -138,8 +131,6 @@ export function HomeDictionaryBrowser({
 		speak: handleSpeak,
 		clearSpeechError,
 	} = useKoreanSpeech<string>();
-
-	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -161,7 +152,7 @@ export function HomeDictionaryBrowser({
 
 	useEffect(() => {
 		clearSpeechError();
-	}, [mode, glossaryQuery, posFilter, bookNumber, chapter, clearSpeechError]);
+	}, [mode, glossaryQuery, posFilter, currentBook.number, chapter, clearSpeechError]);
 
 	useEffect(() => {
 		setVisibleLimit(PAGE_SIZE);
@@ -170,7 +161,7 @@ export function HomeDictionaryBrowser({
 	useEffect(() => {
 		setChapterVisibleLimit(PAGE_SIZE);
 		setExpandedVerseLists(new Set());
-	}, [bookNumber, chapter, chapterQuery]);
+	}, [currentBook.number, chapter, chapterQuery]);
 
 	useEffect(() => {
 		if (mode !== "chapter") return;
@@ -193,12 +184,6 @@ export function HomeDictionaryBrowser({
 			cancelled = true;
 		};
 	}, [mode, currentBook.number, chapter, chapterRetrySeq]);
-
-	const handleChangePassage = useCallback((nextBookNumber: number, nextChapter: number) => {
-		const target = getBookByNumber(nextBookNumber) ?? BIBLE_BOOKS[0];
-		setBookNumber(target.number);
-		setChapter(Math.max(1, Math.min(target.chapters, nextChapter)));
-	}, []);
 
 	const allEntries = useMemo(() => buildMergedEntries(lexicon), [lexicon]);
 
@@ -374,34 +359,19 @@ export function HomeDictionaryBrowser({
 								const key = `dict-${entry.lemma}`;
 								return (
 									<div key={key} className="home-dict-card">
-										<div className="vocab-head-row">
-											<div className="vocab-lemma-group">
-												<div className="vocab-lemma" lang="ko">
-													{entry.lemma}
-													{entry.hanja && <span className="vocab-hanja">{entry.hanja}</span>}
-												</div>
-												<button
-													type="button"
-													className={`vocab-speak-btn ${speakingKey === key ? "speaking" : ""}`.trim()}
-													onClick={() => handleSpeak(entry.lemma, key)}
-													aria-label={`Pronounce ${entry.lemma}`}
-													title={`Pronounce ${entry.lemma}`}
-												>
-													<Volume2 size={13} />
-												</button>
-											</div>
-											<div className="vocab-head-meta">
-												{entry.isBiblical && <span className="home-study-badge">Biblical</span>}
-												{entry.pos && <span className="vocab-pos">{entry.pos}</span>}
-											</div>
-										</div>
-										{entry.romanized && <div className="vocab-phonetics">[{entry.romanized}]</div>}
-										<div className="vocab-gloss">{entry.gloss}</div>
-										{speechErrorKey === key && (
-											<div className="vocab-speech-note">
-												Korean voice unavailable in this browser.
-											</div>
-										)}
+										<VocabEntryBody
+											lemma={entry.lemma}
+											hanja={entry.hanja}
+											pos={entry.pos}
+											gloss={entry.gloss}
+											romanized={entry.romanized}
+											isSpeaking={speakingKey === key}
+											hasSpeechError={speechErrorKey === key}
+											onSpeak={() => handleSpeak(entry.lemma, key)}
+											metaPrefix={
+												entry.isBiblical ? <span className="home-study-badge">Biblical</span> : null
+											}
+										/>
 									</div>
 								);
 							})}
@@ -452,12 +422,12 @@ export function HomeDictionaryBrowser({
 								>
 									<div className="home-dict-grammar-list">
 										{chapterAnalysis.grammarNotes.map((note) => (
-											<div key={note.id} className="grammar-card">
-												<div className="grammar-pattern">{note.pattern}</div>
-												<div className="grammar-modern">
-													Modern: {note.modern} · e.g. {note.examples.join(", ")}
-												</div>
-												<p className="grammar-desc">{note.explanation}</p>
+											<GrammarRuleCard
+												key={note.id}
+												pattern={note.pattern}
+												modernText={`Modern: ${note.modern} · e.g. ${note.examples.join(", ")}`}
+												explanation={note.explanation}
+											>
 												{note.verses.length > 0 && (
 													<div className="home-dict-verses">
 														{note.verses.slice(0, 6).map((v) => (
@@ -477,7 +447,7 @@ export function HomeDictionaryBrowser({
 														))}
 													</div>
 												)}
-											</div>
+											</GrammarRuleCard>
 										))}
 									</div>
 								</PanelDisclosure>
@@ -498,10 +468,6 @@ export function HomeDictionaryBrowser({
 							) : (
 								<div className="home-dict-grid">
 									{shownChapterEntries.map((entry) => {
-										const romanized = containsHangul(entry.lemma)
-											? romanizeHangul(entry.lemma)
-											: "";
-										const hasVariantForms = entry.surfaceForms.some((f) => f !== entry.lemma);
 										const isVersesExpanded = expandedVerseLists.has(entry.id);
 										const displayedVerses = isVersesExpanded
 											? entry.verses
@@ -511,72 +477,46 @@ export function HomeDictionaryBrowser({
 
 										return (
 											<div key={entry.id} className="home-dict-card">
-												<div className="vocab-head-row">
-													<div className="vocab-lemma-group">
-														<div className="vocab-lemma" lang="ko">
-															{entry.lemma}
-															{entry.hanja && <span className="vocab-hanja">{entry.hanja}</span>}
+												<VocabEntryBody
+													lemma={entry.lemma}
+													hanja={entry.hanja}
+													pos={entry.pos}
+													gloss={entry.gloss}
+													surfaceForms={entry.surfaceForms}
+													grammarNote={entry.grammarNote}
+													isSpeaking={speakingKey === speechKey}
+													hasSpeechError={speechErrorKey === speechKey}
+													onSpeak={() => handleSpeak(entry.lemma, speechKey)}
+												>
+													{entry.verses.length > 0 && (
+														<div className="home-dict-verses">
+															{displayedVerses.map((v) => (
+																<button
+																	key={v}
+																	type="button"
+																	className="verse-ref-chip"
+																	onClick={() =>
+																		onOpenPassage(currentBook.number, chapter, v, {
+																			rightRailTab: "dictionary",
+																		})
+																	}
+																	title={`Open ${currentBook.en} ${chapter}:${v}`}
+																>
+																	v.{v}
+																</button>
+															))}
+															{hiddenCount > 0 && (
+																<button
+																	type="button"
+																	className="verse-ref-chip"
+																	onClick={() => toggleVerseList(entry.id)}
+																>
+																	+{hiddenCount}
+																</button>
+															)}
 														</div>
-														<button
-															type="button"
-															className={`vocab-speak-btn ${speakingKey === speechKey ? "speaking" : ""}`.trim()}
-															onClick={() => handleSpeak(entry.lemma, speechKey)}
-															aria-label={`Pronounce ${entry.lemma}`}
-															title={`Pronounce ${entry.lemma}`}
-														>
-															<Volume2 size={13} />
-														</button>
-													</div>
-													<div className="vocab-head-meta">
-														{entry.pos && <span className="vocab-pos">{entry.pos}</span>}
-													</div>
-												</div>
-
-												{romanized && <div className="vocab-phonetics">[{romanized}]</div>}
-												<div className="vocab-gloss">{entry.gloss}</div>
-
-												{(entry.grammarNote || hasVariantForms) && (
-													<div className="vocab-forms">
-														{hasVariantForms && <span>{entry.surfaceForms.join(", ")}</span>}
-														{hasVariantForms && entry.grammarNote && <span> · </span>}
-														{entry.grammarNote && <span>{entry.grammarNote}</span>}
-													</div>
-												)}
-
-												{entry.verses.length > 0 && (
-													<div className="home-dict-verses">
-														{displayedVerses.map((v) => (
-															<button
-																key={v}
-																type="button"
-																className="verse-ref-chip"
-																onClick={() =>
-																	onOpenPassage(currentBook.number, chapter, v, {
-																		rightRailTab: "dictionary",
-																	})
-																}
-																title={`Open ${currentBook.en} ${chapter}:${v}`}
-															>
-																v.{v}
-															</button>
-														))}
-														{hiddenCount > 0 && (
-															<button
-																type="button"
-																className="verse-ref-chip"
-																onClick={() => toggleVerseList(entry.id)}
-															>
-																+{hiddenCount}
-															</button>
-														)}
-													</div>
-												)}
-
-												{speechErrorKey === speechKey && (
-													<div className="vocab-speech-note">
-														Korean voice unavailable in this browser.
-													</div>
-												)}
+													)}
+												</VocabEntryBody>
 											</div>
 										);
 									})}
@@ -609,11 +549,12 @@ export function HomeDictionaryBrowser({
 					</div>
 					<div className="home-dict-grammar-list">
 						{KRV_GRAMMAR_RULES.map((rule) => (
-							<div key={rule.id} className="grammar-card">
-								<div className="grammar-pattern">{rule.pattern}</div>
-								<div className="grammar-modern">Modern Korean: {rule.modern}</div>
-								<p className="grammar-desc">{rule.explanation}</p>
-							</div>
+							<GrammarRuleCard
+								key={rule.id}
+								pattern={rule.pattern}
+								modernText={`Modern Korean: ${rule.modern}`}
+								explanation={rule.explanation}
+							/>
 						))}
 					</div>
 				</div>

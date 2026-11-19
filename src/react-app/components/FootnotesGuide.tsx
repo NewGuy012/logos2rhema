@@ -9,13 +9,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { scrollChildIntoContainer } from "../lib/scroll";
-import { ChevronDown, Volume2 } from "./Icons";
-import { PanelDisclosure, PanelSearchInput } from "./RailShared";
+import { ChevronDown } from "./Icons";
+import { GrammarRuleCard, PanelDisclosure, PanelSearchInput, VocabEntryBody } from "./RailShared";
 
 interface VerseRefSelectProps {
 	lemma: string;
@@ -223,67 +222,41 @@ export function FootnotesGuide({
 								<span className="vocab-forms">No matching vocabulary entries in this chapter.</span>
 							</div>
 						) : (
-							visibleEntries.map((entry) => {
-								const romanized = containsHangul(entry.lemma) ? romanizeHangul(entry.lemma) : "";
-								const hasVariantForms = entry.surfaceForms.some((f) => f !== entry.lemma);
-								return (
-									<div
-										key={entry.id}
-										id={entry.id}
-										data-footnote-id={entry.id}
-										className={`vocab-row ${highlightedFootnoteId === entry.id ? "highlighted" : ""}`}
-									>
-										<div className="vocab-main">
-											<div className="vocab-head-row">
-												<div className="vocab-lemma-group">
-													<div className="vocab-lemma">
-														{entry.lemma}
-														{entry.hanja && <span className="vocab-hanja">{entry.hanja}</span>}
-													</div>
-													<button
-														type="button"
-														className={`vocab-speak-btn ${speakingId === entry.id ? "speaking" : ""}`.trim()}
-														onClick={() => handleSpeak(entry.lemma, entry.id)}
-														aria-label={`Pronounce ${entry.lemma}`}
-														title={`Pronounce ${entry.lemma}`}
-													>
-														<Volume2 size={13} />
-													</button>
-												</div>
-												<div className="vocab-head-meta">
-													{entry.pos && <span className="vocab-pos">{entry.pos}</span>}
-													<VerseRefSelect
-														lemma={entry.lemma}
-														verses={entry.verses}
-														isOpen={openVerseId === entry.id}
-														scrollContainerRef={scrollContainerRef}
-														onToggle={() =>
-															setOpenVerseId((prev) => (prev === entry.id ? null : entry.id))
-														}
-														onClose={closeVerseMenu}
-														onJumpToVerse={onJumpToVerse}
-													/>
-												</div>
-											</div>
-
-											{romanized && <div className="vocab-phonetics">[{romanized}]</div>}
-											<div className="vocab-gloss">{entry.gloss}</div>
-											{(entry.grammarNote || hasVariantForms) && (
-												<div className="vocab-forms">
-													{hasVariantForms && <span>{entry.surfaceForms.join(", ")}</span>}
-													{hasVariantForms && entry.grammarNote && <span> · </span>}
-													{entry.grammarNote && <span>{entry.grammarNote}</span>}
-												</div>
-											)}
-											{speechErrorId === entry.id && (
-												<div className="vocab-speech-note">
-													Korean voice unavailable in this browser.
-												</div>
-											)}
-										</div>
+							visibleEntries.map((entry) => (
+								<div
+									key={entry.id}
+									id={entry.id}
+									data-footnote-id={entry.id}
+									className={`vocab-row ${highlightedFootnoteId === entry.id ? "highlighted" : ""}`}
+								>
+									<div className="vocab-main">
+										<VocabEntryBody
+											lemma={entry.lemma}
+											hanja={entry.hanja}
+											pos={entry.pos}
+											gloss={entry.gloss}
+											surfaceForms={entry.surfaceForms}
+											grammarNote={entry.grammarNote}
+											isSpeaking={speakingId === entry.id}
+											hasSpeechError={speechErrorId === entry.id}
+											onSpeak={() => handleSpeak(entry.lemma, entry.id)}
+											metaSuffix={
+												<VerseRefSelect
+													lemma={entry.lemma}
+													verses={entry.verses}
+													isOpen={openVerseId === entry.id}
+													scrollContainerRef={scrollContainerRef}
+													onToggle={() =>
+														setOpenVerseId((prev) => (prev === entry.id ? null : entry.id))
+													}
+													onClose={closeVerseMenu}
+													onJumpToVerse={onJumpToVerse}
+												/>
+											}
+										/>
 									</div>
-								);
-							})
+								</div>
+							))
 						)}
 					</div>
 				</PanelDisclosure>
@@ -297,13 +270,12 @@ export function FootnotesGuide({
 					>
 						<div className="grammar-cards">
 							{grammarNotes.map((note) => (
-								<div key={note.id} className="grammar-card">
-									<div className="grammar-pattern">{note.pattern}</div>
-									<div className="grammar-modern">
-										Modern: {note.modern} · e.g. {note.examples.join(", ")}
-									</div>
-									<p className="grammar-desc">{note.explanation}</p>
-								</div>
+								<GrammarRuleCard
+									key={note.id}
+									pattern={note.pattern}
+									modernText={`Modern: ${note.modern} · e.g. ${note.examples.join(", ")}`}
+									explanation={note.explanation}
+								/>
 							))}
 						</div>
 					</PanelDisclosure>

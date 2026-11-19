@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
-import { ChevronDown, ChevronRight, Pin, Search, X } from "./Icons";
+import { containsHangul, romanizeHangul } from "../../shared/hangul";
+import type { LexiconEntry } from "../../shared/types";
+import { ChevronDown, ChevronRight, Pin, Search, Volume2, X } from "./Icons";
 
 export function PanelHeaderText({
 	title,
@@ -108,5 +110,100 @@ export function PanelDisclosure({
 			</button>
 			{open && children}
 		</section>
+	);
+}
+
+export function VocabEntryBody({
+	lemma,
+	hanja,
+	pos,
+	gloss,
+	romanized,
+	surfaceForms,
+	grammarNote,
+	isSpeaking,
+	hasSpeechError,
+	onSpeak,
+	metaPrefix,
+	metaSuffix,
+	children,
+}: {
+	lemma: string;
+	hanja?: string;
+	pos?: LexiconEntry["pos"];
+	gloss: string;
+	romanized?: string;
+	surfaceForms?: readonly string[];
+	grammarNote?: string;
+	isSpeaking: boolean;
+	hasSpeechError: boolean;
+	onSpeak: () => void;
+	metaPrefix?: ReactNode;
+	metaSuffix?: ReactNode;
+	children?: ReactNode;
+}) {
+	const phonetic = romanized ?? (containsHangul(lemma) ? romanizeHangul(lemma) : "");
+	const hasVariants = Boolean(surfaceForms?.some((form) => form !== lemma));
+
+	return (
+		<>
+			<div className="vocab-head-row">
+				<div className="vocab-lemma-group">
+					<div className="vocab-lemma" lang="ko">
+						{lemma}
+						{hanja && <span className="vocab-hanja">{hanja}</span>}
+					</div>
+					<button
+						type="button"
+						className={`vocab-speak-btn ${isSpeaking ? "speaking" : ""}`.trim()}
+						onClick={onSpeak}
+						aria-label={`Pronounce ${lemma}`}
+						title={`Pronounce ${lemma}`}
+					>
+						<Volume2 size={13} />
+					</button>
+				</div>
+				<div className="vocab-head-meta">
+					{metaPrefix}
+					{pos && <span className="vocab-pos">{pos}</span>}
+					{metaSuffix}
+				</div>
+			</div>
+
+			{phonetic && <div className="vocab-phonetics">[{phonetic}]</div>}
+			<div className="vocab-gloss">{gloss}</div>
+			{(grammarNote || hasVariants) && (
+				<div className="vocab-forms">
+					{hasVariants && surfaceForms && <span>{surfaceForms.join(", ")}</span>}
+					{hasVariants && grammarNote && <span> · </span>}
+					{grammarNote && <span>{grammarNote}</span>}
+				</div>
+			)}
+			{children}
+			{hasSpeechError && (
+				<div className="vocab-speech-note">Korean voice unavailable in this browser.</div>
+			)}
+		</>
+	);
+}
+
+export function GrammarRuleCard({
+	pattern,
+	modernText,
+	explanation,
+	children,
+}: {
+	pattern: string;
+	modernText: string;
+	explanation: string;
+	children?: ReactNode;
+}) {
+	return (
+		<div className="grammar-card">
+			<div className="grammar-pattern">{pattern}</div>
+			<div className="grammar-modern">{modernText}</div>
+			<p className="grammar-desc">{explanation}</p>
+			{children}
+		</div>
 	);
 }

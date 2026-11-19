@@ -9,6 +9,7 @@ import {
 	AudioScrubber,
 	AudioSpeedSelect,
 	formatTime,
+	formatTrackTooltip,
 	type SharedAudioControlProps,
 } from "./AudioShared";
 import {
@@ -148,7 +149,7 @@ export function FloatingBottomBar({
 						disabled={!activeTrack && !isPlaying}
 						onClick={onTogglePlay}
 						aria-label={isPlaying ? "Pause audio" : "Play audio"}
-						title={activeTrack ? activeTrack.label : `No audio available for ${activeLangCode}`}
+						title={formatTrackTooltip(activeTrack, activeLangCode)}
 					>
 						{isLoading ? (
 							<Loader2 size={14} className="spin" />

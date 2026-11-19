@@ -1,13 +1,19 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { hasVerseTimings } from "../shared/audio-timings";
-import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber, getBookByUsfm } from "../shared/books";
+import {
+	BIBLE_BOOKS,
+	clampChapter,
+	getAdjacentChapter,
+	getBookByNumber,
+	getBookByUsfm,
+	resolveBookChapter,
+} from "../shared/books";
 import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
 	AlignedVerse,
 	AudioTrackOption,
-	ChapterCommentaryResponse,
 	CommentaryId,
 	FavoriteItem,
 	HighlightItem,
@@ -16,6 +22,7 @@ import type {
 	VerseEntry,
 } from "../shared/types";
 import { AudioControlRail } from "./components/AudioControlRail";
+import { useChapterCommentary } from "./components/CommentaryPanel";
 import { FloatingBottomBar } from "./components/FloatingBottomBar";
 import { HomePage } from "./components/HomePage";
 import {
@@ -43,7 +50,6 @@ import { anchorPosStyle, computeAnchorPos } from "./hooks/usePopover";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import {
 	alignChapterVerses,
-	loadChapterCommentary,
 	loadLexicon,
 	loadSyncedChapterAudio,
 	loadTranslationChapter,
@@ -112,10 +118,15 @@ const DEFAULT_PREFS: StoredPrefs = {
 type AppRoute =
 	{ view: "home" } | { view: "reader"; bookNumber: number; chapter: number; verse?: number };
 
-function parseLocationHash(): AppRoute {
-	if (typeof window === "undefined") return { view: "home" };
+function getNormalizedHash(): string {
+	if (typeof window === "undefined") return "";
 	const hash = window.location.hash.replace(/^#\/?/, "").trim();
-	if (!hash || hash === "top") return { view: "home" };
+	return !hash || hash === "top" ? "" : hash;
+}
+
+function parseLocationHash(): AppRoute {
+	const hash = getNormalizedHash();
+	if (!hash) return { view: "home" };
 	const match = hash.match(/^([A-Za-z0-9]+)\/(\d+)(?:\/(\d+))?$/);
 	if (!match) return { view: "home" };
 	const book = getBookByUsfm(match[1]);
@@ -125,7 +136,7 @@ function parseLocationHash(): AppRoute {
 	return {
 		view: "reader",
 		bookNumber: book.number,
-		chapter: Math.max(1, Math.min(book.chapters, chapter)),
+		chapter: clampChapter(book, chapter),
 		verse: verse && !Number.isNaN(verse) ? verse : undefined,
 	};
 }
@@ -142,7 +153,7 @@ function readStoredPrefs(): StoredPrefs {
 		typeof parsed.bookNumber === "number" ? getBookByNumber(parsed.bookNumber) : undefined;
 	const chapter =
 		book && typeof parsed.chapter === "number" && Number.isInteger(parsed.chapter)
-			? Math.max(1, Math.min(book.chapters, parsed.chapter))
+			? clampChapter(book, parsed.chapter)
 			: DEFAULT_PREFS.chapter;
 	const verse =
 		typeof parsed.verse === "number" && Number.isInteger(parsed.verse) && parsed.verse >= 1
@@ -273,12 +284,7 @@ export default function App() {
 	const [activeFloatingPanel, setActiveFloatingPanel] = useState<"audio" | "dictionary" | null>(
 		null,
 	);
-
-	const [commentaryData, setCommentaryData] = useState<ChapterCommentaryResponse | null>(null);
-	const [commentaryLoading, setCommentaryLoading] = useState(false);
-	const [commentaryError, setCommentaryError] = useState<string | null>(null);
-	const [commentaryRetrySeq, setCommentaryRetrySeq] = useState(0);
-	const commentaryLoadedKeyRef = useRef<string | null>(null);
+	const lastRouteHashRef = useRef(getNormalizedHash());
 
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [selectedVerse, setSelectedVerse] = useState<number | null>(
@@ -503,6 +509,9 @@ export default function App() {
 
 	useEffect(() => {
 		const syncFromLocation = () => {
+			const nextHash = getNormalizedHash();
+			if (nextHash === lastRouteHashRef.current) return;
+			lastRouteHashRef.current = nextHash;
 			const route = parseLocationHash();
 			if (route.view === "home") {
 				setView("home");
@@ -572,11 +581,12 @@ export default function App() {
 
 	const navigateTo = useCallback(
 		(targetBook: number, targetChapter: number, verse?: number) => {
-			const book = getBookByNumber(targetBook) ?? BIBLE_BOOKS[0];
-			const clampedChapter = Math.max(1, Math.min(book.chapters, targetChapter));
-			const targetHash = verse
-				? `#/${book.usfm}/${clampedChapter}/${verse}`
-				: `#/${book.usfm}/${clampedChapter}`;
+			const { book, chapter: clampedChapter } = resolveBookChapter(targetBook, targetChapter);
+			const nextRouteHash = verse
+				? `${book.usfm}/${clampedChapter}/${verse}`
+				: `${book.usfm}/${clampedChapter}`;
+			const targetHash = `#/${nextRouteHash}`;
+			lastRouteHashRef.current = nextRouteHash;
 			if (window.location.hash !== targetHash) {
 				window.history.pushState(null, "", targetHash);
 			}
@@ -613,8 +623,13 @@ export default function App() {
 		setIsFollowingAudio,
 	} = audio;
 
+	useEffect(() => {
+		if (view !== "reader") pause();
+	}, [view, pause]);
+
 	const goHome = useCallback(() => {
 		pause();
+		lastRouteHashRef.current = "";
 		setView("home");
 		if (window.location.hash !== "#/" && window.location.hash !== "") {
 			window.history.pushState(null, "", "#/");
@@ -809,53 +824,17 @@ export default function App() {
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
 	const showDictionary = !loadingChapter && !chapterError;
 
-	useEffect(() => {
-		const targetKey = `${prefs.commentarySource}:${currentBook.usfm}:${chapter}`;
-		const matchesCurrent = commentaryLoadedKeyRef.current === targetKey;
-
-		if (!matchesCurrent) {
-			commentaryLoadedKeyRef.current = null;
-			setCommentaryData(null);
-		}
-		setCommentaryError(null);
-
-		if (view !== "reader" || !dictionaryOpen || prefs.rightRailTab !== "commentary") {
-			setCommentaryLoading(false);
-			return;
-		}
-
-		let cancelled = false;
-		setCommentaryLoading(!matchesCurrent);
-		loadChapterCommentary({
-			commentaryId: prefs.commentarySource,
-			usfm: currentBook.usfm,
-			chapter,
-		})
-			.then((res) => {
-				if (cancelled) return;
-				commentaryLoadedKeyRef.current = targetKey;
-				setCommentaryData(res);
-				setCommentaryLoading(false);
-			})
-			.catch((err: unknown) => {
-				if (cancelled) return;
-				commentaryLoadedKeyRef.current = null;
-				setCommentaryError(err instanceof Error ? err.message : "Unable to load commentary.");
-				setCommentaryLoading(false);
-			});
-
-		return () => {
-			cancelled = true;
-		};
-	}, [
-		view,
-		dictionaryOpen,
-		prefs.rightRailTab,
-		prefs.commentarySource,
-		currentBook.usfm,
+	const {
+		data: commentaryData,
+		loading: commentaryLoading,
+		error: commentaryError,
+		retry: retryCommentary,
+	} = useChapterCommentary({
+		commentaryId: prefs.commentarySource,
+		usfm: currentBook.usfm,
 		chapter,
-		commentaryRetrySeq,
-	]);
+		enabled: view === "reader" && dictionaryOpen && prefs.rightRailTab === "commentary",
+	});
 
 	const openPrevChapter = () =>
 		prevChapterTarget && navigateTo(prevChapterTarget.bookNumber, prevChapterTarget.chapter);
@@ -962,7 +941,7 @@ export default function App() {
 			maxVerseInChapter={maxVerseInChapter}
 			selectedVerse={selectedVerse}
 			onChangeCommentarySource={(source) => updatePref("commentarySource", source)}
-			onRetryCommentary={() => setCommentaryRetrySeq((seq) => seq + 1)}
+			onRetryCommentary={retryCommentary}
 			onJumpToVerse={handleJumpFromFootnote}
 		/>
 	);

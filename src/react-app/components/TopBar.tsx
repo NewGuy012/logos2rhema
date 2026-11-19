@@ -42,14 +42,12 @@ function SegmentedSetting<T extends string | number>({
 	options,
 	onChange,
 	groupAriaLabel,
-	usePressed = false,
 }: {
 	title: string;
 	value: T;
 	options: ReadonlyArray<{ label: string; val: T }>;
 	onChange: (val: T) => void;
 	groupAriaLabel?: string;
-	usePressed?: boolean;
 }) {
 	return (
 		<div className="settings-group">
@@ -66,7 +64,7 @@ function SegmentedSetting<T extends string | number>({
 							key={String(opt.val)}
 							type="button"
 							className={`segmented-btn ${active ? "active" : ""}`}
-							aria-pressed={usePressed ? active : undefined}
+							aria-pressed={active}
 							onClick={() => {
 								if (!active) onChange(opt.val);
 							}}
@@ -310,7 +308,6 @@ export function TopBar({
 										value={stackOrder}
 										onChange={onChangeStackOrder}
 										groupAriaLabel="Flip language stack order"
-										usePressed={true}
 										options={[
 											{ label: "EN / 한", val: "en-first" },
 											{ label: "한 / EN", val: "ko-first" },

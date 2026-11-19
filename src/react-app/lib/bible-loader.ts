@@ -61,9 +61,12 @@ function cachedFetch<T>(
 export async function loadLexicon(): Promise<LexiconMap> {
 	if (!lexiconPromise) {
 		lexiconPromise = fetch("/data/lexicon.json")
-			.then((res) => {
+			.then(async (res) => {
 				if (!res.ok) throw new Error("Failed to load lexicon");
-				return res.json() as Promise<LexiconMap>;
+				const payload: unknown = await res.json();
+				return payload && typeof payload === "object" && !Array.isArray(payload)
+					? (payload as LexiconMap)
+					: {};
 			})
 			.catch(() => {
 				lexiconPromise = null;
@@ -82,7 +85,9 @@ export async function loadTranslationChapter(
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
 
 	const data = await cachedFetch(bundledBookCache, `${translationId}:${book.usfm}`, async () => {
-		const res = await fetch(`/data/bibles/${translationId}/${book.usfm}.json`);
+		const res = await fetch(
+			`/data/bibles/${encodeURIComponent(translationId)}/${encodeURIComponent(book.usfm)}.json`,
+		);
 		if (!res.ok) throw new Error(`Failed to load ${translationId} ${book.usfm}`);
 		return (await res.json()) as BookBibleData;
 	});

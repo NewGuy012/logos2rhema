@@ -10,7 +10,7 @@ import {
 	PLAYBACK_SPEEDS,
 } from "../hooks/useHumanAudio";
 import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
-import { ChevronDown } from "./Icons";
+import { ChevronDown, Loader2, Pause, Play, RotateCcw, RotateCw } from "./Icons";
 
 export interface SharedAudioControlProps {
 	bookEn: string;
@@ -230,6 +230,76 @@ export function AudioSpeedSelect({
 					</div>,
 					document.body,
 				)}
+		</div>
+	);
+}
+
+export function AudioTransportControls({
+	activeTrack,
+	activeLangCode,
+	isPlaying,
+	isLoading,
+	errorMessage,
+	className,
+	skipBackClassName = "rail-skip-btn",
+	skipForwardClassName = "rail-skip-btn",
+	onSkipBy,
+	onTogglePlay,
+}: {
+	activeTrack: AudioTrackOption | null;
+	activeLangCode: string;
+	isPlaying: boolean;
+	isLoading: boolean;
+	errorMessage: string | null;
+	className: string;
+	skipBackClassName?: string;
+	skipForwardClassName?: string;
+	onSkipBy: (delta: number) => void;
+	onTogglePlay: () => void;
+}) {
+	return (
+		<div className={className}>
+			<button
+				type="button"
+				className={skipBackClassName}
+				disabled={!activeTrack || Boolean(errorMessage)}
+				onClick={() => onSkipBy(-10)}
+				aria-label="Rewind 10 seconds"
+				title="Rewind 10 seconds"
+			>
+				<RotateCcw size={12} />
+				<span>10s</span>
+			</button>
+
+			<button
+				type="button"
+				className={`rail-play-btn ${isPlaying ? "playing" : ""}`}
+				disabled={!activeTrack && !isPlaying}
+				onClick={onTogglePlay}
+				aria-label={isPlaying ? "Pause audio" : "Play audio"}
+				title={formatTrackTooltip(activeTrack, activeLangCode)}
+			>
+				{isLoading ? (
+					<Loader2 size={14} className="spin" />
+				) : isPlaying ? (
+					<Pause size={14} />
+				) : (
+					<Play size={14} />
+				)}
+				<span>{isPlaying ? "Pause" : "Play"}</span>
+			</button>
+
+			<button
+				type="button"
+				className={skipForwardClassName}
+				disabled={!activeTrack || Boolean(errorMessage)}
+				onClick={() => onSkipBy(10)}
+				aria-label="Forward 10 seconds"
+				title="Forward 10 seconds"
+			>
+				<span>10s</span>
+				<RotateCw size={12} />
+			</button>
 		</div>
 	);
 }

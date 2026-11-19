@@ -305,11 +305,13 @@ export function splitTextByHighlights(
 	if (!text) return [];
 	if (highlights.length === 0) return [{ text }];
 
+	const ordered =
+		highlights.length > 1 ? [...highlights].sort((a, b) => a.start - b.start) : highlights;
 	const segEnd = baseOffset + text.length;
 	const segments: TextHighlightSegment[] = [];
 	let cursor = baseOffset;
 
-	for (const h of highlights) {
+	for (const h of ordered) {
 		if (h.end <= cursor) continue;
 		if (h.start >= segEnd) break;
 

@@ -16,14 +16,12 @@ interface KoreanTokenProps {
 }
 
 function SpeakButton({
-	text,
 	label,
 	title,
 	speaking,
 	small = false,
 	onSpeak,
 }: {
-	text: string;
 	label: string;
 	title: string;
 	speaking: boolean;
@@ -41,7 +39,7 @@ function SpeakButton({
 				onSpeak();
 			}}
 			aria-label={label}
-			title={title || `Pronounce ${text}`}
+			title={title}
 		>
 			<Volume2 size={small ? 11 : 13} />
 		</button>
@@ -200,7 +198,6 @@ export function KoreanToken({
 									{token.hanja ? ` (${token.hanja})` : ""}
 								</span>
 								<SpeakButton
-									text={token.word}
 									label={`Pronounce ${token.word}`}
 									title={`Pronounce ${token.word}`}
 									speaking={speakingTarget === "word"}
@@ -220,7 +217,6 @@ export function KoreanToken({
 											<span className="ko-tooltip-root-phonetics"> [{lemmaRomanized}]</span>
 										)}
 										<SpeakButton
-											text={token.lemma}
 											label={`Pronounce root ${token.lemma}`}
 											title={`Pronounce root (${token.lemma})`}
 											speaking={speakingTarget === "lemma"}

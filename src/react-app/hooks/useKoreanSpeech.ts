@@ -9,7 +9,7 @@ export function useKoreanSpeech<T extends string = string>() {
 
 	const speak = useCallback((text: string, key: T) => {
 		setSpeechErrorKey(null);
-		const started = speakKoreanWord(text, {
+		speakKoreanWord(text, {
 			onStart: () => setSpeakingKey(key),
 			onEnd: () => setSpeakingKey((cur) => (cur === key ? null : cur)),
 			onError: () => {
@@ -17,10 +17,6 @@ export function useKoreanSpeech<T extends string = string>() {
 				setSpeechErrorKey(key);
 			},
 		});
-		if (!started) {
-			setSpeakingKey(null);
-			setSpeechErrorKey(key);
-		}
 	}, []);
 
 	const clearSpeechError = useCallback(() => {

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
-import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber } from "../../shared/books";
+import { getAdjacentChapter } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption } from "../../shared/types";
 import { useHumanAudio } from "../hooks/useHumanAudio";
@@ -11,11 +11,11 @@ import {
 	AudioLanguageToggle,
 	AudioScrubber,
 	AudioSpeedSelect,
+	AudioTransportControls,
 	formatTime,
-	formatTrackTooltip,
 } from "./AudioShared";
-import { HomePassageBar } from "./HomeStudyShared";
-import { Headphones, Loader2, Pause, Play, RotateCcw, RotateCw } from "./Icons";
+import { HomePassageBar, usePassageSelection } from "./HomeStudyShared";
+import { Headphones } from "./Icons";
 
 interface HomeAudioBrowserProps {
 	initialBookNumber: number;
@@ -28,21 +28,13 @@ export function HomeAudioBrowser({
 	initialChapter,
 	onOpenPassage,
 }: HomeAudioBrowserProps) {
-	const initialBook = getBookByNumber(initialBookNumber) ?? BIBLE_BOOKS[0];
-	const [bookNumber, setBookNumber] = useState(initialBook.number);
-	const [chapter, setChapter] = useState(() =>
-		Math.max(1, Math.min(initialBook.chapters, initialChapter)),
-	);
+	const {
+		book: currentBook,
+		chapter,
+		selectPassage,
+	} = usePassageSelection(initialBookNumber, initialChapter);
 	const [tracks, setTracks] = useState<AudioTrackOption[]>([]);
 	const [loadingTracks, setLoadingTracks] = useState(true);
-
-	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
-
-	const selectPassage = useCallback((nextBookNumber: number, nextChapter: number) => {
-		const target = getBookByNumber(nextBookNumber) ?? BIBLE_BOOKS[0];
-		setBookNumber(target.number);
-		setChapter(Math.max(1, Math.min(target.chapters, nextChapter)));
-	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -65,11 +57,11 @@ export function HomeAudioBrowser({
 	}, [currentBook.usfm, chapter]);
 
 	const handleChapterEnded = useCallback(() => {
-		const next = getAdjacentChapter(bookNumber, chapter, 1);
+		const next = getAdjacentChapter(currentBook.number, chapter, 1);
 		if (!next) return false;
 		selectPassage(next.bookNumber, next.chapter);
 		return true;
-	}, [bookNumber, chapter, selectPassage]);
+	}, [currentBook.number, chapter, selectPassage]);
 
 	const audio = useHumanAudio({
 		tracks,
@@ -117,49 +109,16 @@ export function HomeAudioBrowser({
 							onSelectLanguage={audio.selectLanguage}
 						/>
 
-						<div className="home-audio-transport">
-							<button
-								type="button"
-								className="rail-skip-btn"
-								disabled={!audio.activeTrack || Boolean(audio.errorMessage)}
-								onClick={() => audio.skipBy(-10)}
-								aria-label="Rewind 10 seconds"
-								title="Rewind 10 seconds"
-							>
-								<RotateCcw size={12} />
-								<span>10s</span>
-							</button>
-
-							<button
-								type="button"
-								className={`rail-play-btn ${audio.isPlaying ? "playing" : ""}`}
-								disabled={!audio.activeTrack && !audio.isPlaying}
-								onClick={audio.togglePlay}
-								aria-label={audio.isPlaying ? "Pause audio" : "Play audio"}
-								title={formatTrackTooltip(audio.activeTrack, activeLangCode)}
-							>
-								{audio.isLoading || loadingTracks ? (
-									<Loader2 size={14} className="spin" />
-								) : audio.isPlaying ? (
-									<Pause size={14} />
-								) : (
-									<Play size={14} />
-								)}
-								<span>{audio.isPlaying ? "Pause" : "Play"}</span>
-							</button>
-
-							<button
-								type="button"
-								className="rail-skip-btn"
-								disabled={!audio.activeTrack || Boolean(audio.errorMessage)}
-								onClick={() => audio.skipBy(10)}
-								aria-label="Forward 10 seconds"
-								title="Forward 10 seconds"
-							>
-								<span>10s</span>
-								<RotateCw size={12} />
-							</button>
-						</div>
+						<AudioTransportControls
+							className="home-audio-transport"
+							activeTrack={audio.activeTrack}
+							activeLangCode={activeLangCode}
+							isPlaying={audio.isPlaying}
+							isLoading={audio.isLoading || loadingTracks}
+							errorMessage={audio.errorMessage}
+							onSkipBy={audio.skipBy}
+							onTogglePlay={audio.togglePlay}
+						/>
 
 						<div className="home-audio-meta">
 							<span className="quick-time">{formatTime(audio.currentTime)}</span>

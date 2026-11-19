@@ -8,23 +8,11 @@ import {
 	AudioLanguageToggle,
 	AudioScrubber,
 	AudioSpeedSelect,
+	AudioTransportControls,
 	formatTime,
-	formatTrackTooltip,
 	type SharedAudioControlProps,
 } from "./AudioShared";
-import {
-	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
-	Crosshair,
-	Loader2,
-	Pause,
-	Play,
-	RefreshCw,
-	RotateCcw,
-	RotateCw,
-	Settings,
-} from "./Icons";
+import { ChevronDown, ChevronLeft, ChevronRight, Crosshair, RefreshCw, Settings } from "./Icons";
 import { PanelHeaderText, PanelSnapBackButton } from "./RailShared";
 
 interface AudioControlRailProps extends SharedAudioControlProps {
@@ -145,49 +133,18 @@ export function AudioControlRail({
 						</div>
 					)}
 
-					<div className="rail-transport-row">
-						<button
-							type="button"
-							className="rail-skip-btn rail-skip-back"
-							disabled={!activeTrack || Boolean(errorMessage)}
-							onClick={() => onSkipBy(-10)}
-							aria-label="Rewind 10 seconds"
-							title="Rewind 10 seconds"
-						>
-							<RotateCcw size={12} />
-							<span>10s</span>
-						</button>
-
-						<button
-							type="button"
-							className={`rail-play-btn ${isPlaying ? "playing" : ""}`}
-							disabled={!activeTrack && !isPlaying}
-							onClick={onTogglePlay}
-							aria-label={isPlaying ? "Pause audio" : "Play audio"}
-							title={formatTrackTooltip(activeTrack, activeLangCode)}
-						>
-							{isLoading ? (
-								<Loader2 size={14} className="spin" />
-							) : isPlaying ? (
-								<Pause size={14} />
-							) : (
-								<Play size={14} />
-							)}
-							<span>{isPlaying ? "Pause" : "Play"}</span>
-						</button>
-
-						<button
-							type="button"
-							className="rail-skip-btn rail-skip-forward"
-							disabled={!activeTrack || Boolean(errorMessage)}
-							onClick={() => onSkipBy(10)}
-							aria-label="Forward 10 seconds"
-							title="Forward 10 seconds"
-						>
-							<span>10s</span>
-							<RotateCw size={12} />
-						</button>
-					</div>
+					<AudioTransportControls
+						className="rail-transport-row"
+						skipBackClassName="rail-skip-btn rail-skip-back"
+						skipForwardClassName="rail-skip-btn rail-skip-forward"
+						activeTrack={activeTrack}
+						activeLangCode={activeLangCode}
+						isPlaying={isPlaying}
+						isLoading={isLoading}
+						errorMessage={errorMessage}
+						onSkipBy={onSkipBy}
+						onTogglePlay={onTogglePlay}
+					/>
 
 					{errorMessage ? (
 						<p className="rail-note">{errorMessage}</p>

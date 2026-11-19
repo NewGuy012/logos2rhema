@@ -1,12 +1,28 @@
-import { BIBLE_BOOKS, getAdjacentChapter, getBookByNumber } from "../../shared/books";
+import { useCallback, useState } from "react";
+
+import {
+	BIBLE_BOOKS,
+	getAdjacentChapter,
+	getBookByNumber,
+	resolveBookChapter,
+} from "../../shared/books";
 import { ArrowRight, BookOpen, ChevronLeft, ChevronRight } from "./Icons";
+
+export function usePassageSelection(initialBookNumber: number, initialChapter: number) {
+	const [{ book, chapter }, setSelection] = useState(() =>
+		resolveBookChapter(initialBookNumber, initialChapter),
+	);
+	const selectPassage = useCallback((nextBookNumber: number, nextChapter: number) => {
+		setSelection(resolveBookChapter(nextBookNumber, nextChapter));
+	}, []);
+	return { book, chapter, selectPassage };
+}
 
 interface HomePassageBarProps {
 	bookNumber: number;
 	chapter: number;
 	onChangePassage: (bookNumber: number, chapter: number) => void;
 	onOpenInReader: () => void;
-	openLabel?: string;
 }
 
 export function HomePassageBar({
@@ -14,7 +30,6 @@ export function HomePassageBar({
 	chapter,
 	onChangePassage,
 	onOpenInReader,
-	openLabel = "Open in Reader",
 }: HomePassageBarProps) {
 	const currentBook = getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0];
 	const prevTarget = getAdjacentChapter(bookNumber, chapter, -1);
@@ -87,7 +102,7 @@ export function HomePassageBar({
 
 			<button type="button" className="home-open-reader-btn" onClick={onOpenInReader}>
 				<BookOpen size={14} />
-				<span>{openLabel}</span>
+				<span>Open in Reader</span>
 				<ArrowRight size={14} />
 			</button>
 		</div>
