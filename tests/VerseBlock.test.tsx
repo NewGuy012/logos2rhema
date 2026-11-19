@@ -1400,9 +1400,6 @@ describe("Reader UI & audio hooks", () => {
 		try {
 			await withMockFetch(
 				(url) => {
-					if (url.includes("/api/config")) {
-						return Response.json({ krvSyncedAudioEnabled: false });
-					}
 					if (url.includes("/data/lexicon.json")) return Response.json({});
 					if (url.includes("/data/bibles/krv/RUT.json")) {
 						return Response.json({

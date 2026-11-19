@@ -1,8 +1,9 @@
 import type { ChapterCommentaryResponse, CommentaryEntry, CommentaryId } from "../shared/types";
-import { type FetchLike, fetchWithTimeout } from "./http";
+import { cancelBody, type FetchLike, fetchWithTimeout, readJsonWithLimit } from "./http";
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
 const MAX_TEXT_DEPTH = 20;
+const MAX_COMMENTARY_BYTES = 2 * 1024 * 1024;
 
 interface HelloAoCommentaryPayload {
 	book?: {
@@ -170,19 +171,17 @@ export async function fetchHelloAoCommentaryChapter(
 	try {
 		const response = await fetchWithTimeout(fetcher, url, {
 			headers: { Accept: "application/json" },
+			redirect: "error",
 		});
 		if (response.status === 404) {
-			response.body?.cancel?.().catch(() => {});
-			return {
-				status: "empty",
-				data: normalizeHelloAoCommentary({}, commentaryId, usfm, chapter),
-			};
+			cancelBody(response);
+			return { status: "empty", data: { entries: [] } };
 		}
 		if (!response.ok) {
-			response.body?.cancel?.().catch(() => {});
+			cancelBody(response);
 			return { status: "error" };
 		}
-		const payload = (await response.json()) as unknown;
+		const payload = await readJsonWithLimit(response, MAX_COMMENTARY_BYTES);
 		if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
 			return { status: "error" };
 		}

@@ -13,7 +13,6 @@ import type {
 	ChapterCommentaryResponse,
 	CommentaryId,
 	LexiconMap,
-	ReaderConfigResponse,
 	VerseEntry,
 } from "../../shared/types";
 
@@ -73,16 +72,6 @@ export async function loadLexicon(): Promise<LexiconMap> {
 			});
 	}
 	return lexiconPromise;
-}
-
-export async function loadReaderConfig(): Promise<ReaderConfigResponse> {
-	try {
-		const res = await fetch("/api/config");
-		if (res.ok) return (await res.json()) as ReaderConfigResponse;
-	} catch {
-		// Offline/test fallback
-	}
-	return { krvSyncedAudioEnabled: false };
 }
 
 export async function loadTranslationChapter(

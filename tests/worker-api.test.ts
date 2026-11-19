@@ -1,39 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
 import { normalizeVerseTimings, SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
-import type {
-	ChapterAudioResponse,
-	ChapterCommentaryResponse,
-	ReaderConfigResponse,
-} from "../src/shared/types";
-import { type FetchLike, isSafeHttpsUrl } from "../src/worker/http";
+import type { ChapterAudioResponse, ChapterCommentaryResponse } from "../src/shared/types";
+import { isSafeHttpsUrl } from "../src/shared/url";
+import type { FetchLike } from "../src/worker/http";
 import { createApp, type R2BucketLike, type R2ObjectBodyLike } from "../src/worker/index";
 
 describe("Worker API & Security Boundaries", () => {
-	it("validates AUDIO_BASE_URL in /api/config", async () => {
-		const app = createApp();
-		const res = await app.request("/api/config", undefined, {
-			ESV_API_KEY: "secret-esv-key",
-			AUDIO_BASE_URL: "https://r2.example.com/krv/",
-		});
-		expect(res.status).toBe(200);
-		expect(res.headers.get("strict-transport-security")).toBe(
-			"max-age=31536000; includeSubDomains",
-		);
-
-		const text = await res.text();
-		expect(text).not.toContain("secret-esv-key");
-		expect(JSON.parse(text) as ReaderConfigResponse).toEqual({ krvSyncedAudioEnabled: true });
-
-		const badRes = await app.request("/api/config", undefined, {
-			AUDIO_BASE_URL: "http://insecure.example.com/krv",
-		});
-		expect((await badRes.json()) as ReaderConfigResponse).toEqual({
-			krvSyncedAudioEnabled: false,
-		});
-	});
-
-	it("serves Supertonic KRV and Crossway ESV tracks when configured", async () => {
+	it("validates AUDIO_BASE_URL and serves Supertonic KRV and Crossway ESV tracks when configured", async () => {
 		const captured = { authHeader: null as string | null, query: null as string | null };
 
 		const mockFetch: FetchLike = async (input, init) => {
@@ -146,13 +120,17 @@ describe("Worker API & Security Boundaries", () => {
 		expect((await app.request("/api/commentaries")).status).toBe(404);
 		expect((await app.request("/api/languages")).status).toBe(404);
 
-		const headRes = await app.request("/api/config", { method: "HEAD" });
+		const headRes = await app.request("/api/audio/JHN/3", { method: "HEAD" });
 		expect(headRes.status).toBe(200);
 		expect(await headRes.text()).toBe("");
 		expect(headRes.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(headRes.headers.get("strict-transport-security")).toBe(
+			"max-age=31536000; includeSubDomains",
+		);
 
 		const badMethod = await app.request("/api/audio/GEN/1", { method: "POST" });
 		expect(badMethod.status).toBe(405);
+		expect(badMethod.headers.get("cache-control")).toBe("no-store");
 		expect(badMethod.headers.get("x-content-type-options")).toBe("nosniff");
 		expect(badMethod.headers.get("content-security-policy")).toContain("default-src 'none'");
 
@@ -227,6 +205,12 @@ describe("Worker API & Security Boundaries", () => {
 			if (url === "https://bible.helloao.org/api/c/tyndale/EXO/1.json") {
 				return Response.json(["unexpected-array"]);
 			}
+			if (url === "https://bible.helloao.org/api/c/tyndale/LEV/1.json") {
+				return new Response("{}", {
+					status: 200,
+					headers: { "Content-Length": String(3 * 1024 * 1024) },
+				});
+			}
 			return new Response("Upstream Error", { status: 503 });
 		};
 
@@ -267,6 +251,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(((await emptyRes.json()) as ChapterCommentaryResponse).entries).toEqual([]);
 
 		expect((await app.request("/api/commentary/tyndale/EXO/1")).status).toBe(502);
+		expect((await app.request("/api/commentary/tyndale/LEV/1")).status).toBe(502);
 		expect((await app.request("/api/commentary/adam-clarke/GEN/1")).status).toBe(400);
 		expect((await app.request("/api/commentary/tyndale/GEN/999")).status).toBe(400);
 		expect((await app.request("/api/commentary/tyndale/GEN/1", { method: "POST" })).status).toBe(
@@ -291,12 +276,6 @@ describe("Worker API & Security Boundaries", () => {
 		});
 		const app = createApp();
 
-		const configRes = await app.request("/api/config", undefined, { AUDIO_BUCKET: bucket });
-		expect(configRes.status).toBe(200);
-		expect((await configRes.json()) as ReaderConfigResponse).toEqual({
-			krvSyncedAudioEnabled: true,
-		});
-
 		const boundTrackRes = await app.request("/api/audio/JHN/3", undefined, {
 			AUDIO_BUCKET: bucket,
 			AUDIO_BASE_URL: "https://cdn.example.com/krv/",
@@ -313,7 +292,6 @@ describe("Worker API & Security Boundaries", () => {
 			],
 		});
 
-		// Listing tracks or checking config must never touch R2.
 		expect(bucket.getCalls).toBe(0);
 		expect(bucket.headCalls).toBe(0);
 
@@ -468,7 +446,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
-		// HEAD uses bucket.head when available (0 gets, 1 head) and returns empty body + headers.
+		// HEAD uses bucket.head even with Range (0 gets, 1 head) and returns empty body + 206 headers.
 		bucket.resetCounts();
 		const headRes = await app.request(
 			"/api/audio/krv/GEN/1",
@@ -482,6 +460,19 @@ describe("Worker API & Security Boundaries", () => {
 		expect(headRes.headers.get("accept-ranges")).toBe("bytes");
 		expect(headRes.headers.get("etag")).toBe('"etag-gen-1"');
 		assertSecurityHeaders(headRes);
+		expect(bucket.headCalls).toBe(1);
+		expect(bucket.getCalls).toBe(0);
+
+		bucket.resetCounts();
+		const headRangeRes = await app.request(
+			"/api/audio/krv/GEN/1",
+			{ method: "HEAD", headers: { Range: "bytes=0-3" } },
+			{ AUDIO_BUCKET: bucket },
+		);
+		expect(headRangeRes.status).toBe(206);
+		expect(await headRangeRes.text()).toBe("");
+		expect(headRangeRes.headers.get("content-range")).toBe("bytes 0-3/10");
+		expect(headRangeRes.headers.get("content-length")).toBe("4");
 		expect(bucket.headCalls).toBe(1);
 		expect(bucket.getCalls).toBe(0);
 

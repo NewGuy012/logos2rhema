@@ -1,19 +1,15 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 
 import { SUPERTONIC_TRACK_ID } from "../shared/audio-timings";
 import { getBookByUsfm } from "../shared/books";
 import { isCommentaryId } from "../shared/commentaries";
-import type {
-	AudioTrackOption,
-	BookMeta,
-	ChapterAudioResponse,
-	ReaderConfigResponse,
-} from "../shared/types";
+import type { AudioTrackOption, BookMeta, ChapterAudioResponse } from "../shared/types";
+import { isSafeHttpsUrl } from "../shared/url";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
 import { fetchHelloAoCommentaryChapter } from "./helloao";
-import { type FetchLike, isSafeHttpsUrl } from "./http";
+import { cancelBody, type FetchLike } from "./http";
 
-export interface R2RangeResult {
+interface R2RangeResult {
 	offset?: number;
 	length?: number;
 	suffix?: number;
@@ -27,7 +23,6 @@ export interface R2ObjectBodyLike {
 	};
 	readonly range?: R2RangeResult;
 	readonly body?: ReadableStream<Uint8Array> | null;
-	writeHttpMetadata?: (headers: Headers) => void;
 }
 
 export interface R2BucketLike {
@@ -81,10 +76,7 @@ function parseByteRangeHeader(
 		const suffix = Number(suffixRaw);
 		if (!Number.isSafeInteger(suffix)) return { ok: false, status: 400 };
 		if (suffix <= 0) return { ok: false, status: 416 };
-		return {
-			ok: true,
-			value: { kind: "suffix", suffix, r2Range: { suffix } },
-		};
+		return { ok: true, value: { kind: "suffix", suffix, r2Range: { suffix } } };
 	}
 
 	const start = Number(startRaw);
@@ -97,23 +89,11 @@ function parseByteRangeHeader(
 		if (!Number.isSafeInteger(length)) return { ok: false, status: 400 };
 		return {
 			ok: true,
-			value: {
-				kind: "bounded",
-				start,
-				end,
-				r2Range: { offset: start, length },
-			},
+			value: { kind: "bounded", start, end, r2Range: { offset: start, length } },
 		};
 	}
 
-	return {
-		ok: true,
-		value: {
-			kind: "bounded",
-			start,
-			r2Range: { offset: start },
-		},
-	};
+	return { ok: true, value: { kind: "bounded", start, r2Range: { offset: start } } };
 }
 
 function isR2InvalidRangeError(err: unknown): boolean {
@@ -132,13 +112,7 @@ function matchesIfNoneMatch(header: string | undefined, httpEtag: string | undef
 	return tokens?.some((token) => normalize(token) === target) ?? false;
 }
 
-function resolveSafeAudioMime(object: R2ObjectBodyLike): string {
-	let rawType = object.httpMetadata?.contentType;
-	if (!rawType && object.writeHttpMetadata) {
-		const metaHeaders = new Headers();
-		object.writeHttpMetadata(metaHeaders);
-		rawType = metaHeaders.get("content-type") ?? undefined;
-	}
+function sanitizeAudioMime(rawType: string | null | undefined): string {
 	const cleanType = (rawType ?? "").split(";")[0].trim();
 	return SAFE_AUDIO_MIME_RE.test(cleanType) ? cleanType : "audio/mpeg";
 }
@@ -147,28 +121,14 @@ function resolveReturnedRange(
 	object: R2ObjectBodyLike,
 	parsedRange: ParsedByteRange,
 ): { offset: number; length: number } {
-	const returned = object.range;
-	if (returned) {
-		if (returned.suffix !== undefined) {
-			const length = Math.min(returned.suffix, object.size);
-			return { offset: object.size - length, length };
-		}
-		const offset = returned.offset ?? (parsedRange.kind === "bounded" ? parsedRange.start : 0);
-		const maxLen = Math.max(0, object.size - offset);
-		const length = Math.min(returned.length ?? maxLen, maxLen);
-		return { offset, length };
-	}
-
-	if (parsedRange.kind === "suffix") {
-		const length = Math.min(parsedRange.suffix, object.size);
+	const r: R2RangeResult = object.range ?? parsedRange.r2Range;
+	if (r.suffix !== undefined) {
+		const length = Math.min(r.suffix, object.size);
 		return { offset: object.size - length, length };
 	}
-
-	const offset = parsedRange.start;
+	const offset = r.offset ?? (parsedRange.kind === "bounded" ? parsedRange.start : 0);
 	const maxLen = Math.max(0, object.size - offset);
-	const length =
-		parsedRange.end !== undefined ? Math.min(parsedRange.end - offset + 1, maxLen) : maxLen;
-	return { offset, length };
+	return { offset, length: Math.min(r.length ?? maxLen, maxLen) };
 }
 
 function rangeNotSatisfiableResponse(size?: number): Response {
@@ -195,6 +155,15 @@ function applySecurityHeaders(headers: Headers): void {
 	headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 }
 
+function jsonError(
+	c: Context<{ Bindings: WorkerBindings }>,
+	status: 400 | 404 | 405 | 502 | 503,
+	error: string,
+): Response {
+	c.header("Cache-Control", "no-store");
+	return c.json({ error }, status);
+}
+
 function parsePositiveInt(raw: string | undefined, min: number, max: number): number | null {
 	if (!raw || !/^\d+$/.test(raw)) return null;
 	const val = Number.parseInt(raw, 10);
@@ -218,39 +187,34 @@ export function createApp(deps: WorkerDeps = {}) {
 
 	app.use("*", async (c, next) => {
 		if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-			const res = c.json({ error: "Method not allowed" }, 405);
-			res.headers.set("Allow", "GET, HEAD");
+			const res = c.json({ error: "Method not allowed" }, 405, {
+				Allow: "GET, HEAD",
+				"Cache-Control": "no-store",
+			});
 			applySecurityHeaders(res.headers);
 			return res;
 		}
 		await next();
+		if (c.res.status >= 400 && !c.res.headers.has("Cache-Control")) {
+			c.res.headers.set("Cache-Control", "no-store");
+		}
 		applySecurityHeaders(c.res.headers);
 		if (c.req.method === "HEAD" && c.res.body !== null) {
-			c.res.body.cancel?.().catch(() => {});
+			cancelBody(c.res);
 			c.res = new Response(null, { status: c.res.status, headers: c.res.headers });
 		}
 	});
 
 	app.onError((_err, c) => {
-		const res = c.json({ error: "Upstream service error" }, 502);
-		res.headers.set("Cache-Control", "no-store");
+		const res = jsonError(c, 502, "Upstream service error");
 		applySecurityHeaders(res.headers);
 		return res;
-	});
-
-	app.get("/api/config", (c) => {
-		const body: ReaderConfigResponse = {
-			krvSyncedAudioEnabled: Boolean(c.env?.AUDIO_BUCKET || hasConfiguredAudioBase(c.env)),
-		};
-
-		c.header("Cache-Control", "private, max-age=300");
-		return c.json(body);
 	});
 
 	app.get("/api/audio/:usfm/:chapter", async (c) => {
 		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
 		if (!parsed) {
-			return c.json({ error: "Invalid book or chapter reference" }, 400);
+			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
 		const { book, usfm, chapter } = parsed;
 
@@ -258,19 +222,17 @@ export function createApp(deps: WorkerDeps = {}) {
 		const customAudioBase = hasConfiguredAudioBase(c.env);
 		const tracks: AudioTrackOption[] = [];
 
-		if (c.env?.AUDIO_BUCKET) {
+		const krvUrl = c.env?.AUDIO_BUCKET
+			? `/api/audio/krv/${usfm}/${chapter}`
+			: customAudioBase
+				? `${customAudioBase}/${usfm}/${chapter}.mp3`
+				: null;
+		if (krvUrl) {
 			tracks.push({
 				id: SUPERTONIC_TRACK_ID,
 				label: "개역한글 · Daniel (AI)",
 				language: "ko",
-				url: `/api/audio/krv/${usfm}/${chapter}`,
-			});
-		} else if (customAudioBase) {
-			tracks.push({
-				id: SUPERTONIC_TRACK_ID,
-				label: "개역한글 · Daniel (AI)",
-				language: "ko",
-				url: `${customAudioBase}/${usfm}/${chapter}.mp3`,
+				url: krvUrl,
 			});
 		}
 
@@ -291,13 +253,12 @@ export function createApp(deps: WorkerDeps = {}) {
 	app.get("/api/audio/krv/:usfm/:chapter", async (c) => {
 		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
 		if (!parsed) {
-			return c.json({ error: "Invalid book or chapter reference" }, 400);
+			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
 
 		const bucket = c.env?.AUDIO_BUCKET;
 		if (!bucket) {
-			c.header("Cache-Control", "no-store");
-			return c.json({ error: "Korean audio is not configured" }, 503);
+			return jsonError(c, 503, "Korean audio is not configured");
 		}
 
 		const rawRangeHeader = c.req.header("Range");
@@ -318,7 +279,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		let object: R2ObjectBodyLike | null;
 		try {
 			object =
-				isHead && !parsedRange && bucket.head
+				isHead && bucket.head
 					? await bucket.head(key)
 					: await bucket.get(key, parsedRange ? { range: parsedRange.r2Range } : undefined);
 		} catch (err) {
@@ -329,12 +290,11 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		if (!object) {
-			c.header("Cache-Control", "no-store");
-			return c.json({ error: "Korean audio chapter not found" }, 404);
+			return jsonError(c, 404, "Korean audio chapter not found");
 		}
 
 		if (matchesIfNoneMatch(c.req.header("If-None-Match"), object.httpEtag)) {
-			object.body?.cancel?.().catch(() => {});
+			cancelBody(object);
 			const headers = new Headers({ "Cache-Control": AUDIO_CACHE_CONTROL });
 			if (object.httpEtag) headers.set("ETag", object.httpEtag);
 			return new Response(null, { status: 304, headers });
@@ -344,13 +304,13 @@ export function createApp(deps: WorkerDeps = {}) {
 			const isOutOfBounds =
 				object.size <= 0 || (parsedRange.kind === "bounded" && parsedRange.start >= object.size);
 			if (isOutOfBounds) {
-				object.body?.cancel?.().catch(() => {});
+				cancelBody(object);
 				return rangeNotSatisfiableResponse(object.size);
 			}
 		}
 
 		const headers = new Headers();
-		headers.set("Content-Type", resolveSafeAudioMime(object));
+		headers.set("Content-Type", sanitizeAudioMime(object.httpMetadata?.contentType));
 		headers.set("Accept-Ranges", "bytes");
 		headers.set("Content-Disposition", "inline");
 		headers.set("Cache-Control", AUDIO_CACHE_CONTROL);
@@ -359,16 +319,15 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		if (isHead) {
-			object.body?.cancel?.().catch(() => {});
+			cancelBody(object);
 		} else if (object.size > 0 && !object.body) {
-			c.header("Cache-Control", "no-store");
-			return c.json({ error: "Korean audio stream unavailable" }, 502);
+			return jsonError(c, 502, "Korean audio stream unavailable");
 		}
 
 		if (parsedRange) {
 			const { offset, length } = resolveReturnedRange(object, parsedRange);
 			if (length <= 0 || offset < 0 || offset + length > object.size) {
-				if (!isHead) object.body?.cancel?.().catch(() => {});
+				if (!isHead) cancelBody(object);
 				return rangeNotSatisfiableResponse(object.size);
 			}
 			headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
@@ -383,13 +342,13 @@ export function createApp(deps: WorkerDeps = {}) {
 	app.get("/api/audio/esv/:usfm/:chapter", async (c) => {
 		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
 		if (!parsed) {
-			return c.json({ error: "Invalid book or chapter reference" }, 400);
+			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
 		const { book, chapter } = parsed;
 
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
 		if (!esvApiKey) {
-			return c.json({ error: "ESV audio is not configured" }, 503);
+			return jsonError(c, 503, "ESV audio is not configured");
 		}
 
 		const resolved = await resolveEsvAudioUrl(
@@ -398,7 +357,7 @@ export function createApp(deps: WorkerDeps = {}) {
 			fetcher,
 		).catch(() => null);
 		if (!resolved) {
-			return c.json({ error: "ESV audio unavailable for this passage" }, 502);
+			return jsonError(c, 502, "ESV audio unavailable for this passage");
 		}
 
 		if (resolved.url) {
@@ -408,10 +367,10 @@ export function createApp(deps: WorkerDeps = {}) {
 
 		if (resolved.directStreamResponse) {
 			const headers = new Headers();
-			const rawType = (resolved.directStreamResponse.headers.get("content-type") ?? "")
-				.split(";")[0]
-				.trim();
-			headers.set("Content-Type", SAFE_AUDIO_MIME_RE.test(rawType) ? rawType : "audio/mpeg");
+			headers.set(
+				"Content-Type",
+				sanitizeAudioMime(resolved.directStreamResponse.headers.get("content-type")),
+			);
 			headers.set("Content-Disposition", "inline");
 			headers.set("Cache-Control", "private, max-age=1800");
 			return new Response(resolved.directStreamResponse.body, {
@@ -420,17 +379,17 @@ export function createApp(deps: WorkerDeps = {}) {
 			});
 		}
 
-		return c.json({ error: "ESV audio unavailable" }, 502);
+		return jsonError(c, 502, "ESV audio unavailable");
 	});
 
 	app.get("/api/commentary/:commentaryId/:usfm/:chapter", async (c) => {
 		const commentaryId = c.req.param("commentaryId");
 		if (!isCommentaryId(commentaryId)) {
-			return c.json({ error: "Unsupported commentary source" }, 400);
+			return jsonError(c, 400, "Unsupported commentary source");
 		}
 		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
 		if (!parsed) {
-			return c.json({ error: "Invalid book or chapter reference" }, 400);
+			return jsonError(c, 400, "Invalid book or chapter reference");
 		}
 
 		const result = await fetchHelloAoCommentaryChapter(
@@ -440,8 +399,7 @@ export function createApp(deps: WorkerDeps = {}) {
 			fetcher,
 		);
 		if (result.status === "error") {
-			c.header("Cache-Control", "no-store");
-			return c.json({ error: "Commentary lookup failed" }, 502);
+			return jsonError(c, 502, "Commentary lookup failed");
 		}
 
 		c.header("Cache-Control", "public, max-age=86400");

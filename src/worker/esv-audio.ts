@@ -1,5 +1,6 @@
 import type { AudioTrackOption } from "../shared/types";
-import { type FetchLike, fetchWithTimeout, isSafeHttpsUrl } from "./http";
+import { isSafeHttpsUrl } from "../shared/url";
+import { cancelBody, type FetchLike, fetchWithTimeout } from "./http";
 
 const ESV_AUDIO_API_BASE = "https://api.esv.org/v3/passage/audio/";
 
@@ -36,7 +37,7 @@ export async function resolveEsvAudioUrl(
 	});
 
 	if (response.status >= 300 && response.status < 400) {
-		response.body?.cancel?.().catch(() => {});
+		cancelBody(response);
 		const location = response.headers.get("location");
 		if (!location) return null;
 		try {
@@ -53,13 +54,13 @@ export async function resolveEsvAudioUrl(
 			!response.url.startsWith(ESV_AUDIO_API_BASE) &&
 			isSafeEsvUrl(response.url, apiKey)
 		) {
-			response.body?.cancel?.().catch(() => {});
+			cancelBody(response);
 			return { url: response.url };
 		}
 		return { url: "", directStreamResponse: response };
 	}
 
-	response.body?.cancel?.().catch(() => {});
+	cancelBody(response);
 	return null;
 }
 
@@ -76,8 +77,8 @@ export async function fetchEsvAudioTrack(
 	const resolved = await resolveEsvAudioUrl(apiKey, options, fetcher);
 	if (!resolved) return null;
 
-	if (!resolved.url && resolved.directStreamResponse?.body) {
-		resolved.directStreamResponse.body.cancel().catch(() => {});
+	if (!resolved.url) {
+		cancelBody(resolved.directStreamResponse);
 	}
 
 	return {

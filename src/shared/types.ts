@@ -102,10 +102,6 @@ export interface ChapterAudioResponse {
 	tracks: AudioTrackOption[];
 }
 
-export interface ReaderConfigResponse {
-	krvSyncedAudioEnabled: boolean;
-}
-
 export type CommentaryId = "tyndale" | "matthew-henry";
 export type RightRailTab = "dictionary" | "commentary";
 
