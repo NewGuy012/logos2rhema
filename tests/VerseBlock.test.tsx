@@ -463,43 +463,41 @@ describe("Reader UI & audio hooks", () => {
 		expect(onOpenPassage).toHaveBeenCalledWith(8, 4, 12);
 
 		expect(home.container.querySelector('section[aria-label="Bible Genres"]')).toBeNull();
-		const scriptureSection = home.container.querySelector(
-			'section[aria-label="Scripture"]',
+		const browseSection = home.container.querySelector(
+			'section[aria-label="Browse"]',
 		) as ParentNode;
-		expect(scriptureSection.querySelector(".home-section-title")?.textContent).toBe("Scripture");
-		expect(scriptureSection.querySelector(".home-testaments")).not.toBeNull();
-		expect(getButton(scriptureSection, "Scripture").getAttribute("aria-selected")).toBe("true");
-		expect(getButton(scriptureSection, "Genres").getAttribute("aria-selected")).toBe("false");
+		expect(browseSection.querySelector(".home-section-title")?.textContent).toBe("Browse");
+		expect(browseSection.querySelector(".home-testaments")).not.toBeNull();
+		expect(getButton(browseSection, "Scripture").getAttribute("aria-selected")).toBe("true");
+		expect(getButton(browseSection, "Genres").getAttribute("aria-selected")).toBe("false");
 
-		fireClick(getButton(scriptureSection, "Genres"));
-		expect(scriptureSection.querySelector(".home-section-title")?.textContent).toBe("Scripture");
-		expect(getButton(scriptureSection, "Genres").getAttribute("aria-selected")).toBe("true");
-		expect(scriptureSection.querySelector(".home-testaments")).toBeNull();
-		expect(scriptureSection.querySelectorAll(".home-genre-card")).toHaveLength(10);
+		fireClick(getButton(browseSection, "Genres"));
+		expect(browseSection.querySelector(".home-section-title")?.textContent).toBe("Browse");
+		expect(getButton(browseSection, "Genres").getAttribute("aria-selected")).toBe("true");
+		expect(browseSection.querySelector(".home-testaments")).toBeNull();
+		expect(browseSection.querySelectorAll(".home-genre-card")).toHaveLength(10);
 
 		const homeInput = home.container.querySelector("input[type='search']") as HTMLInputElement;
 		setInputValue(homeInput, "Psalms");
-		expect(scriptureSection.querySelectorAll(".home-genre-card")).toHaveLength(1);
+		expect(browseSection.querySelectorAll(".home-genre-card")).toHaveLength(1);
 		setInputValue(homeInput, "");
-		expect(scriptureSection.querySelectorAll(".home-genre-card")).toHaveLength(10);
+		expect(browseSection.querySelectorAll(".home-genre-card")).toHaveLength(10);
 
-		fireClick(getButton(scriptureSection, "Scripture"));
-		expect(scriptureSection.querySelector(".home-testaments")).not.toBeNull();
-		fireClick(getButton(scriptureSection, "Genres"));
+		fireClick(getButton(browseSection, "Scripture"));
+		expect(browseSection.querySelector(".home-testaments")).not.toBeNull();
+		fireClick(getButton(browseSection, "Genres"));
 
-		fireClick(getButton(scriptureSection, /Psalms/));
-		expect(scriptureSection.querySelector(".home-section-title")?.textContent).toBe(
-			"Psalms · 시편",
-		);
-		fireClick(getButton(scriptureSection, "All Books"));
-		expect(scriptureSection.querySelector(".home-section-title")?.textContent).toBe("Scripture");
-		expect(scriptureSection.querySelectorAll(".home-genre-card")).toHaveLength(10);
+		fireClick(getButton(browseSection, /Psalms/));
+		expect(browseSection.querySelector(".home-section-title")?.textContent).toBe("Psalms · 시편");
+		fireClick(getButton(browseSection, "All Books"));
+		expect(browseSection.querySelector(".home-section-title")?.textContent).toBe("Browse");
+		expect(browseSection.querySelectorAll(".home-genre-card")).toHaveLength(10);
 
-		fireClick(getButton(scriptureSection, /Obadiah/));
+		fireClick(getButton(browseSection, /Obadiah/));
 		expect(onOpenPassage).toHaveBeenCalledWith(31, 1);
 
-		fireClick(getButton(scriptureSection, /Psalms/));
-		fireClick(getButton(scriptureSection, "23"));
+		fireClick(getButton(browseSection, /Psalms/));
+		fireClick(getButton(browseSection, "23"));
 		expect(onOpenPassage).toHaveBeenCalledWith(19, 23);
 
 		setInputValue(homeInput, "시 23");

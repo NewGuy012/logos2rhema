@@ -165,10 +165,10 @@ export function HomePage({
 				)}
 			</section>
 
-			<section className="home-section" aria-label="Scripture">
+			<section className="home-section" aria-label="Browse">
 				<div className="home-browser-header">
 					<h2 className="home-section-title">
-						{selectedBook ? `${selectedBook.en} · ${selectedBook.ko}` : "Scripture"}
+						{selectedBook ? `${selectedBook.en} · ${selectedBook.ko}` : "Browse"}
 					</h2>
 
 					{selectedBook ? (
