@@ -1,6 +1,26 @@
 import type { ReactNode } from "react";
 
-import { ChevronDown, ChevronRight, Search, X } from "./Icons";
+import { ChevronDown, ChevronRight, Search, Undo2, X } from "./Icons";
+
+export function PanelSnapBackButton({
+	onClick,
+	ariaLabel,
+}: {
+	onClick: () => void;
+	ariaLabel: string;
+}) {
+	return (
+		<button
+			type="button"
+			className="pill-nav-btn panel-snap-btn"
+			onClick={onClick}
+			aria-label={ariaLabel}
+			title="Snap back to original position"
+		>
+			<Undo2 size={14} />
+		</button>
+	);
+}
 
 export function PanelSearchInput({
 	value,

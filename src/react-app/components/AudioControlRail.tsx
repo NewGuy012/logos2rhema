@@ -3,6 +3,7 @@ import { useState } from "react";
 import { hasVerseTimings } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
+import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
@@ -22,6 +23,7 @@ import {
 	RotateCcw,
 	RotateCw,
 } from "./Icons";
+import { PanelSnapBackButton } from "./RailShared";
 
 interface AudioControlRailProps {
 	bookEn: string;
@@ -40,6 +42,10 @@ interface AudioControlRailProps {
 	activeVerse: number | null;
 	autoSync: boolean;
 	isFollowingAudio: boolean;
+	floatingPosition?: PanelPosition | null;
+	onFloatingPositionChange?: (pos: PanelPosition | null) => void;
+	isActiveFloating?: boolean;
+	onActivateFloating?: () => void;
 	onTogglePlay: () => void;
 	onSeek: (sec: number) => void;
 	onSkipBy: (delta: number) => void;
@@ -68,6 +74,10 @@ export function AudioControlRail({
 	activeVerse,
 	autoSync,
 	isFollowingAudio,
+	floatingPosition,
+	onFloatingPositionChange,
+	isActiveFloating = false,
+	onActivateFloating,
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
@@ -79,15 +89,37 @@ export function AudioControlRail({
 	onMinimize,
 }: AudioControlRailProps) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const {
+		panelRef,
+		isFloating,
+		isDragging,
+		onMouseDown,
+		onMouseDownCapture,
+		resetPosition,
+		floatingStyle,
+	} = useDraggablePanel<HTMLElement>({
+		enabled: true,
+		position: floatingPosition,
+		onPositionChange: onFloatingPositionChange,
+		onActivate: onActivateFloating,
+		isActive: isActiveFloating,
+	});
 	const activeLangCode = CANONICAL_BIBLES[preferredLang].code;
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
 	const showFollowButton = Boolean(syncActive && isPlaying && !isFollowingAudio && activeVerse);
 
 	return (
-		<aside className="audio-rail" aria-label="Audio Playback and Verse Sync">
+		<aside
+			ref={panelRef}
+			className={`audio-rail ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
+			style={floatingStyle}
+			onMouseDown={onMouseDown}
+			onMouseDownCapture={onMouseDownCapture}
+			aria-label="Audio Playback and Verse Sync"
+		>
 			<div className="rail-card">
-				<div className="rail-panel-header">
+				<div className="rail-panel-header panel-drag-handle">
 					{onMinimize ? (
 						<button
 							type="button"
@@ -111,7 +143,14 @@ export function AudioControlRail({
 							</span>
 						</p>
 					</div>
-					<span aria-hidden="true" />
+					{isFloating ? (
+						<PanelSnapBackButton
+							onClick={resetPosition}
+							ariaLabel="Snap audio back to original position"
+						/>
+					) : (
+						<span aria-hidden="true" />
+					)}
 				</div>
 
 				<div className="rail-player">

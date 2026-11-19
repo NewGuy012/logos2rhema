@@ -5,15 +5,21 @@ import type {
 	KrvGrammarNote,
 	RightRailTab,
 } from "../../shared/types";
+import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
 import { CommentaryPanel } from "./CommentaryPanel";
 import { FootnotesGuide } from "./FootnotesGuide";
 import { BookOpen, BookText, ChevronDown, ChevronRight } from "./Icons";
+import { PanelSnapBackButton } from "./RailShared";
 
 interface StudyRightRailProps {
 	activeTab: RightRailTab;
 	onChangeTab: (tab: RightRailTab) => void;
 	variant?: "sidebar" | "sheet";
 	onMinimize?: () => void;
+	floatingPosition?: PanelPosition | null;
+	onFloatingPositionChange?: (pos: PanelPosition | null) => void;
+	isActiveFloating?: boolean;
+	onActivateFloating?: () => void;
 	bookEn: string;
 	bookKo: string;
 	chapter: number;
@@ -37,6 +43,10 @@ export function StudyRightRail({
 	onChangeTab,
 	variant = "sidebar",
 	onMinimize,
+	floatingPosition,
+	onFloatingPositionChange,
+	isActiveFloating = false,
+	onActivateFloating,
 	bookEn,
 	bookKo,
 	chapter,
@@ -55,15 +65,47 @@ export function StudyRightRail({
 	onJumpToVerse,
 }: StudyRightRailProps) {
 	const isDictionary = activeTab === "dictionary";
+	const canDrag = variant === "sidebar";
+	const {
+		panelRef,
+		isFloating,
+		isDragging,
+		onMouseDown,
+		onMouseDownCapture,
+		resetPosition,
+		floatingStyle,
+	} = useDraggablePanel<HTMLElement>({
+		enabled: canDrag,
+		position: floatingPosition,
+		onPositionChange: onFloatingPositionChange,
+		onActivate: onActivateFloating,
+		isActive: isActiveFloating,
+		ignoreSelector: ".right-rail-tabpanel",
+	});
 
 	return (
 		<aside
+			ref={panelRef}
 			id="footnotes"
-			className={`dict-panel dict-panel-${variant}`}
+			className={`dict-panel dict-panel-${variant} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
+			style={floatingStyle}
+			onMouseDown={canDrag ? onMouseDown : undefined}
+			onMouseDownCapture={canDrag ? onMouseDownCapture : undefined}
 			aria-label={isDictionary ? "Korean Dictionary & Grammar Guide" : "Bible Commentary"}
 		>
-			<div className="dict-panel-header">
-				<span aria-hidden="true" />
+			<div className={`dict-panel-header ${canDrag ? "panel-drag-handle" : ""}`.trim()}>
+				{isFloating ? (
+					<PanelSnapBackButton
+						onClick={resetPosition}
+						ariaLabel={
+							isDictionary
+								? "Snap dictionary back to original position"
+								: "Snap commentary back to original position"
+						}
+					/>
+				) : (
+					<span aria-hidden="true" />
+				)}
 				<div className="panel-header-text">
 					<h2 className="panel-title">{isDictionary ? "Dictionary" : "Commentary"}</h2>
 					<p className="panel-subtitle">

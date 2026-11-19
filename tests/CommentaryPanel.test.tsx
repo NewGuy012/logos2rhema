@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
+import { act } from "react";
+
 import { CommentaryPanel } from "../src/react-app/components/CommentaryPanel";
 import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
 import { clearCommentaryCache, loadChapterCommentary } from "../src/react-app/lib/bible-loader";
@@ -144,6 +146,75 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 
 		fireClick(getButton(container, "Minimize commentary"));
 		expect(onMinimize).toHaveBeenCalledTimes(1);
+
+		// Dragging via header detaches sidebar and exposes Snap Back button; body text does not drag
+		const panel = container.querySelector("#footnotes") as HTMLElement;
+		const bodyProse = container.querySelector(".right-rail-tabpanel") as HTMLElement;
+		act(() => {
+			bodyProse.dispatchEvent(
+				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 50, clientY: 50 }),
+			);
+			window.dispatchEvent(
+				new window.MouseEvent("mousemove", { bubbles: true, clientX: 180, clientY: 160 }),
+			);
+			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+		});
+		expect(panel.className).not.toContain("floating");
+
+		const header = container.querySelector(".dict-panel-header") as HTMLElement;
+		act(() => {
+			header.dispatchEvent(
+				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 50, clientY: 50 }),
+			);
+			window.dispatchEvent(
+				new window.MouseEvent("mousemove", { bubbles: true, clientX: 250, clientY: 190 }),
+			);
+			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+		});
+		expect(panel.className).toContain("floating");
+		expect(panel.style.left).toBe("200px");
+		expect(panel.style.top).toBe("140px");
+
+		fireClick(getButton(container, "Snap commentary back to original position"));
+		expect(panel.className).not.toContain("floating");
+		expect(panel.style.left).toBe("");
+
+		// Mobile sheet variant must remain non-draggable
+		rerender(
+			<StudyRightRail
+				activeTab="dictionary"
+				onChangeTab={onChangeTab}
+				variant="sheet"
+				onMinimize={onMinimize}
+				bookEn="John"
+				bookKo="요한복음"
+				chapter={3}
+				footnotes={analysis.footnotes}
+				grammarNotes={analysis.grammarNotes}
+				highlightedFootnoteId={null}
+				commentarySource="matthew-henry"
+				commentaryData={sampleMhData}
+				commentaryLoading={false}
+				commentaryError={null}
+				maxVerseInChapter={36}
+				selectedVerse={16}
+				onChangeCommentarySource={onChangeSource}
+				onRetryCommentary={onRetry}
+				onJumpToVerse={onJumpToVerse}
+			/>,
+		);
+		const sheetHeader = container.querySelector(".dict-panel-header") as HTMLElement;
+		expect(sheetHeader.className).not.toContain("panel-drag-handle");
+		act(() => {
+			sheetHeader.dispatchEvent(
+				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 50, clientY: 50 }),
+			);
+			window.dispatchEvent(
+				new window.MouseEvent("mousemove", { bubbles: true, clientX: 220, clientY: 170 }),
+			);
+			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+		});
+		expect(container.querySelector("#footnotes")?.className).not.toContain("floating");
 	});
 
 	it("handles loading, error retry, empty book, and Tyndale CC BY-SA attribution", () => {

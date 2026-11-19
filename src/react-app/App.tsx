@@ -29,8 +29,14 @@ import {
 } from "./components/Icons";
 import { PassagePicker } from "./components/PassagePicker";
 import { StudyRightRail } from "./components/StudyRightRail";
-import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
+import {
+	type EnglishFontStyle,
+	type KoreanFontStyle,
+	type ReaderTheme,
+	TopBar,
+} from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
+import type { PanelPosition } from "./hooks/useDraggablePanel";
 import { useHumanAudio } from "./hooks/useHumanAudio";
 import { useIsDesktopLayout } from "./hooks/useMediaQuery";
 import { anchorPosStyle, computeAnchorPos } from "./hooks/usePopover";
@@ -65,6 +71,7 @@ interface DisplayPrefs {
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
+	enFontStyle: EnglishFontStyle;
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
 	autoSync: boolean;
@@ -82,11 +89,18 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	stackOrder: "en-first",
 	theme: "paper",
 	fontScale: 1,
+	enFontStyle: "newsreader",
 	koFontStyle: "serif",
 	studyMask: "none",
 	autoSync: true,
 	rightRailTab: "dictionary",
 	commentarySource: DEFAULT_COMMENTARY_ID,
+};
+
+const EN_FONT_VARS: Record<EnglishFontStyle, string> = {
+	newsreader: "var(--font-en-newsreader)",
+	lora: "var(--font-en-lora)",
+	inter: "var(--font-en-inter)",
 };
 
 const DEFAULT_PREFS: StoredPrefs = {
@@ -150,6 +164,9 @@ function readStoredPrefs(): StoredPrefs {
 			parsed.fontScale <= 1.5
 				? parsed.fontScale
 				: DEFAULT_PREFS.fontScale,
+		enFontStyle: isOneOf(parsed.enFontStyle, ["newsreader", "lora", "inter"])
+			? parsed.enFontStyle
+			: DEFAULT_PREFS.enFontStyle,
 		koFontStyle: isOneOf(parsed.koFontStyle, ["serif", "sans"])
 			? parsed.koFontStyle
 			: DEFAULT_PREFS.koFontStyle,
@@ -234,6 +251,7 @@ export default function App() {
 		stackOrder: initialPrefs.stackOrder,
 		theme: initialPrefs.theme,
 		fontScale: initialPrefs.fontScale,
+		enFontStyle: initialPrefs.enFontStyle,
 		koFontStyle: initialPrefs.koFontStyle,
 		studyMask: initialPrefs.studyMask,
 		autoSync: initialPrefs.autoSync,
@@ -258,6 +276,11 @@ export default function App() {
 	const [audioRailOpen, setAudioRailOpen] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [sheetOpen, setSheetOpen] = useState(false);
+	const [audioFloatingPos, setAudioFloatingPos] = useState<PanelPosition | null>(null);
+	const [dictFloatingPos, setDictFloatingPos] = useState<PanelPosition | null>(null);
+	const [activeFloatingPanel, setActiveFloatingPanel] = useState<"audio" | "dictionary" | null>(
+		null,
+	);
 
 	const [commentaryData, setCommentaryData] = useState<ChapterCommentaryResponse | null>(null);
 	const [commentaryLoading, setCommentaryLoading] = useState(false);
@@ -736,6 +759,14 @@ export default function App() {
 		if (isDesktop) setSidebarOpen((prev) => !prev);
 		else setSheetOpen((prev) => !prev);
 	}, [isDesktop]);
+	const handleAudioFloatingPosChange = useCallback((pos: PanelPosition | null) => {
+		setAudioFloatingPos(pos);
+		if (pos) setActiveFloatingPanel("audio");
+	}, []);
+	const handleDictFloatingPosChange = useCallback((pos: PanelPosition | null) => {
+		setDictFloatingPos(pos);
+		if (pos) setActiveFloatingPanel("dictionary");
+	}, []);
 
 	useEffect(() => {
 		return () => {
@@ -769,10 +800,11 @@ export default function App() {
 		() =>
 			({
 				"--reader-scale": prefs.fontScale,
+				"--reader-en-font": EN_FONT_VARS[prefs.enFontStyle],
 				"--reader-ko-font":
 					prefs.koFontStyle === "serif" ? "var(--font-ko-serif)" : "var(--font-ko-sans)",
 			}) as CSSProperties,
-		[prefs.fontScale, prefs.koFontStyle],
+		[prefs.fontScale, prefs.enFontStyle, prefs.koFontStyle],
 	);
 
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
@@ -895,6 +927,12 @@ export default function App() {
 			onChangeTab={(tab) => updatePref("rightRailTab", tab)}
 			variant={variant}
 			onMinimize={onMinimize}
+			floatingPosition={variant === "sidebar" ? dictFloatingPos : undefined}
+			onFloatingPositionChange={variant === "sidebar" ? handleDictFloatingPosChange : undefined}
+			isActiveFloating={variant === "sidebar" && activeFloatingPanel === "dictionary"}
+			onActivateFloating={
+				variant === "sidebar" ? () => setActiveFloatingPanel("dictionary") : undefined
+			}
 			bookEn={currentBook.en}
 			bookKo={currentBook.ko}
 			chapter={chapter}
@@ -925,6 +963,7 @@ export default function App() {
 				stackOrder={prefs.stackOrder}
 				theme={prefs.theme}
 				fontScale={prefs.fontScale}
+				enFontStyle={prefs.enFontStyle}
 				koFontStyle={prefs.koFontStyle}
 				studyMask={prefs.studyMask}
 				onGoHome={goHome}
@@ -933,6 +972,7 @@ export default function App() {
 				onOpenSearch={() => setPickerOpen(true)}
 				onChangeTheme={(v) => updatePref("theme", v)}
 				onChangeFontScale={(v) => updatePref("fontScale", v)}
+				onChangeEnFontStyle={(v) => updatePref("enFontStyle", v)}
 				onChangeKoFontStyle={(v) => updatePref("koFontStyle", v)}
 				onChangeStudyMask={(v) => updatePref("studyMask", v)}
 			/>
@@ -957,6 +997,10 @@ export default function App() {
 										activeVerse={activeVerse}
 										autoSync={prefs.autoSync}
 										isFollowingAudio={isFollowingAudio}
+										floatingPosition={audioFloatingPos}
+										onFloatingPositionChange={handleAudioFloatingPosChange}
+										isActiveFloating={activeFloatingPanel === "audio"}
+										onActivateFloating={() => setActiveFloatingPanel("audio")}
 										onToggleAutoSync={() => updatePref("autoSync", !prefs.autoSync)}
 										onSyncToVisibleVerse={() => jumpToVerse(visibleVerse)}
 										onFollowActiveVerse={handleFollowActiveVerse}

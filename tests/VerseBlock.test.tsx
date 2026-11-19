@@ -468,6 +468,7 @@ describe("Reader UI & audio hooks", () => {
 		const onContinue = mock(() => {});
 		const onTopOpen = mock(() => {});
 		const onFlip = mock(() => {});
+		const onChangeEnFont = mock(() => {});
 		const onOpenSearch = mock(() => {});
 		const topBar = render(
 			<TopBar
@@ -487,6 +488,7 @@ describe("Reader UI & audio hooks", () => {
 				stackOrder="en-first"
 				theme="paper"
 				fontScale={1}
+				enFontStyle="newsreader"
 				koFontStyle="serif"
 				studyMask="none"
 				onGoHome={onGoHome}
@@ -496,6 +498,7 @@ describe("Reader UI & audio hooks", () => {
 				onOpenSearch={onOpenSearch}
 				onChangeTheme={noop}
 				onChangeFontScale={noop}
+				onChangeEnFontStyle={onChangeEnFont}
 				onChangeKoFontStyle={noop}
 				onChangeStudyMask={noop}
 			/>,
@@ -510,9 +513,18 @@ describe("Reader UI & audio hooks", () => {
 		expect(onOpenSearch).toHaveBeenCalledTimes(1);
 
 		fireClick(getButton(topBar.container, "Reader appearance settings"));
-		fireClick(getButton(topBar.container, "EN / 한"));
+		const settingsPopover = topBar.container.querySelector(".settings-popover") as ParentNode;
+		expect(settingsPopover).not.toBeNull();
+		expect(getButton(settingsPopover, "Newsreader").className).toContain("active");
+		fireClick(getButton(settingsPopover, "Newsreader"));
+		expect(onChangeEnFont).not.toHaveBeenCalled();
+		fireClick(getButton(settingsPopover, "Lora"));
+		expect(onChangeEnFont).toHaveBeenCalledWith("lora");
+		fireClick(getButton(settingsPopover, "Inter"));
+		expect(onChangeEnFont).toHaveBeenCalledWith("inter");
+		fireClick(getButton(settingsPopover, "EN / 한"));
 		expect(onFlip).not.toHaveBeenCalled();
-		fireClick(getButton(topBar.container, "한 / EN"));
+		fireClick(getButton(settingsPopover, "한 / EN"));
 		expect(onFlip).toHaveBeenCalledWith("ko-first");
 
 		fireClick(getButton(topBar.container, /Favorites/));
@@ -644,6 +656,7 @@ describe("Reader UI & audio hooks", () => {
 	it("opens App reader, syncs dictionary/rails/bookmarks/highlights, and handles out-of-range verses", async () => {
 		window.location.hash = "";
 		localStorage.clear();
+		localStorage.setItem("logos.reader.preferences.v1", JSON.stringify({ enFontStyle: "invalid" }));
 		clearCommentaryCache();
 		const restoreMatchMedia = mockDesktopMatchMedia();
 
@@ -764,6 +777,25 @@ describe("Reader UI & audio hooks", () => {
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain("matthew-henry");
 					fireClick(getButton(container, "Dictionary"));
 
+					// Switch English reading font via settings popover and verify CSS var + persistence
+					const appShell = container.querySelector(".app-shell") as HTMLElement;
+					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe(
+						"var(--font-en-newsreader)",
+					);
+					fireClick(getButton(container, "Reader appearance settings"));
+					const settingsPopover = container.querySelector(".settings-popover") as ParentNode;
+					fireClick(getButton(settingsPopover, "Lora"));
+					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en-lora)");
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"enFontStyle":"lora"',
+					);
+					fireClick(getButton(settingsPopover, "Inter"));
+					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en-inter)");
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"enFontStyle":"inter"',
+					);
+					fireClick(getButton(container, "Reader appearance settings"));
+
 					fireClick(getButton(container, "Minimize dictionary"));
 					expect(container.querySelector(".dict-sidebar-wrap")?.className).toContain("minimized");
 					fireClick(getButton(container, "Expand dictionary"));
@@ -773,6 +805,61 @@ describe("Reader UI & audio hooks", () => {
 					expect(container.querySelector(".audio-rail-wrap")?.className).toContain("minimized");
 					fireClick(getButton(container, "Expand audio"));
 					expect(container.querySelector(".audio-rail-wrap")?.className).toContain("expanded");
+
+					// Dragging Audio and Dictionary panels inside App preserves position, manages z-index, and snaps back
+					const audioPanel = container.querySelector(".audio-rail") as HTMLElement;
+					const audioHeader = audioPanel.querySelector(".rail-panel-header") as HTMLElement;
+					const dictPanel = container.querySelector("#footnotes") as HTMLElement;
+					const dictHeader = dictPanel.querySelector(".dict-panel-header") as HTMLElement;
+
+					act(() => {
+						audioHeader.dispatchEvent(
+							new window.MouseEvent("mousedown", {
+								bubbles: true,
+								button: 0,
+								clientX: 20,
+								clientY: 20,
+							}),
+						);
+						window.dispatchEvent(
+							new window.MouseEvent("mousemove", { bubbles: true, clientX: 200, clientY: 140 }),
+						);
+						window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+					});
+					expect(audioPanel.className).toContain("floating");
+					expect(audioPanel.style.zIndex).toBe("46");
+
+					act(() => {
+						dictHeader.dispatchEvent(
+							new window.MouseEvent("mousedown", {
+								bubbles: true,
+								button: 0,
+								clientX: 20,
+								clientY: 20,
+							}),
+						);
+						window.dispatchEvent(
+							new window.MouseEvent("mousemove", { bubbles: true, clientX: 320, clientY: 180 }),
+						);
+						window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+					});
+					expect(dictPanel.className).toContain("floating");
+					expect(dictPanel.style.zIndex).toBe("46");
+					expect(audioPanel.style.zIndex).toBe("45");
+
+					// Clicking a control on Audio brings Audio back in front of Dictionary
+					act(() => {
+						getButton(audioPanel, "Play audio").dispatchEvent(
+							new window.MouseEvent("mousedown", { bubbles: true, button: 0 }),
+						);
+					});
+					expect(audioPanel.style.zIndex).toBe("46");
+					expect(dictPanel.style.zIndex).toBe("45");
+
+					fireClick(getButton(container, "Snap audio back to original position"));
+					expect(audioPanel.className).not.toContain("floating");
+					fireClick(getButton(container, "Snap dictionary back to original position"));
+					expect(dictPanel.className).not.toContain("floating");
 
 					// Next/Prev chapter
 					const headerNav = container.querySelector(
@@ -1023,6 +1110,56 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(rail.container, "Settings"));
 		fireClick(getButton(rail.container, "Play from v.16"));
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
+
+		// Dragging AudioControlRail via header detaches and snaps back; scrubber/buttons ignore drag
+		const audioAside = rail.container.querySelector(".audio-rail") as HTMLElement;
+		const scrubber = rail.container.querySelector("input[type='range']") as HTMLElement;
+		act(() => {
+			scrubber.dispatchEvent(
+				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 20, clientY: 20 }),
+			);
+			window.dispatchEvent(
+				new window.MouseEvent("mousemove", { bubbles: true, clientX: 160, clientY: 120 }),
+			);
+			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+		});
+		expect(audioAside.className).not.toContain("floating");
+
+		const audioHeader = rail.container.querySelector(".rail-panel-header") as HTMLElement;
+		act(() => {
+			audioHeader.dispatchEvent(
+				new window.MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 40, clientY: 40 }),
+			);
+			window.dispatchEvent(
+				new window.MouseEvent("mousemove", { bubbles: true, clientX: 280, clientY: 200 }),
+			);
+			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+		});
+		expect(audioAside.className).toContain("floating");
+		expect(audioAside.style.left).toBe("240px");
+		expect(audioAside.style.top).toBe("160px");
+
+		// Second drag continues from tracked coordinates and clamps to viewport
+		act(() => {
+			audioHeader.dispatchEvent(
+				new window.MouseEvent("mousedown", {
+					bubbles: true,
+					button: 0,
+					clientX: 280,
+					clientY: 200,
+				}),
+			);
+			window.dispatchEvent(
+				new window.MouseEvent("mousemove", { bubbles: true, clientX: 180, clientY: 150 }),
+			);
+			window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+		});
+		expect(audioAside.style.left).toBe("140px");
+		expect(audioAside.style.top).toBe("110px");
+
+		fireClick(getButton(rail.container, "Snap audio back to original position"));
+		expect(audioAside.className).not.toContain("floating");
+		expect(audioAside.style.left).toBe("");
 
 		// Hook auto-sync and unsafe URL rejection
 		const mockAudio = installMockAudio();

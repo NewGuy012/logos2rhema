@@ -9,6 +9,7 @@ import { Bible, Bookmark, BookOpen, ChevronDown, Home, Search, Settings } from "
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
 export type ReaderTheme = "paper" | "sepia" | "dark";
+export type EnglishFontStyle = "newsreader" | "lora" | "inter";
 export type KoreanFontStyle = "serif" | "sans";
 
 interface TopBarProps {
@@ -21,6 +22,7 @@ interface TopBarProps {
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
+	enFontStyle: EnglishFontStyle;
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
 	onGoHome: () => void;
@@ -34,6 +36,7 @@ interface TopBarProps {
 	onOpenSearch: () => void;
 	onChangeTheme: (theme: ReaderTheme) => void;
 	onChangeFontScale: (scale: number) => void;
+	onChangeEnFontStyle: (style: EnglishFontStyle) => void;
 	onChangeKoFontStyle: (style: KoreanFontStyle) => void;
 	onChangeStudyMask: (mode: StudyMaskMode) => void;
 }
@@ -94,6 +97,7 @@ export function TopBar({
 	stackOrder,
 	theme,
 	fontScale,
+	enFontStyle,
 	koFontStyle,
 	studyMask,
 	onGoHome,
@@ -107,6 +111,7 @@ export function TopBar({
 	onOpenSearch,
 	onChangeTheme,
 	onChangeFontScale,
+	onChangeEnFontStyle,
 	onChangeKoFontStyle,
 	onChangeStudyMask,
 }: TopBarProps) {
@@ -259,7 +264,7 @@ export function TopBar({
 						</button>
 
 						{openPopover === "display" && (
-							<div className="popover-card">
+							<div className="popover-card settings-popover">
 								<SegmentedSetting
 									title="Theme"
 									value={theme}
@@ -279,6 +284,16 @@ export function TopBar({
 										{ label: "M", val: 1 },
 										{ label: "L", val: 1.12 },
 										{ label: "XL", val: 1.24 },
+									]}
+								/>
+								<SegmentedSetting
+									title="English Font"
+									value={enFontStyle}
+									onChange={onChangeEnFontStyle}
+									options={[
+										{ label: "Newsreader", val: "newsreader" },
+										{ label: "Lora", val: "lora" },
+										{ label: "Inter", val: "inter" },
 									]}
 								/>
 								<SegmentedSetting
