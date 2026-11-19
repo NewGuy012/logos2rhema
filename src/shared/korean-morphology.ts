@@ -676,6 +676,7 @@ export function analyzeKoreanChapter(
 			} else {
 				if (!entry.surfaceForms.includes(token.word)) entry.surfaceForms.push(token.word);
 				if (!entry.verses.includes(verseEntry.verse)) entry.verses.push(verseEntry.verse);
+				if (!entry.pos && token.pos) entry.pos = token.pos;
 			}
 		}
 

@@ -249,6 +249,14 @@ describe("Reader UI & audio hooks", () => {
 				gloss: "he / that / the",
 				pos: "pronoun" as const,
 			},
+			{
+				id: "vocab-여호와",
+				lemma: "여호와",
+				surfaceForms: ["여호와", "여호와께"],
+				verses: [4, 5, 7, 8, 10],
+				gloss: "the LORD (Yahweh)",
+				pos: "name" as const,
+			},
 		];
 
 		const { container, rerender } = render(
@@ -270,6 +278,12 @@ describe("Reader UI & audio hooks", () => {
 		const wordsToggle = getButton(container, `Words (${footnotes.length})`);
 		fireClick(wordsToggle);
 		expect(getByText(container, "[chang-jo-ha-da]")).toBeDefined();
+		expect(
+			container.querySelector('[data-footnote-id="vocab-창조하다"] .vocab-pos')?.textContent,
+		).toBe("verb");
+		expect(
+			container.querySelector('[data-footnote-id="vocab-여호와"] .vocab-pos')?.textContent,
+		).toBe("name");
 
 		const { spoken, restore } = setupMockKoreanSpeech();
 		try {
@@ -286,8 +300,36 @@ describe("Reader UI & audio hooks", () => {
 
 		fireClick(getButton(container, "v.1"));
 		expect(onJump).toHaveBeenCalledWith(1);
-		fireClick(getButton(container, /Grammar/));
-		expect(container.querySelector(".grammar-cards")).not.toBeNull();
+
+		const multiRow = container.querySelector('[data-footnote-id="vocab-여호와"]') as ParentNode;
+		expect(multiRow.querySelectorAll(".verse-ref-chip")).toHaveLength(1);
+		const verseTrigger = getButton(multiRow, "여호와 verses: v.4 and 4 more");
+		expect(verseTrigger.textContent).toContain("v.4+4");
+		fireClick(verseTrigger);
+		const verseMenu = document.body.querySelector(".verse-ref-menu") as ParentNode;
+		expect(verseMenu).not.toBeNull();
+		expect(verseMenu.querySelectorAll(".verse-ref-menu-item")).toHaveLength(5);
+		fireClick(getButton(verseMenu, "v.8"));
+		expect(onJump).toHaveBeenCalledWith(8);
+		expect(document.body.querySelector(".verse-ref-menu")).toBeNull();
+
+		fireClick(verseTrigger);
+		expect(document.body.querySelector(".verse-ref-menu")).not.toBeNull();
+		act(() => {
+			document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		expect(document.body.querySelector(".verse-ref-menu")).toBeNull();
+
+		const grammarToggle = getButton(container, /Grammar/);
+		fireClick(grammarToggle);
+		const grammarCards = container.querySelector(".grammar-cards");
+		const vocabList = container.querySelector(".vocab-list");
+		expect(grammarCards).not.toBeNull();
+		expect(container.querySelector(".dict-panel-scroll")?.className).toContain("both-open");
+		expect(vocabList?.contains(wordsToggle)).toBe(false);
+		expect(grammarCards?.contains(grammarToggle)).toBe(false);
+		expect(wordsToggle.closest(".dict-disclosure")?.className).toContain("open");
+		expect(grammarToggle.closest(".dict-disclosure")?.className).toContain("open");
 
 		fireClick(wordsToggle);
 		const dictSearch = container.querySelector("input[type='search']") as HTMLInputElement;

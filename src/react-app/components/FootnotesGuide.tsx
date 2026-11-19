@@ -1,9 +1,146 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
+import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
 import { ChevronDown, ChevronRight, Search, Volume2, X } from "./Icons";
+
+interface VerseRefSelectProps {
+	lemma: string;
+	verses: number[];
+	isOpen: boolean;
+	scrollContainerRef: RefObject<HTMLDivElement | null>;
+	onToggle: () => void;
+	onClose: () => void;
+	onJumpToVerse: (verseNumber: number) => void;
+}
+
+function VerseRefSelect({
+	lemma,
+	verses,
+	isOpen,
+	scrollContainerRef,
+	onToggle,
+	onClose,
+	onJumpToVerse,
+}: VerseRefSelectProps) {
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	const menuRef = useRef<HTMLDivElement | null>(null);
+	const [pos, setPos] = useState<AnchorPos | null>(null);
+
+	const updatePosition = useCallback(() => {
+		if (!triggerRef.current) return;
+		setPos(
+			computeAnchorPos(triggerRef.current.getBoundingClientRect(), {
+				minSpace: 160,
+				halfWidth: 108,
+				gap: 6,
+			}),
+		);
+	}, []);
+
+	useDismissListeners(isOpen, {
+		refs: [triggerRef, menuRef],
+		onDismiss: onClose,
+		onScroll: true,
+		onResize: true,
+	});
+
+	useEffect(() => {
+		if (!isOpen) return;
+		const scrollEl = scrollContainerRef.current;
+		if (!scrollEl) return;
+		scrollEl.addEventListener("scroll", onClose, { passive: true });
+		return () => scrollEl.removeEventListener("scroll", onClose);
+	}, [isOpen, onClose, scrollContainerRef]);
+
+	if (verses.length === 0) return null;
+
+	if (verses.length === 1) {
+		return (
+			<button
+				type="button"
+				className="verse-ref-chip"
+				onClick={() => onJumpToVerse(verses[0])}
+				title={`Go to verse ${verses[0]}`}
+			>
+				v.{verses[0]}
+			</button>
+		);
+	}
+
+	return (
+		<>
+			<button
+				ref={triggerRef}
+				type="button"
+				className={`verse-ref-chip verse-ref-select ${isOpen ? "active" : ""}`.trim()}
+				onClick={() => {
+					if (!isOpen) updatePosition();
+					onToggle();
+				}}
+				aria-haspopup="menu"
+				aria-expanded={isOpen}
+				aria-label={`${lemma} verses: v.${verses[0]} and ${verses.length - 1} more`}
+				title={`Appears in ${verses.length} verses`}
+			>
+				<span>v.{verses[0]}</span>
+				<span className="verse-ref-more">+{verses.length - 1}</span>
+				<ChevronDown size={10} className="verse-ref-caret" />
+			</button>
+
+			{isOpen &&
+				pos &&
+				typeof document !== "undefined" &&
+				createPortal(
+					<div
+						ref={menuRef}
+						role="menu"
+						aria-label={`${lemma} verse occurrences`}
+						className="verse-ref-menu"
+						style={{
+							left: `${pos.left}px`,
+							top: `${pos.top}px`,
+							transform: pos.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+						}}
+					>
+						<div className="verse-ref-menu-title">{verses.length} verses</div>
+						<div
+							className="verse-ref-menu-grid"
+							style={{ "--verse-cols": Math.min(verses.length, 4) } as CSSProperties}
+						>
+							{verses.map((v) => (
+								<button
+									key={v}
+									type="button"
+									role="menuitem"
+									className="verse-ref-menu-item"
+									onClick={() => {
+										onJumpToVerse(v);
+										onClose();
+									}}
+									title={`Go to verse ${v}`}
+								>
+									v.{v}
+								</button>
+							))}
+						</div>
+					</div>,
+					document.body,
+				)}
+		</>
+	);
+}
 
 interface FootnotesGuideProps {
 	bookEn: string;
@@ -33,7 +170,9 @@ export function FootnotesGuide({
 	const [query, setQuery] = useState("");
 	const [grammarOpen, setGrammarOpen] = useState(false);
 	const [wordsOpen, setWordsOpen] = useState(false);
+	const [openVerseId, setOpenVerseId] = useState<string | null>(null);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+	const closeVerseMenu = useCallback(() => setOpenVerseId(null), []);
 	const {
 		speakingKey: speakingId,
 		speechErrorKey: speechErrorId,
@@ -44,6 +183,10 @@ export function FootnotesGuide({
 	useEffect(() => {
 		clearSpeechError();
 	}, [bookEn, chapter, wordsOpen, clearSpeechError]);
+
+	useEffect(() => {
+		setOpenVerseId(null);
+	}, [bookEn, chapter, wordsOpen, query, footnotes]);
 
 	// Automatically expand Words and clear search filter when tapping a verse word
 	useEffect(() => {
@@ -87,6 +230,8 @@ export function FootnotesGuide({
 				entry.surfaceForms.some((form) => form.toLowerCase().includes(trimmed)),
 		);
 	}, [footnotes, query]);
+
+	const hasGrammarSection = grammarNotes.length > 0 && !query.trim();
 
 	return (
 		<aside
@@ -150,8 +295,10 @@ export function FootnotesGuide({
 				</div>
 			</div>
 
-			<div className="dict-panel-scroll" ref={scrollContainerRef}>
-				<section className="dict-disclosure" aria-label="Words">
+			<div
+				className={`dict-panel-scroll ${wordsOpen && grammarOpen && hasGrammarSection ? "both-open" : ""}`.trim()}
+			>
+				<section className={`dict-disclosure ${wordsOpen ? "open" : ""}`.trim()} aria-label="Words">
 					<button
 						type="button"
 						className="dict-disclosure-btn"
@@ -162,7 +309,7 @@ export function FootnotesGuide({
 						{wordsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 					</button>
 					{wordsOpen && (
-						<div className="vocab-list">
+						<div className="vocab-list" ref={scrollContainerRef}>
 							{visibleEntries.length === 0 ? (
 								<div className="vocab-row">
 									<span className="vocab-forms">
@@ -197,21 +344,19 @@ export function FootnotesGuide({
 															<Volume2 size={13} />
 														</button>
 													</div>
-													<div className="vocab-verses">
-														{entry.verses.slice(0, 4).map((v) => (
-															<button
-																key={v}
-																type="button"
-																className="verse-ref-chip"
-																onClick={() => onJumpToVerse(v)}
-																title={`Go to verse ${v}`}
-															>
-																v.{v}
-															</button>
-														))}
-														{entry.verses.length > 4 && (
-															<span className="vocab-forms">+{entry.verses.length - 4}</span>
-														)}
+													<div className="vocab-head-meta">
+														{entry.pos && <span className="vocab-pos">{entry.pos}</span>}
+														<VerseRefSelect
+															lemma={entry.lemma}
+															verses={entry.verses}
+															isOpen={openVerseId === entry.id}
+															scrollContainerRef={scrollContainerRef}
+															onToggle={() =>
+																setOpenVerseId((prev) => (prev === entry.id ? null : entry.id))
+															}
+															onClose={closeVerseMenu}
+															onJumpToVerse={onJumpToVerse}
+														/>
 													</div>
 												</div>
 
@@ -238,8 +383,11 @@ export function FootnotesGuide({
 					)}
 				</section>
 
-				{grammarNotes.length > 0 && !query.trim() && (
-					<section className="dict-disclosure" aria-label="Grammar Notes">
+				{hasGrammarSection && (
+					<section
+						className={`dict-disclosure ${grammarOpen ? "open" : ""}`.trim()}
+						aria-label="Grammar Notes"
+					>
 						<button
 							type="button"
 							className="dict-disclosure-btn"
