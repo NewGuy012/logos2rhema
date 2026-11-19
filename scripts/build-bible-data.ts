@@ -107,18 +107,33 @@ function extractEnglishKeywords(text: string): string[] {
 }
 
 function cleanGloss(rawGloss: string): string {
-	let cleaned = rawGloss.replace(/\s+/g, " ").trim();
-	// Drop unbalanced leading "(" artifacts found in some kengdic entries
+	let cleaned = rawGloss
+		.replace(/`/g, "'")
+		.replace(/\s*\(?\d+\)\s*/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	// Drop unbalanced leading ")" or "(" artifacts found in some kengdic entries
+	cleaned = cleaned.replace(/^\)\s*/, "");
 	if (cleaned.startsWith("(") && !cleaned.includes(")")) {
 		cleaned = cleaned.slice(1).trim();
+	}
+	// Strip inline Hangul notes/examples leaked into kengdic English columns
+	cleaned = cleaned
+		.replace(/\([^)]*[\uAC00-\uD7A3][^)]*\)/g, "")
+		.replace(/[\uAC00-\uD7A3]+[^,;]*/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	// Reject corrupted numeric-only IDs (e.g. "352271214353213244") or pure-Korean placeholders
+	if (!cleaned || /^\d+$/.test(cleaned) || !/[a-zA-Z]/.test(cleaned)) {
+		return "";
 	}
 	// Strip leading "A " / "The " only if uppercase artifact
 	cleaned = cleaned.replace(/^(?:A|An|The)\s+([a-z])/i, "$1");
 	// Keep at most 2 comma-separated senses for tooltip readability
 	const parts = cleaned
 		.split(/\s*[;,]\s*/)
-		.map((s) => s.trim())
-		.filter(Boolean);
+		.map((s) => s.replace(/^[\s.,:-]+|[\s.,:-]+$/g, "").trim())
+		.filter((s) => s.length >= 2 && /[a-zA-Z]/.test(s));
 	let result = parts.slice(0, 2).join(", ");
 	const openParens = (result.match(/\(/g) ?? []).length;
 	const closeParens = (result.match(/\)/g) ?? []).length;
@@ -143,7 +158,7 @@ function scoreKengdicSense(candidate: KengdicCandidate, esvContext?: Map<string,
 	if (gloss.length >= 2 && gloss.length <= 28) score += 12;
 	if (gloss.length > 55) score -= 12;
 	if (
-		/bus|train|register|gizzard|slang|computing|glottis|softshell|librarian|emasculate|nonsuit|demimondaine|bedtick|calyptra|voiceprint/i.test(
+		/bus|train|register|gizzard|slang|computing|glottis|softshell|librarian|emasculate|nonsuit|demimondaine|bedtick|calyptra|voiceprint|samadhi|asthenosphere|bivalence|tinnitus|dementia|calcination|microcopy|acidity|backhaul|dehotative|mach one|apt complex|baseball|croquet|subway|railway|company|school|garage|rocket|movie|radio|TV|NASA|Samsung/i.test(
 			gloss,
 		)
 	) {

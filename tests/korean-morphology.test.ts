@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { join } from "node:path";
 
-import { romanizeHangul } from "../src/shared/hangul";
+import { BIBLE_BOOKS } from "../src/shared/books";
+import { containsHangul, romanizeHangul } from "../src/shared/hangul";
 import { analyzeKoreanChapter, analyzeKoreanWord } from "../src/shared/korean-morphology";
-import type { LexiconMap } from "../src/shared/types";
+import type { BookBibleData, LexiconMap } from "../src/shared/types";
 
 const SAMPLE_LEXICON: LexiconMap = {
 	어둡다: { gloss: "to be dark", pos: "adj" },
@@ -118,5 +120,76 @@ describe("korean-morphology", () => {
 	it("ignores Object.prototype keys during glossary and lexicon lookup", () => {
 		expect(analyzeKoreanWord("toString", SAMPLE_LEXICON).matched).toBe(false);
 		expect(analyzeKoreanWord("constructor", SAMPLE_LEXICON).matched).toBe(false);
+	});
+
+	it("prevents noun-verb collisions and resolves KRV vowel contractions and copulas", () => {
+		const extraLex: LexiconMap = {
+			용사: { gloss: "hero, soldier" },
+			절다: { gloss: "to hobble, limp" },
+			달다: { gloss: "to be sweet" },
+			몰다: { gloss: "to drive" },
+			떨다: { gloss: "to tremble" },
+		};
+		expect(analyzeKoreanWord("불어", extraLex).lemma).toBe("불다");
+		expect(analyzeKoreanWord("물어", extraLex).lemma).toBe("묻다");
+		expect(analyzeKoreanWord("두어", extraLex).lemma).toBe("두다");
+		expect(analyzeKoreanWord("내어", extraLex).lemma).toBe("내다");
+		expect(analyzeKoreanWord("내려", extraLex).lemma).toBe("내리다");
+		expect(analyzeKoreanWord("피하여", extraLex).lemma).toBe("피하다");
+		expect(analyzeKoreanWord("속한", extraLex).lemma).toBe("속하다");
+		expect(analyzeKoreanWord("강하신", extraLex).lemma).toBe("강하다");
+		expect(analyzeKoreanWord("귀하여", extraLex).lemma).toBe("귀하다");
+		expect(analyzeKoreanWord("주니라", extraLex).lemma).toBe("주다");
+		expect(analyzeKoreanWord("전에는", extraLex).lemma).toBe("전");
+		expect(analyzeKoreanWord("단을", extraLex).lemma).toBe("단");
+		expect(analyzeKoreanWord("혼이", extraLex).lemma).toBe("혼");
+		expect(analyzeKoreanWord("둘이", extraLex).lemma).toBe("둘");
+		expect(analyzeKoreanWord("모은", extraLex).lemma).toBe("모으다");
+		expect(analyzeKoreanWord("떠나", extraLex).lemma).toBe("떠나다");
+		expect(analyzeKoreanWord("들어가", extraLex).lemma).toBe("들어가다");
+		expect(analyzeKoreanWord("지켜", extraLex).lemma).toBe("지키다");
+		expect(analyzeKoreanWord("돌이켜", extraLex).lemma).toBe("돌이키다");
+		expect(analyzeKoreanWord("세워", extraLex).lemma).toBe("세우다");
+		expect(analyzeKoreanWord("가져다가", extraLex).lemma).toBe("가지다");
+		expect(analyzeKoreanWord("잠겼나이다", extraLex).lemma).toBe("잠기다");
+		expect(analyzeKoreanWord("이름이시로다", extraLex).lemma).toBe("이름");
+		expect(analyzeKoreanWord("용사시니", extraLex).lemma).toBe("용사");
+		expect(analyzeKoreanWord("할찌니라", extraLex).lemma).toBe("하다");
+		expect(analyzeKoreanWord("말찌니라", extraLex).lemma).toBe("말다");
+		expect(analyzeKoreanWord("들을찌어다", extraLex).lemma).toBe("듣다");
+		expect(analyzeKoreanWord("하였도다", extraLex).lemma).toBe("하다");
+		expect(analyzeKoreanWord("가자", extraLex).lemma).toBe("가다");
+		expect(analyzeKoreanWord("안식하시니라", extraLex).lemma).toBe("안식하다");
+		expect(analyzeKoreanWord("비취라", extraLex).lemma).toBe("비취다");
+	});
+
+	it("validates public lexicon formatting and 66-book Bible data integrity", async () => {
+		const rootDir = join(import.meta.dir, "..");
+		const lexicon: LexiconMap = await Bun.file(join(rootDir, "public/data/lexicon.json")).json();
+
+		for (const [key, entry] of Object.entries(lexicon)) {
+			expect(containsHangul(key)).toBe(true);
+			expect(entry.gloss.length).toBeGreaterThanOrEqual(2);
+			expect(entry.gloss.includes("`")).toBe(false);
+			expect(containsHangul(entry.gloss)).toBe(false);
+			expect(/^\d+$/.test(entry.gloss)).toBe(false);
+			expect(entry.gloss.match(/\(/g)?.length ?? 0).toBe(entry.gloss.match(/\)/g)?.length ?? 0);
+		}
+
+		for (const book of BIBLE_BOOKS) {
+			const [esv, krv] = (await Promise.all([
+				Bun.file(join(rootDir, "public/data/bibles/esv", `${book.usfm}.json`)).json(),
+				Bun.file(join(rootDir, "public/data/bibles/krv", `${book.usfm}.json`)).json(),
+			])) as [BookBibleData, BookBibleData];
+
+			for (let ch = 1; ch <= book.chapters; ch++) {
+				const esvVerses = esv.chapters[String(ch)];
+				const krvVerses = krv.chapters[String(ch)];
+				expect(esvVerses?.length ?? 0).toBeGreaterThan(0);
+				expect(krvVerses?.length ?? 0).toBeGreaterThan(0);
+				for (const v of esvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
+				for (const v of krvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
+			}
+		}
 	});
 });
