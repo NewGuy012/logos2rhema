@@ -129,14 +129,11 @@ export function StudyRightRail({
 				{isDictionary ? (
 					<FootnotesGuide
 						bookEn={bookEn}
-						bookKo={bookKo}
 						chapter={chapter}
 						footnotes={footnotes}
 						grammarNotes={grammarNotes}
 						highlightedFootnoteId={highlightedFootnoteId}
 						highlightSeq={highlightSeq}
-						variant={variant}
-						embedded={true}
 						onJumpToVerse={onJumpToVerse}
 					/>
 				) : (

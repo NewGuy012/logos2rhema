@@ -6,9 +6,7 @@ interface UseVisibleVerseOptions {
 	resetKey: string;
 }
 
-/**
- * Tracks the Bible verse currently resting in the upper-middle reading band of the viewport.
- */
+/** Tracks the Bible verse resting in the upper-middle viewport band. */
 export function useVisibleVerse({ enabled, verseNumbers, resetKey }: UseVisibleVerseOptions) {
 	const [visibleVerse, setVisibleVerse] = useState<number>(1);
 	const intersectingRef = useRef<Set<number>>(new Set());
@@ -87,6 +85,7 @@ export function useVisibleVerse({ enabled, verseNumbers, resetKey }: UseVisibleV
 
 		return () => {
 			observer?.disconnect();
+			intersectingRef.current.clear();
 			window.removeEventListener("scroll", handleScroll);
 		};
 	}, [enabled, verseNumbers]);

@@ -1,9 +1,17 @@
-import { type RefObject, useEffect, useRef } from "react";
+import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
 
 export interface AnchorPos {
 	left: number;
 	top: number;
 	placeBelow: boolean;
+}
+
+export function anchorPosStyle(pos: AnchorPos): CSSProperties {
+	return {
+		left: `${pos.left}px`,
+		top: `${pos.top}px`,
+		transform: pos.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+	};
 }
 
 export function computeAnchorPos(
@@ -45,6 +53,7 @@ export function useDismissListeners(
 
 	useEffect(() => {
 		if (!active) return;
+		const hasRefs = Boolean(refsRef.current && refsRef.current.length > 0);
 		const handleOutside = (event: MouseEvent) => {
 			const target = event.target as Node | null;
 			if (!target) return;
@@ -56,17 +65,13 @@ export function useDismissListeners(
 		};
 		const handleViewport = () => onDismissRef.current();
 
-		if (refsRef.current && refsRef.current.length > 0) {
-			document.addEventListener("mousedown", handleOutside);
-		}
+		if (hasRefs) document.addEventListener("mousedown", handleOutside);
 		document.addEventListener("keydown", handleKey);
 		if (options.onScroll) window.addEventListener("scroll", handleViewport, { passive: true });
 		if (options.onResize) window.addEventListener("resize", handleViewport);
 
 		return () => {
-			if (refsRef.current && refsRef.current.length > 0) {
-				document.removeEventListener("mousedown", handleOutside);
-			}
+			if (hasRefs) document.removeEventListener("mousedown", handleOutside);
 			document.removeEventListener("keydown", handleKey);
 			if (options.onScroll) window.removeEventListener("scroll", handleViewport);
 			if (options.onResize) window.removeEventListener("resize", handleViewport);

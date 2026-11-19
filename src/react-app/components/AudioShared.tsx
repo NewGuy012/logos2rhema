@@ -4,7 +4,12 @@ import { createPortal } from "react-dom";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import { PLAYBACK_SPEEDS } from "../hooks/useHumanAudio";
-import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
+import {
+	type AnchorPos,
+	anchorPosStyle,
+	computeAnchorPos,
+	useDismissListeners,
+} from "../hooks/usePopover";
 import { ChevronDown } from "./Icons";
 
 export function formatTime(totalSeconds: number): string {
@@ -130,11 +135,7 @@ export function AudioSpeedSelect({
 						role="menu"
 						aria-label="Playback speed options"
 						className="speed-menu"
-						style={{
-							left: `${pos.left}px`,
-							top: `${pos.top}px`,
-							transform: pos.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
-						}}
+						style={anchorPosStyle(pos)}
 					>
 						{PLAYBACK_SPEEDS.map((speed) => {
 							const active = speed === playbackRate;

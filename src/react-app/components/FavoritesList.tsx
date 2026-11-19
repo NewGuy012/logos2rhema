@@ -198,9 +198,7 @@ export function FavoritesList({
 									<div className="home-favorite-preview">
 										<p
 											className={
-												item.lang === "ko"
-													? "home-favorite-preview-ko home-highlight-line"
-													: "home-favorite-preview-en home-highlight-line"
+												item.lang === "ko" ? "home-favorite-preview-ko" : "home-favorite-preview-en"
 											}
 											lang={item.lang === "ko" ? "ko" : undefined}
 										>

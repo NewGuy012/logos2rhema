@@ -1,9 +1,9 @@
 import type { AlignedVerse, HighlightItem, TranslationLanguage } from "../../shared/types";
 import {
+	finiteTimestamp,
 	formatBilingualRef,
 	MAX_STORED_ITEMS,
-	parseStoredBookChapter,
-	readJsonStorage,
+	readStoredCollection,
 	writeJsonStorage,
 } from "./storage";
 
@@ -53,17 +53,11 @@ function sameLine(
 }
 
 export function readStoredHighlights(): HighlightItem[] {
-	const parsed = readJsonStorage(HIGHLIGHTS_STORAGE_KEY);
-	if (!Array.isArray(parsed)) return [];
-	const seen = new Set<string>();
-	const items: HighlightItem[] = [];
-	for (const entry of parsed) {
-		if (!entry || typeof entry !== "object") continue;
-		const rec = entry as Record<string, unknown>;
-		const ref = parseStoredBookChapter(rec);
-		if (!ref) continue;
-		if (typeof rec.verse !== "number" || !Number.isInteger(rec.verse) || rec.verse < 1) continue;
-		if (rec.lang !== "en" && rec.lang !== "ko") continue;
+	return readStoredCollection(HIGHLIGHTS_STORAGE_KEY, (rec, bookNumber, chapter) => {
+		if (typeof rec.verse !== "number" || !Number.isInteger(rec.verse) || rec.verse < 1) {
+			return null;
+		}
+		if (rec.lang !== "en" && rec.lang !== "ko") return null;
 		if (
 			typeof rec.start !== "number" ||
 			!Number.isInteger(rec.start) ||
@@ -73,35 +67,22 @@ export function readStoredHighlights(): HighlightItem[] {
 			rec.end <= rec.start ||
 			rec.end > MAX_HIGHLIGHT_OFFSET
 		) {
-			continue;
+			return null;
 		}
 		const rawText = typeof rec.text === "string" ? rec.text.slice(0, MAX_HIGHLIGHT_TEXT_LEN) : "";
-		if (!rawText.trim()) continue;
-		const id = makeHighlightId(
-			ref.book.number,
-			ref.chapter,
-			rec.verse,
-			rec.lang,
-			rec.start,
-			rec.end,
-		);
-		if (seen.has(id)) continue;
-		seen.add(id);
-		items.push({
-			id,
-			bookNumber: ref.book.number,
-			chapter: ref.chapter,
+		if (!rawText.trim()) return null;
+		return {
+			id: makeHighlightId(bookNumber, chapter, rec.verse, rec.lang, rec.start, rec.end),
+			bookNumber,
+			chapter,
 			verse: rec.verse,
 			lang: rec.lang,
 			start: rec.start,
 			end: rec.end,
 			text: rawText,
-			createdAt:
-				typeof rec.createdAt === "number" && Number.isFinite(rec.createdAt) ? rec.createdAt : 0,
-		});
-		if (items.length >= MAX_STORED_ITEMS) break;
-	}
-	return items;
+			createdAt: finiteTimestamp(rec.createdAt),
+		};
+	});
 }
 
 export function writeStoredHighlights(items: readonly HighlightItem[]): void {

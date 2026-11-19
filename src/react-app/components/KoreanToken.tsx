@@ -4,7 +4,12 @@ import { createPortal } from "react-dom";
 import { romanizeHangul } from "../../shared/hangul";
 import type { GlossToken, HighlightItem } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
-import { type AnchorPos, computeAnchorPos, useDismissListeners } from "../hooks/usePopover";
+import {
+	type AnchorPos,
+	anchorPosStyle,
+	computeAnchorPos,
+	useDismissListeners,
+} from "../hooks/usePopover";
 import { renderHighlightedText } from "./HighlightText";
 import { ArrowRight, Volume2 } from "./Icons";
 
@@ -149,11 +154,7 @@ export function KoreanToken({
 						ref={tooltipRef}
 						role="tooltip"
 						className={`ko-tooltip ${pos.placeBelow ? "place-below" : "place-above"}`}
-						style={{
-							left: `${pos.left}px`,
-							top: `${pos.top}px`,
-							transform: pos.placeBelow ? "translate(-50%, 0)" : "translate(-50%, -100%)",
-						}}
+						style={anchorPosStyle(pos)}
 						onMouseEnter={cancelClose}
 						onMouseLeave={scheduleClose}
 						onBlur={(e) => {

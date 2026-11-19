@@ -1,9 +1,9 @@
 import type { FavoriteItem } from "../../shared/types";
 import {
+	finiteTimestamp,
 	formatBilingualRef,
 	MAX_STORED_ITEMS,
-	parseStoredBookChapter,
-	readJsonStorage,
+	readStoredCollection,
 	writeJsonStorage,
 } from "./storage";
 
@@ -21,35 +21,21 @@ function truncatePreview(text: string | null | undefined, maxLen = 140): string 
 }
 
 export function readStoredFavorites(): FavoriteItem[] {
-	const parsed = readJsonStorage(FAVORITES_STORAGE_KEY);
-	if (!Array.isArray(parsed)) return [];
-	const seen = new Set<string>();
-	const items: FavoriteItem[] = [];
-	for (const entry of parsed) {
-		if (!entry || typeof entry !== "object") continue;
-		const rec = entry as Record<string, unknown>;
-		const ref = parseStoredBookChapter(rec);
-		if (!ref) continue;
+	return readStoredCollection(FAVORITES_STORAGE_KEY, (rec, bookNumber, chapter) => {
 		const verse =
 			typeof rec.verse === "number" && Number.isInteger(rec.verse) && rec.verse >= 1
 				? rec.verse
 				: undefined;
-		const id = makeFavoriteId(ref.book.number, ref.chapter, verse);
-		if (seen.has(id)) continue;
-		seen.add(id);
-		items.push({
-			id,
-			bookNumber: ref.book.number,
-			chapter: ref.chapter,
+		return {
+			id: makeFavoriteId(bookNumber, chapter, verse),
+			bookNumber,
+			chapter,
 			verse,
 			enText: truncatePreview(typeof rec.enText === "string" ? rec.enText : undefined),
 			koText: truncatePreview(typeof rec.koText === "string" ? rec.koText : undefined),
-			createdAt:
-				typeof rec.createdAt === "number" && Number.isFinite(rec.createdAt) ? rec.createdAt : 0,
-		});
-		if (items.length >= MAX_STORED_ITEMS) break;
-	}
-	return items;
+			createdAt: finiteTimestamp(rec.createdAt),
+		};
+	});
 }
 
 export function writeStoredFavorites(items: FavoriteItem[]): void {

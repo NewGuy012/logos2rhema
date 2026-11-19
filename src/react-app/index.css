@@ -2813,13 +2813,6 @@ button {
 	flex-shrink: 0;
 }
 
-.home-highlight-line {
-	display: -webkit-box;
-	-webkit-line-clamp: 2;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-}
-
 .home-highlight-excerpt {
 	padding: 0.05rem 0.25rem;
 }

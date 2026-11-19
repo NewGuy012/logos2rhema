@@ -32,7 +32,7 @@ import { StudyRightRail } from "./components/StudyRightRail";
 import { type KoreanFontStyle, type ReaderTheme, TopBar } from "./components/TopBar";
 import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
 import { useHumanAudio } from "./hooks/useHumanAudio";
-import { computeAnchorPos } from "./hooks/usePopover";
+import { anchorPosStyle, computeAnchorPos } from "./hooks/usePopover";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import {
 	alignChapterVerses,
@@ -166,7 +166,7 @@ function readStoredPrefs(): StoredPrefs {
 }
 
 const SCROLL_FOLLOW_IGNORED_SELECTOR =
-	".dict-sidebar-wrap, .audio-rail-wrap, .dict-sheet-wrap, .top-popover, .picker-modal, .verse-ref-menu, .speed-menu";
+	".dict-sidebar-wrap, .audio-rail-wrap, .dict-sheet-wrap, .popover-card, .modal-backdrop, .modal-panel, .verse-ref-menu, .speed-menu";
 
 function getReaderVerticalBounds(): { topInset: number; bottomLimit: number } {
 	const viewportHeight = window.innerHeight || 0;
@@ -270,6 +270,7 @@ export default function App() {
 	const [rawKoVerses, setRawKoVerses] = useState<VerseEntry[]>([]);
 	const [loadingChapter, setLoadingChapter] = useState(false);
 	const [chapterError, setChapterError] = useState<string | null>(null);
+	const [chapterRetrySeq, setChapterRetrySeq] = useState(0);
 
 	const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
 	const [audioRailOpen, setAudioRailOpen] = useState(true);
@@ -562,7 +563,7 @@ export default function App() {
 		return () => {
 			cancelled = true;
 		};
-	}, [view, bookNumber, chapter]);
+	}, [view, bookNumber, chapter, chapterRetrySeq]);
 
 	useEffect(() => {
 		if (view !== "reader") return;
@@ -896,6 +897,16 @@ export default function App() {
 
 	const maxVerseInChapter = alignedVerses[alignedVerses.length - 1]?.verse;
 
+	const savedItemsProps = {
+		favorites,
+		highlights,
+		onOpenPassage: navigateTo,
+		onRemoveFavorite: handleRemoveFavorite,
+		onRemoveHighlight: handleRemoveHighlight,
+		onClearFavorites: handleClearFavorites,
+		onClearHighlights: handleClearHighlights,
+	};
+
 	const renderRightRail = (variant: "sidebar" | "sheet", onMinimize: () => void) => (
 		<StudyRightRail
 			activeTab={prefs.rightRailTab}
@@ -928,8 +939,7 @@ export default function App() {
 				lastBookNumber={bookNumber}
 				lastChapter={chapter}
 				lastVerse={lastVerse}
-				favorites={favorites}
-				highlights={highlights}
+				{...savedItemsProps}
 				stackOrder={prefs.stackOrder}
 				theme={prefs.theme}
 				fontScale={prefs.fontScale}
@@ -937,11 +947,6 @@ export default function App() {
 				studyMask={prefs.studyMask}
 				onGoHome={goHome}
 				onContinueReading={handleContinueReading}
-				onOpenPassage={navigateTo}
-				onRemoveFavorite={handleRemoveFavorite}
-				onRemoveHighlight={handleRemoveHighlight}
-				onClearFavorites={handleClearFavorites}
-				onClearHighlights={handleClearHighlights}
 				onChangeStackOrder={(v) => updatePref("stackOrder", v)}
 				onOpenSearch={() => setPickerOpen(true)}
 				onChangeTheme={(v) => updatePref("theme", v)}
@@ -956,13 +961,7 @@ export default function App() {
 					lastChapter={chapter}
 					lastVerse={lastVerse}
 					krvSyncedAudioEnabled={krvSyncedAudioEnabled}
-					favorites={favorites}
-					highlights={highlights}
-					onOpenPassage={navigateTo}
-					onRemoveFavorite={handleRemoveFavorite}
-					onRemoveHighlight={handleRemoveHighlight}
-					onClearFavorites={handleClearFavorites}
-					onClearHighlights={handleClearHighlights}
+					{...savedItemsProps}
 				/>
 			) : (
 				<>
@@ -1074,6 +1073,13 @@ export default function App() {
 								<div className="grammar-card">
 									<div className="grammar-pattern">Unable to load passage</div>
 									<p className="grammar-desc">{chapterError}</p>
+									<button
+										type="button"
+										className="quick-inline-chip active"
+										onClick={() => setChapterRetrySeq((seq) => seq + 1)}
+									>
+										Try again
+									</button>
 								</div>
 							) : (
 								<section
@@ -1180,13 +1186,7 @@ export default function App() {
 					className="selection-highlight-bar"
 					role="toolbar"
 					aria-label="Text highlight actions"
-					style={{
-						left: `${selectionToolbar.left}px`,
-						top: `${selectionToolbar.top}px`,
-						transform: selectionToolbar.placeBelow
-							? "translate(-50%, 0)"
-							: "translate(-50%, -100%)",
-					}}
+					style={anchorPosStyle(selectionToolbar)}
 				>
 					<button
 						type="button"

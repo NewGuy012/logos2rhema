@@ -6,9 +6,9 @@ import App from "../src/react-app/App";
 import { AudioControlRail } from "../src/react-app/components/AudioControlRail";
 import { FavoritesList } from "../src/react-app/components/FavoritesList";
 import { FloatingBottomBar } from "../src/react-app/components/FloatingBottomBar";
-import { FootnotesGuide } from "../src/react-app/components/FootnotesGuide";
 import { HomePage } from "../src/react-app/components/HomePage";
 import { PassagePicker } from "../src/react-app/components/PassagePicker";
+import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
 import { TopBar } from "../src/react-app/components/TopBar";
 import { VerseBlock } from "../src/react-app/components/VerseBlock";
 import {
@@ -260,18 +260,27 @@ describe("Reader UI & audio hooks", () => {
 			},
 		];
 
+		const baseRailProps = {
+			activeTab: "dictionary" as const,
+			onChangeTab: noop,
+			onMinimize,
+			bookEn: "Genesis",
+			bookKo: "창세기",
+			chapter: 1,
+			footnotes,
+			grammarNotes: analysis.grammarNotes,
+			commentarySource: "tyndale" as const,
+			commentaryData: null,
+			commentaryLoading: false,
+			commentaryError: null,
+			selectedVerse: null,
+			onChangeCommentarySource: noop,
+			onRetryCommentary: noop,
+			onJumpToVerse: onJump,
+		};
+
 		const { container, rerender } = render(
-			<FootnotesGuide
-				bookEn="Genesis"
-				bookKo="창세기"
-				chapter={1}
-				footnotes={footnotes}
-				grammarNotes={analysis.grammarNotes}
-				highlightedFootnoteId={null}
-				variant="sidebar"
-				onMinimize={onMinimize}
-				onJumpToVerse={onJump}
-			/>,
+			<StudyRightRail {...baseRailProps} highlightedFootnoteId={null} />,
 		);
 
 		expect(container.querySelector(".vocab-list")).toBeNull();
@@ -345,17 +354,10 @@ describe("Reader UI & audio hooks", () => {
 		};
 		try {
 			rerender(
-				<FootnotesGuide
-					bookEn="Genesis"
-					bookKo="창세기"
-					chapter={1}
-					footnotes={footnotes}
-					grammarNotes={analysis.grammarNotes}
+				<StudyRightRail
+					{...baseRailProps}
 					highlightedFootnoteId="vocab-창조하다"
 					highlightSeq={1}
-					variant="sidebar"
-					onMinimize={onMinimize}
-					onJumpToVerse={onJump}
 				/>,
 			);
 			expect(dictSearch.value).toBe("");
@@ -1196,10 +1198,15 @@ describe("Reader UI & audio hooks", () => {
 				expect(container.querySelector("#verse-1")?.className).toContain("audio-active");
 			});
 
-			// Scrolling inside the dictionary sidebar should NOT pause follow
+			// Scrolling inside the dictionary sidebar or top popover should NOT pause follow
 			const dictWrap = container.querySelector(".dict-sidebar-wrap") as HTMLElement;
 			act(() => {
 				dictWrap.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true }));
+			});
+			fireClick(getButton(container.querySelector(".top-nav") as ParentNode, /Favorites/));
+			const topPopover = container.querySelector(".popover-card") as HTMLElement;
+			act(() => {
+				topPopover.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true }));
 			});
 			expect(container.querySelector(".rail-follow-btn")).toBeNull();
 

@@ -1,7 +1,15 @@
-/**
- * Scrolls `targetEl` inside `container` without scrolling the outer document viewport.
- */
-export function scrollChildIntoContainer(container: HTMLElement, targetEl: HTMLElement): void {
+/** Scrolls the matching `[attr="value"]` element inside `container` without scrolling the document. */
+export function scrollChildIntoContainer(
+	container: HTMLElement | null,
+	attr: string,
+	value: string,
+): void {
+	if (!container) return;
+	const targetEl = Array.from(container.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
+		(el) => el.getAttribute(attr) === value,
+	);
+	if (!targetEl) return;
+
 	const containerRect = container.getBoundingClientRect();
 	const targetRect = targetEl.getBoundingClientRect();
 	if (containerRect.height > 0) {

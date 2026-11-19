@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { COMMENTARY_SOURCES, getCommentaryMeta } from "../../shared/commentaries";
 import type { ChapterCommentaryResponse, CommentaryEntry, CommentaryId } from "../../shared/types";
 import { scrollChildIntoContainer } from "../lib/scroll";
-import { ChevronDown, ChevronRight, Loader2, Search, X } from "./Icons";
+import { Loader2 } from "./Icons";
+import { PanelDisclosure, PanelSearchInput } from "./RailShared";
 
 const MAX_PREVIEW_PARAGRAPHS = 2;
 const MAX_PREVIEW_CHARS = 480;
@@ -158,13 +159,7 @@ export function CommentaryPanel({
 
 	useEffect(() => {
 		if (!matchedEntryId || loading) return;
-		const container = scrollContainerRef.current;
-		if (!container) return;
-		const targetEl = Array.from(
-			container.querySelectorAll<HTMLElement>("[data-commentary-id]"),
-		).find((el) => el.dataset.commentaryId === matchedEntryId);
-		if (!targetEl) return;
-		scrollChildIntoContainer(container, targetEl);
+		scrollChildIntoContainer(scrollContainerRef.current, "data-commentary-id", matchedEntryId);
 	}, [matchedEntryId, loading, data]);
 
 	const toggleExpanded = (id: string) => {
@@ -206,28 +201,13 @@ export function CommentaryPanel({
 					})}
 				</div>
 
-				<div className="dict-search-wrap">
-					<Search size={13} className="dict-search-icon" />
-					<input
-						type="search"
-						className={`footnote-search ${query ? "has-value" : ""}`.trim()}
-						placeholder="Search commentary or verse..."
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						aria-label="Filter commentary notes"
-					/>
-					{query && (
-						<button
-							type="button"
-							className="dict-search-clear"
-							onClick={() => setQuery("")}
-							aria-label="Clear commentary search"
-							title="Clear commentary search"
-						>
-							<X size={12} />
-						</button>
-					)}
-				</div>
+				<PanelSearchInput
+					value={query}
+					onChange={setQuery}
+					placeholder="Search commentary or verse..."
+					ariaLabel="Filter commentary notes"
+					clearAriaLabel="Clear commentary search"
+				/>
 			</div>
 
 			<div className="commentary-scroll" ref={scrollContainerRef}>
@@ -253,55 +233,35 @@ export function CommentaryPanel({
 				) : (
 					<>
 						{!trimmedQuery && chapterIntro.length > 0 && (
-							<section
-								className={`dict-disclosure ${chapterIntroOpen ? "open" : ""}`.trim()}
-								aria-label="Chapter Overview"
+							<PanelDisclosure
+								label="Chapter Overview"
+								open={chapterIntroOpen}
+								onToggle={() => setChapterIntroOpen((prev) => !prev)}
 							>
-								<button
-									type="button"
-									className="dict-disclosure-btn"
-									aria-expanded={chapterIntroOpen}
-									onClick={() => setChapterIntroOpen((prev) => !prev)}
-								>
-									<span>Chapter Overview</span>
-									{chapterIntroOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-								</button>
-								{chapterIntroOpen && (
-									<div className="commentary-intro-body">
-										{chapterIntro.map((paragraph, idx) => (
-											<p key={`ch-intro-${idx}`} className="commentary-prose">
-												{paragraph}
-											</p>
-										))}
-									</div>
-								)}
-							</section>
+								<div className="commentary-intro-body">
+									{chapterIntro.map((paragraph, idx) => (
+										<p key={`ch-intro-${idx}`} className="commentary-prose">
+											{paragraph}
+										</p>
+									))}
+								</div>
+							</PanelDisclosure>
 						)}
 
 						{!trimmedQuery && bookIntro.length > 0 && (
-							<section
-								className={`dict-disclosure ${bookIntroOpen ? "open" : ""}`.trim()}
-								aria-label="Book Introduction"
+							<PanelDisclosure
+								label="Book Introduction"
+								open={bookIntroOpen}
+								onToggle={() => setBookIntroOpen((prev) => !prev)}
 							>
-								<button
-									type="button"
-									className="dict-disclosure-btn"
-									aria-expanded={bookIntroOpen}
-									onClick={() => setBookIntroOpen((prev) => !prev)}
-								>
-									<span>Book Introduction</span>
-									{bookIntroOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-								</button>
-								{bookIntroOpen && (
-									<div className="commentary-intro-body">
-										{bookIntro.map((paragraph, idx) => (
-											<p key={`book-intro-${idx}`} className="commentary-prose">
-												{paragraph}
-											</p>
-										))}
-									</div>
-								)}
-							</section>
+								<div className="commentary-intro-body">
+									{bookIntro.map((paragraph, idx) => (
+										<p key={`book-intro-${idx}`} className="commentary-prose">
+											{paragraph}
+										</p>
+									))}
+								</div>
+							</PanelDisclosure>
 						)}
 
 						{visibleEntries.length === 0 ? (
