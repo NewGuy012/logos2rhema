@@ -1,18 +1,20 @@
 # /// script
 # requires-python = ">=3.11,<3.14"
 # dependencies = [
-#   "ctc-forced-aligner>=1.0.2",
 #   "requests>=2.31",
 #   "soundfile>=0.12",
+#   "torch>=2.2",
+#   "torchaudio>=2.2",
 #   "unidecode>=1.3",
 # ]
 # ///
 """Offline forced-alignment batch tool for Wordproject Korean (KRV) audio chapters.
 
 Fetches chapter audio URLs from HelloAO (`kor_old`), aligns each MP3 against the
-bundled KRV chapter text (`public/data/bibles/krv/{USFM}.json`) using Meta MMS CTC
-forced alignment, validates monotonicity/confidence, and writes compact per-book
-timing JSONs to `public/data/timings/krv-wordproject/{USFM}.json`.
+bundled KRV chapter text (`public/data/bibles/krv/{USFM}.json`) using Meta MMS
+(`torchaudio.pipelines.MMS_FA` on Apple Silicon MPS with CPU fallback), validates
+monotonicity/confidence, and writes compact per-book timing JSONs to
+`public/data/timings/krv-wordproject/{USFM}.json`.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import argparse
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -30,16 +33,12 @@ import time
 from typing import Any
 
 import requests
-from ctc_forced_aligner import (
-    AlignmentSingleton,
-    generate_emissions,
-    get_alignments,
-    get_spans,
-    load_audio,
-    postprocess_results,
-    preprocess_text,
-    text_normalize,
-)
+import soundfile as sf
+import torch
+import torchaudio
+from unidecode import unidecode
+
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 KRV_BIBLE_DIR = ROOT_DIR / "public" / "data" / "bibles" / "krv"
@@ -50,15 +49,27 @@ REPORT_PATH = CACHE_DIR / "krv-alignment-report.json"
 
 HELLOAO_CHAPTER_URL = "https://bible.helloao.org/api/kor_old/{usfm}/{chapter}.json"
 OMITTED_VERSE_RE = re.compile(r"^\(\s*없\s*음\s*\)$")
-LOW_SCORE_THRESHOLD = -9.0
+PAREN_REF_RE = re.compile(r"\([^)]*\d[^)]*\)")
+LOW_PROB_THRESHOLD = 0.72
 MIN_VERSE_DURATION_SEC = 0.3
+FRAMES_PER_SEC = 50  # Wav2Vec2 20ms stride at 16kHz
+
+_thread_local = threading.local()
 
 
 @dataclass
 class PreparedVerse:
     verse: int
-    word_count: int
-    text: str
+    words: list[str]
+
+
+def get_http_session() -> requests.Session:
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Logos2Rhema-AudioAligner/1.0"})
+        _thread_local.session = session
+    return session
 
 
 def load_krv_books() -> list[dict[str, Any]]:
@@ -70,7 +81,21 @@ def load_krv_books() -> list[dict[str, Any]]:
     return books
 
 
-def prepare_chapter_verses(raw_verses: list[dict[str, Any]]) -> tuple[list[PreparedVerse], list[str]]:
+def romanize_korean_words(text: str, vocab_dict: dict[str, int]) -> list[str]:
+    cleaned = PAREN_REF_RE.sub(" ", text)
+    romanized = unidecode(cleaned).lower()
+    words: list[str] = []
+    for raw_word in romanized.split():
+        token = "".join(ch for ch in raw_word if ch in vocab_dict and ch not in ("-", "*"))
+        if token:
+            words.append(token)
+    return words
+
+
+def prepare_chapter_verses(
+    raw_verses: list[dict[str, Any]],
+    vocab_dict: dict[str, int],
+) -> tuple[list[PreparedVerse], list[str]]:
     prepared: list[PreparedVerse] = []
     all_words: list[str] = []
     for entry in raw_verses:
@@ -78,10 +103,10 @@ def prepare_chapter_verses(raw_verses: list[dict[str, Any]]) -> tuple[list[Prepa
         text = str(entry.get("text", "")).strip()
         if not text or OMITTED_VERSE_RE.match(text):
             continue
-        words = [w for w in text.split() if text_normalize(w, "kor")]
+        words = romanize_korean_words(text, vocab_dict)
         if not words:
             continue
-        prepared.append(PreparedVerse(verse=verse_num, word_count=len(words), text=text))
+        prepared.append(PreparedVerse(verse=verse_num, words=words))
         all_words.extend(words)
     return prepared, all_words
 
@@ -106,18 +131,6 @@ def fetch_with_retry(
                 time.sleep(1.5 * (attempt + 1))
     assert last_err is not None
     raise last_err
-
-
-_thread_local = threading.local()
-
-
-def get_http_session() -> requests.Session:
-    session = getattr(_thread_local, "session", None)
-    if session is None:
-        session = requests.Session()
-        session.headers.update({"User-Agent": "Logos2Rhema-AudioAligner/1.0"})
-        _thread_local.session = session
-    return session
 
 
 def ensure_chapter_audio(
@@ -148,56 +161,109 @@ def ensure_chapter_audio(
     return mp3_path
 
 
+def load_waveform_mono_16k(mp3_path: Path, target_sr: int) -> torch.Tensor:
+    data, sr = sf.read(str(mp3_path), dtype="float32")
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    waveform = torch.from_numpy(data).unsqueeze(0)
+    if sr != target_sr:
+        waveform = torchaudio.functional.resample(waveform, sr, target_sr)
+    return waveform
+
+
+def generate_emissions_chunked(
+    model: torch.nn.Module,
+    waveform: torch.Tensor,
+    device: torch.device,
+    sample_rate: int,
+    batch_size: int,
+    window_sec: int = 30,
+    context_sec: int = 2,
+) -> torch.Tensor:
+    total_samples = waveform.size(1)
+    if total_samples <= 90 * sample_rate:
+        with torch.inference_mode():
+            emissions, _ = model(waveform.to(device))
+            emissions = emissions.cpu()[0]
+    else:
+        ctx = context_sec * sample_rate
+        win = window_sec * sample_rate
+        ext = math.ceil(total_samples / win) * win - total_samples
+        padded = torch.nn.functional.pad(waveform, (ctx, ctx + ext))
+        num_windows = (padded.size(1) - 2 * ctx) // win
+        chunks = torch.cat(
+            [padded[:, i * win : i * win + win + 2 * ctx] for i in range(num_windows)],
+            dim=0,
+        )
+        em_parts: list[torch.Tensor] = []
+        with torch.inference_mode():
+            for i in range(0, num_windows, batch_size):
+                out, _ = model(chunks[i : i + batch_size].to(device))
+                em_parts.append(out.cpu())
+        em = torch.cat(em_parts, dim=0)
+        ctx_frames = context_sec * FRAMES_PER_SEC
+        em = em[:, ctx_frames : -ctx_frames + 1, :].reshape(-1, em.shape[-1])
+        ext_frames = int(ext / sample_rate * FRAMES_PER_SEC)
+        if ext_frames > 0:
+            em = em[:-ext_frames, :]
+        emissions = em
+
+    return torch.cat(
+        [emissions, torch.zeros((emissions.size(0), 1), dtype=emissions.dtype)],
+        dim=-1,
+    )
+
+
 def align_chapter(
-    aligner: AlignmentSingleton,
+    model: torch.nn.Module,
+    tokenizer: Any,
+    aligner: Any,
+    device: torch.device,
+    sample_rate: int,
     mp3_path: Path,
     prepared_verses: list[PreparedVerse],
     all_words: list[str],
     batch_size: int,
 ) -> tuple[dict[str, float], dict[str, Any]]:
-    waveform = load_audio(str(mp3_path))
-    audio_duration = float(len(waveform)) / 16000.0
-    emissions, stride = generate_emissions(
-        aligner.alignment_model,
+    waveform = load_waveform_mono_16k(mp3_path, sample_rate)
+    audio_duration = float(waveform.size(1)) / float(sample_rate)
+    emissions = generate_emissions_chunked(
+        model,
         waveform,
+        device,
+        sample_rate,
         batch_size=batch_size,
     )
+    frame_sec = float(waveform.size(1)) / float(emissions.size(0)) / float(sample_rate)
 
-    tokens_starred, text_starred = preprocess_text(
-        " ".join(all_words),
-        romanize=True,
-        language="kor",
-        star_frequency="edges",
-    )
-    segments, scores, blank_token = get_alignments(
-        emissions,
-        tokens_starred,
-        aligner.alignment_tokenizer,
-    )
-    spans = get_spans(tokens_starred, segments, blank_token)
-    word_timestamps = postprocess_results(text_starred, spans, stride, scores)
+    tokens = tokenizer(["*"] + all_words + ["*"])
+    spans = aligner(emissions, tokens)
+    word_spans = spans[1:-1]
 
-    if len(word_timestamps) != len(all_words):
+    if len(word_spans) != len(all_words):
         raise RuntimeError(
-            f"Word alignment count mismatch: expected {len(all_words)}, got {len(word_timestamps)}"
+            f"Word alignment count mismatch: expected {len(all_words)}, got {len(word_spans)}"
         )
 
     chapter_timings: dict[str, float] = {}
-    low_score_verses: list[dict[str, Any]] = []
+    low_prob_verses: list[dict[str, Any]] = []
     short_verses: list[dict[str, Any]] = []
     rounded_adjustments: list[int] = []
-    verse_scores: list[float] = []
+    verse_probs: list[float] = []
 
     cursor = 0
     prev_start = -0.1
     for pv in prepared_verses:
-        chunk = word_timestamps[cursor : cursor + pv.word_count]
-        cursor += pv.word_count
-        raw_start = float(chunk[0]["start"])
-        raw_end = float(chunk[-1]["end"])
+        word_count = len(pv.words)
+        chunk = word_spans[cursor : cursor + word_count]
+        cursor += word_count
+
+        raw_start = float(chunk[0][0].start) * frame_sec
+        raw_end = float(chunk[-1][-1].end) * frame_sec
         span_dur = raw_end - raw_start
-        avg_score = sum(float(w["score"]) for w in chunk) / max(1, len(chunk))
-        verse_scores.append(avg_score)
+        tok_scores = [float(tok.score) for word_span in chunk for tok in word_span]
+        avg_prob = sum(tok_scores) / max(1, len(tok_scores))
+        verse_probs.append(avg_prob)
 
         if raw_start >= audio_duration or raw_start < 0:
             raise RuntimeError(
@@ -211,17 +277,17 @@ def align_chapter(
         prev_start = start_sec
         chapter_timings[str(pv.verse)] = start_sec
 
-        if avg_score < LOW_SCORE_THRESHOLD:
-            low_score_verses.append({"verse": pv.verse, "avgScore": round(avg_score, 2)})
+        if avg_prob < LOW_PROB_THRESHOLD:
+            low_prob_verses.append({"verse": pv.verse, "avgProb": round(avg_prob, 3)})
         if span_dur < MIN_VERSE_DURATION_SEC:
             short_verses.append({"verse": pv.verse, "duration": round(span_dur, 2)})
 
-    mean_score = sum(verse_scores) / max(1, len(verse_scores))
+    mean_prob = sum(verse_probs) / max(1, len(verse_probs))
     metrics: dict[str, Any] = {
         "duration": round(audio_duration, 1),
         "versesAligned": len(chapter_timings),
-        "meanScore": round(mean_score, 2),
-        "lowScoreVerses": low_score_verses,
+        "meanProb": round(mean_prob, 3),
+        "lowProbVerses": low_prob_verses,
         "shortVerses": short_verses,
         "roundedAdjustments": rounded_adjustments,
     }
@@ -295,7 +361,7 @@ def parse_args() -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=8,
-        help="ONNX emission batch size (default: 8)",
+        help="Chunk batch size for long chapters (default: 8)",
     )
     return parser.parse_args()
 
@@ -318,6 +384,9 @@ def select_books(all_books: list[dict[str, Any]], args: argparse.Namespace) -> l
 
 def main() -> int:
     args = parse_args()
+    bundle = torchaudio.pipelines.MMS_FA
+    vocab_dict = bundle.get_dict()
+
     all_books = load_krv_books()
     selected_books = select_books(all_books, args)
     chapter_filter = (
@@ -341,18 +410,10 @@ def main() -> int:
             if not args.dry_run and not args.force and ch_key in existing_chapters:
                 continue
             raw_verses = book["chapters"][ch_key]
-            prepared, all_words = prepare_chapter_verses(raw_verses)
+            prepared, all_words = prepare_chapter_verses(raw_verses, vocab_dict)
             if not prepared:
                 continue
-            if args.dry_run:
-                toks, texts = preprocess_text(
-                    " ".join(all_words),
-                    romanize=True,
-                    language="kor",
-                    star_frequency="edges",
-                )
-                assert len(toks) == len(texts) == len(all_words) + 2
-            else:
+            if not args.dry_run:
                 jobs.append((usfm, ch_num, prepared, all_words, len(raw_verses)))
 
     if args.dry_run:
@@ -363,8 +424,11 @@ def main() -> int:
         print("All selected chapters are already aligned. Use --force to re-align.")
         return 0
 
-    print(f"Aligning {len(jobs)} chapter(s) across {len(selected_books)} book(s)...")
-    aligner = AlignmentSingleton()
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Aligning {len(jobs)} chapter(s) across {len(selected_books)} book(s) on {device}...")
+    model = bundle.get_model(with_star=False).to(device).eval()
+    tokenizer = bundle.get_tokenizer()
+    aligner = bundle.get_aligner()
 
     report: dict[str, Any] = {}
     if REPORT_PATH.exists():
@@ -435,7 +499,11 @@ def main() -> int:
 
                     t0 = time.time()
                     timings, metrics = align_chapter(
+                        model,
+                        tokenizer,
                         aligner,
+                        device,
+                        bundle.sample_rate,
                         mp3_path,
                         prepared,
                         all_words,
@@ -449,7 +517,7 @@ def main() -> int:
                     dirty_books.add(usfm)
 
                     has_warnings = bool(
-                        metrics["lowScoreVerses"]
+                        metrics["lowProbVerses"]
                         or metrics["shortVerses"]
                         or metrics["roundedAdjustments"]
                     )
@@ -463,7 +531,7 @@ def main() -> int:
                     completed += 1
                     elapsed = time.time() - t0
                     warn_note = (
-                        f" [flags: low={len(metrics['lowScoreVerses'])}, "
+                        f" [flags: low={len(metrics['lowProbVerses'])}, "
                         f"short={len(metrics['shortVerses'])}, "
                         f"adj={len(metrics['roundedAdjustments'])}]"
                         if has_warnings
@@ -473,10 +541,9 @@ def main() -> int:
                         f"[{idx + 1}/{len(jobs)}] {ref} "
                         f"({metrics['versesAligned']}/{total_verses} vv, "
                         f"{metrics['duration']}s in {elapsed:.1f}s, "
-                        f"score={metrics['meanScore']}){warn_note}"
+                        f"prob={metrics['meanProb']}){warn_note}"
                     )
 
-                    # Flush at book boundaries and periodically on large books (like Psalms)
                     is_book_end = idx + 1 == len(jobs) or jobs[idx + 1][0] != usfm
                     if is_book_end or completed % 10 == 0:
                         flush_book(usfm)
