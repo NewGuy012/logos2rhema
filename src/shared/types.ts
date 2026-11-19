@@ -12,7 +12,6 @@ export interface BookMeta {
 }
 
 export type TranslationLanguage = "en" | "ko";
-export type AudioStyle = "standard" | "drama";
 
 export interface TranslationMeta {
 	id: string;
@@ -20,11 +19,6 @@ export interface TranslationMeta {
 	name: string;
 	nativeName: string;
 	language: TranslationLanguage;
-	bibleBrainBibleId?: string;
-	preferredAudioFilesets?: {
-		OT: readonly string[];
-		NT: readonly string[];
-	};
 	hasAudio: boolean;
 	audioLabel?: string;
 }
@@ -102,9 +96,7 @@ export interface AudioTrackOption {
 	language: TranslationLanguage | (string & {});
 	translationId: string;
 	url: string;
-	source: "bible-brain" | "esv-api" | "custom" | "helloao";
-	audioStyle?: AudioStyle;
-	filesetId?: string;
+	source: "esv-api" | "custom" | "helloao";
 	verseTimings?: Record<number, number>;
 	note?: string;
 }
@@ -125,7 +117,7 @@ export interface ChapterAudioResponse {
 export interface ReaderConfigResponse {
 	english: TranslationMeta;
 	korean: TranslationMeta;
-	bibleBrainEnabled: boolean;
+	krvSyncedAudioEnabled: boolean;
 	esvAudioEnabled: boolean;
 }
 

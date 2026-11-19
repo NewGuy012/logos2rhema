@@ -16,8 +16,15 @@ import type {
 } from "../../shared/types";
 
 const MAX_COMMENTARY_CACHE_ENTRIES = 50;
-const STATIC_TIMINGS_SOURCES: Readonly<Record<string, string>> = {
-	"helloao:krv:wordproject": "krv-wordproject",
+const STATIC_TIMINGS_SOURCES: Readonly<Record<string, { dir: string; note: string }>> = {
+	"custom:krv:supertonic": {
+		dir: "krv-supertonic",
+		note: "AI-synthesized (Supertonic 3 · Daniel) · Exact verse sync",
+	},
+	"helloao:krv:wordproject": {
+		dir: "krv-wordproject",
+		note: "Verse-synced (offline KRV alignment)",
+	},
 };
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
 const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>>();
@@ -59,7 +66,7 @@ export async function loadReaderConfig(): Promise<ReaderConfigResponse> {
 	return {
 		english: CANONICAL_BIBLES.en,
 		korean: CANONICAL_BIBLES.ko,
-		bibleBrainEnabled: false,
+		krvSyncedAudioEnabled: false,
 		esvAudioEnabled: false,
 	};
 }
@@ -135,13 +142,16 @@ export async function loadSyncedChapterAudio(options: {
 		const payload = (await res.json()) as ChapterAudioResponse;
 		const tracks = await Promise.all(
 			payload.tracks.map(async (track) => {
-				if (track.source !== "helloao" || hasVerseTimings(track.verseTimings)) {
+				if (
+					(track.source !== "custom" && track.source !== "helloao") ||
+					hasVerseTimings(track.verseTimings)
+				) {
 					return track;
 				}
-				const timingsKey = STATIC_TIMINGS_SOURCES[track.id];
-				if (!timingsKey) return track;
+				const timingSource = STATIC_TIMINGS_SOURCES[track.id];
+				if (!timingSource) return track;
 
-				const bookTimings = await fetchStaticBookTimings(timingsKey, options.usfm);
+				const bookTimings = await fetchStaticBookTimings(timingSource.dir, options.usfm);
 				const chapterTimings = normalizeVerseTimings(
 					bookTimings?.chapters?.[String(options.chapter)],
 				);
@@ -150,7 +160,7 @@ export async function loadSyncedChapterAudio(options: {
 				return {
 					...track,
 					verseTimings: chapterTimings,
-					note: "Verse-synced (offline KRV alignment)",
+					note: timingSource.note,
 				};
 			}),
 		);

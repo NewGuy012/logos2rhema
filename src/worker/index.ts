@@ -10,14 +10,6 @@ import type {
 	ReaderConfigResponse,
 	TranslationMeta,
 } from "../shared/types";
-import {
-	fetchBibleBrainAudioTrack,
-	fetchBibleBrainChapterText,
-	fetchBibleBrainLanguages,
-	resolveBibleBrainLanguageTextFileset,
-	resolveCanonicalAudioFilesets,
-	type ResolvedAudioFileset,
-} from "./bible-brain";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
 import {
 	extractHelloAoAudioTracks,
@@ -28,19 +20,12 @@ import { type FetchLike, isSafeHttpsUrl } from "./http";
 
 interface WorkerBindings {
 	ESV_API_KEY?: string;
-	BIBLE_BRAIN_API_KEY?: string;
-	BIBLE_BRAIN_EN_BIBLE_ID?: string;
-	BIBLE_BRAIN_KO_BIBLE_ID?: string;
 	AUDIO_BASE_URL?: string;
 }
 
 interface WorkerDeps {
 	fetcher?: FetchLike;
 }
-
-const FILESET_ID_RE = /^[A-Za-z0-9_-]{4,24}$/;
-const ISO_639_3_RE = /^[a-z]{3}$/i;
-const BIBLE_ABBR_RE = /^[A-Za-z0-9_-]{2,16}$/;
 
 function applySecurityHeaders(headers: Headers): void {
 	headers.set("X-Content-Type-Options", "nosniff");
@@ -65,57 +50,6 @@ function parseChapterRef(
 	if (!book) return null;
 	const chapter = parsePositiveInt(chapterRaw, 1, book.chapters);
 	return chapter !== null ? { book, usfm, chapter } : null;
-}
-
-async function resolveBibleBrainTracksForLanguage(
-	apiKey: string,
-	options: {
-		language: string;
-		translationId: string;
-		usfm: string;
-		chapter: number;
-		testament: "OT" | "NT";
-		bibleId?: string;
-		fallbackFilesets?: readonly string[];
-	},
-	fetcher: FetchLike,
-): Promise<AudioTrackOption[]> {
-	const filesets = await resolveCanonicalAudioFilesets(
-		apiKey,
-		{
-			language: options.language,
-			testament: options.testament,
-			bibleId: options.bibleId,
-			fallbackFilesets: options.fallbackFilesets,
-		},
-		fetcher,
-	);
-	if (filesets.length === 0) return [];
-
-	// Cap at one standard + one drama candidate to avoid excessive upstream calls.
-	const picked: ResolvedAudioFileset[] = [
-		filesets.find((f) => f.audioStyle === "standard"),
-		filesets.find((f) => f.audioStyle === "drama"),
-	].filter((f): f is ResolvedAudioFileset => f !== undefined);
-
-	const results = await Promise.all(
-		picked.map((candidate) =>
-			fetchBibleBrainAudioTrack(
-				apiKey,
-				{
-					filesetId: candidate.filesetId,
-					usfm: options.usfm,
-					chapter: options.chapter,
-					translationId: options.translationId,
-					language: options.language,
-					audioStyle: candidate.audioStyle,
-					label: `${candidate.bibleName} · ${candidate.audioStyle === "drama" ? "Drama" : "Narration"}`,
-				},
-				fetcher,
-			),
-		),
-	);
-	return results.filter((t): t is AudioTrackOption => t !== null);
 }
 
 export function createApp(deps: WorkerDeps = {}) {
@@ -144,142 +78,33 @@ export function createApp(deps: WorkerDeps = {}) {
 
 	app.get("/api/config", (c) => {
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
-		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
-		const esvAudioEnabled = Boolean(apiKey || esvApiKey);
+		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
+		const hasCustomAudio = Boolean(customAudioBase && isSafeHttpsUrl(customAudioBase));
+		const esvAudioEnabled = Boolean(esvApiKey);
 
 		const english: TranslationMeta = {
 			...CANONICAL_BIBLES.en,
 			hasAudio: esvAudioEnabled,
-			audioLabel: apiKey
-				? "Bible Brain ESV (Verse-Synced)"
-				: esvApiKey
-					? "Crossway ESV (David Cochran Heath)"
-					: undefined,
+			audioLabel: esvApiKey ? "Crossway ESV (David Cochran Heath)" : undefined,
 		};
 
 		const korean: TranslationMeta = {
 			...CANONICAL_BIBLES.ko,
 			hasAudio: true,
-			audioLabel: apiKey ? "Bible Brain Korean (Verse-Synced)" : "Wordproject Korean Narration",
+			audioLabel: hasCustomAudio
+				? "Supertonic 3 Korean · Daniel (Verse-Synced)"
+				: "Wordproject Korean Narration",
 		};
 
 		const body: ReaderConfigResponse = {
 			english,
 			korean,
-			bibleBrainEnabled: Boolean(apiKey),
+			krvSyncedAudioEnabled: hasCustomAudio,
 			esvAudioEnabled,
 		};
 
 		c.header("Cache-Control", "private, max-age=300");
 		return c.json(body);
-	});
-
-	app.get("/api/languages", async (c) => {
-		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
-		if (!apiKey) {
-			return c.json({
-				bibleBrainEnabled: false,
-				languages: [
-					{ iso: "eng", name: "English", autonym: "English", canonicalId: "esv" },
-					{ iso: "kor", name: "Korean", autonym: "한국어", canonicalId: "krv" },
-				],
-			});
-		}
-
-		const pageParam = c.req.query("page");
-		const limitParam = c.req.query("limit");
-		const page = pageParam !== undefined ? parsePositiveInt(pageParam, 1, 500) : 1;
-		const limit = limitParam !== undefined ? parsePositiveInt(limitParam, 1, 250) : 250;
-		if (page === null || limit === null) {
-			return c.json({ error: "Invalid page or limit parameter" }, 400);
-		}
-
-		const result = await fetchBibleBrainLanguages(apiKey, { page, limit }, fetcher);
-		if (!result) {
-			c.header("Cache-Control", "no-store");
-			return c.json({ error: "Languages lookup failed" }, 502);
-		}
-		c.header("Cache-Control", "private, max-age=3600");
-		return c.json({
-			bibleBrainEnabled: true,
-			languages: result.languages,
-			...(result.pagination ? { pagination: result.pagination } : {}),
-		});
-	});
-
-	app.get("/api/passage/:target/:usfm/:chapter", async (c) => {
-		const target = c.req.param("target");
-		const parsed = parseChapterRef(c.req.param("usfm"), c.req.param("chapter"));
-		if (!parsed) {
-			return c.json({ error: "Invalid book or chapter reference" }, 400);
-		}
-		const { usfm, chapter } = parsed;
-
-		if (target === "esv" || target === "krv") {
-			return c.json(
-				{ error: `Use static /data/bibles/${target}/${usfm}.json for bundled canonical text` },
-				400,
-			);
-		}
-
-		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
-		if (!apiKey) {
-			return c.json(
-				{ error: "BIBLE_BRAIN_API_KEY is required for additional Bible Brain languages" },
-				400,
-			);
-		}
-
-		if (target.startsWith("bb:")) {
-			const filesetId = target.slice(3);
-			if (!FILESET_ID_RE.test(filesetId)) {
-				return c.json({ error: "Invalid fileset identifier" }, 400);
-			}
-			const verses = await fetchBibleBrainChapterText(apiKey, filesetId, usfm, chapter, fetcher);
-			if (!verses) {
-				c.header("Cache-Control", "no-store");
-				return c.json({ error: "Passage lookup failed" }, 502);
-			}
-			c.header("Cache-Control", "public, max-age=3600");
-			return c.json({ translationId: target, usfm, chapter, verses });
-		}
-
-		if (target.startsWith("lang:")) {
-			const langIso = target.slice(5);
-			const abbr = c.req.query("abbr");
-			if (!ISO_639_3_RE.test(langIso) || (abbr !== undefined && !BIBLE_ABBR_RE.test(abbr))) {
-				return c.json({ error: "Invalid language or Bible abbreviation" }, 400);
-			}
-			const resolved = await resolveBibleBrainLanguageTextFileset(apiKey, langIso, abbr, fetcher);
-			if (resolved.status !== "ok") {
-				if (resolved.status === "error") {
-					c.header("Cache-Control", "no-store");
-					return c.json({ error: "Passage lookup failed" }, 502);
-				}
-				return c.json({ error: `No text fileset found for language ${langIso}` }, 404);
-			}
-			const verses = await fetchBibleBrainChapterText(
-				apiKey,
-				resolved.textFilesetId,
-				usfm,
-				chapter,
-				fetcher,
-			);
-			if (!verses) {
-				c.header("Cache-Control", "no-store");
-				return c.json({ error: "Passage lookup failed" }, 502);
-			}
-			c.header("Cache-Control", "public, max-age=3600");
-			return c.json({
-				translationId: `bb:${resolved.textFilesetId}`,
-				abbr: resolved.bible.abbr,
-				usfm,
-				chapter,
-				verses,
-			});
-		}
-
-		return c.json({ error: "Unsupported passage target" }, 400);
 	});
 
 	app.get("/api/audio/:usfm/:chapter", async (c) => {
@@ -289,123 +114,50 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 		const { book, usfm, chapter } = parsed;
 
-		const extraLang = c.req.query("lang")?.toLowerCase();
-		const extraBible = c.req.query("bible");
-		if (extraLang !== undefined && !ISO_639_3_RE.test(extraLang)) {
-			return c.json({ error: "Invalid ISO 639-3 language code" }, 400);
-		}
-		if (extraBible !== undefined && !BIBLE_ABBR_RE.test(extraBible)) {
-			return c.json({ error: "Invalid Bible identifier" }, 400);
-		}
-
 		const esvApiKey = c.env?.ESV_API_KEY?.trim();
-		const apiKey = c.env?.BIBLE_BRAIN_API_KEY?.trim();
 		const customAudioBase = c.env?.AUDIO_BASE_URL?.trim();
-		const enBibleIdOverride = c.env?.BIBLE_BRAIN_EN_BIBLE_ID?.trim();
-		const koBibleIdOverride = c.env?.BIBLE_BRAIN_KO_BIBLE_ID?.trim();
 
 		const resolveKoreanTracks = async (): Promise<AudioTrackOption[]> => {
-			const koTracks: AudioTrackOption[] = [];
-			if (apiKey) {
-				koTracks.push(
-					...(await resolveBibleBrainTracksForLanguage(
-						apiKey,
-						{
-							language: "ko",
-							translationId: "krv",
-							usfm,
-							chapter,
-							testament: book.testament,
-							bibleId: koBibleIdOverride,
-						},
-						fetcher,
-					)),
-				);
-			}
 			if (customAudioBase && isSafeHttpsUrl(customAudioBase)) {
 				const cleanBase = customAudioBase.replace(/\/+$/, "");
-				koTracks.push({
-					id: `custom:krv:${usfm}:${chapter}`,
-					label: "개역한글 Reader (Custom)",
-					language: "ko",
-					translationId: "krv",
-					url: `${cleanBase}/${usfm}/${chapter}.mp3`,
-					source: "custom",
-					audioStyle: "standard",
-				});
+				return [
+					{
+						id: "custom:krv:supertonic",
+						label: "개역한글 · Daniel (AI)",
+						language: "ko",
+						translationId: "krv",
+						url: `${cleanBase}/${usfm}/${chapter}.mp3`,
+						source: "custom",
+						note: "AI-synthesized narration (Supertonic 3 · Daniel)",
+					},
+				];
 			}
-			if (koTracks.length === 0) {
-				const korPayload = await fetchHelloAoChapter("kor_old", usfm, chapter, fetcher);
-				if (korPayload) {
-					koTracks.push(
-						...extractHelloAoAudioTracks(korPayload, {
-							translationId: "krv",
-							language: "ko",
-							note: "Paired with Wordproject Korean human narration",
-						}),
-					);
-				}
-			}
-			return koTracks;
+
+			const korPayload = await fetchHelloAoChapter("kor_old", usfm, chapter, fetcher);
+			if (!korPayload) return [];
+			return extractHelloAoAudioTracks(korPayload, {
+				translationId: "krv",
+				language: "ko",
+				note: "Paired with Wordproject Korean human narration",
+			});
 		};
 
 		const resolveEnglishTracks = async (): Promise<AudioTrackOption[]> => {
-			const enTracks: AudioTrackOption[] = [];
-			if (apiKey) {
-				const enMeta = CANONICAL_BIBLES.en;
-				enTracks.push(
-					...(await resolveBibleBrainTracksForLanguage(
-						apiKey,
-						{
-							language: "en",
-							translationId: "esv",
-							usfm,
-							chapter,
-							testament: book.testament,
-							bibleId: enBibleIdOverride || enMeta.bibleBrainBibleId,
-							fallbackFilesets:
-								book.testament === "OT"
-									? enMeta.preferredAudioFilesets?.OT
-									: enMeta.preferredAudioFilesets?.NT,
-						},
-						fetcher,
-					)),
-				);
-			}
-			if (enTracks.length === 0 && esvApiKey) {
-				const esvTrack = await fetchEsvAudioTrack(
-					esvApiKey,
-					{ usfm, bookEn: book.en, chapter, chaptersInBook: book.chapters },
-					fetcher,
-				).catch(() => null);
-				if (esvTrack) enTracks.push(esvTrack);
-			}
-			return enTracks;
+			if (!esvApiKey) return [];
+			const esvTrack = await fetchEsvAudioTrack(
+				esvApiKey,
+				{ usfm, bookEn: book.en, chapter, chaptersInBook: book.chapters },
+				fetcher,
+			).catch(() => null);
+			return esvTrack ? [esvTrack] : [];
 		};
 
-		const [koTracks, enTracks, extraTracks] = await Promise.all([
-			resolveKoreanTracks(),
-			resolveEnglishTracks(),
-			extraLang && apiKey && extraLang !== "kor" && extraLang !== "eng"
-				? resolveBibleBrainTracksForLanguage(
-						apiKey,
-						{
-							language: extraLang,
-							translationId: extraBible ?? `lang:${extraLang}`,
-							usfm,
-							chapter,
-							testament: book.testament,
-							bibleId: extraBible,
-						},
-						fetcher,
-					)
-				: Promise.resolve([]),
-		]);
+		const [koTracks, enTracks] = await Promise.all([resolveKoreanTracks(), resolveEnglishTracks()]);
 
 		const responseBody: ChapterAudioResponse = {
 			bookUsfm: usfm,
 			chapter,
-			tracks: [...koTracks, ...enTracks, ...extraTracks],
+			tracks: [...koTracks, ...enTracks],
 		};
 
 		c.header("Cache-Control", "private, max-age=1800");

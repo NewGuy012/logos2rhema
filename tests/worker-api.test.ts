@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 import { CANONICAL_BIBLES } from "../src/shared/translations";
 import type {
@@ -7,23 +7,19 @@ import type {
 	CommentaryMeta,
 	ReaderConfigResponse,
 } from "../src/shared/types";
-import { clearBibleBrainCache, selectAudioFilesetsForTestament } from "../src/worker/bible-brain";
 import { extractHelloAoAudioTracks } from "../src/worker/helloao";
 import { type FetchLike, isSafeHttpsUrl } from "../src/worker/http";
 import { createApp } from "../src/worker/index";
 
-describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
-	beforeEach(() => {
-		clearBibleBrainCache();
-	});
-
-	it("returns strictly one canonical version per language (ESV & KRV) from /api/config", async () => {
+describe("Canonical 1-version-per-language & Supertonic/ESV Worker API", () => {
+	it("returns strictly one canonical version per language (ESV & KRV) and validates AUDIO_BASE_URL in /api/config", async () => {
 		expect(CANONICAL_BIBLES.en.id).toBe("esv");
 		expect(CANONICAL_BIBLES.ko.id).toBe("krv");
 
 		const app = createApp();
 		const res = await app.request("/api/config", undefined, {
 			ESV_API_KEY: "secret-esv-key",
+			AUDIO_BASE_URL: "https://r2.example.com/krv/",
 		});
 		expect(res.status).toBe(200);
 
@@ -33,104 +29,39 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(body.english.id).toBe("esv");
 		expect(body.english.code).toBe("ESV");
 		expect(body.english.hasAudio).toBe(true);
+		expect(body.english.audioLabel).toBe("Crossway ESV (David Cochran Heath)");
 		expect(body.korean.id).toBe("krv");
 		expect(body.korean.code).toBe("개역한글");
-		expect(body.bibleBrainEnabled).toBe(false);
+		expect(body.korean.audioLabel).toBe("Supertonic 3 Korean · Daniel (Verse-Synced)");
+		expect(body.krvSyncedAudioEnabled).toBe(true);
 		expect(body.esvAudioEnabled).toBe(true);
+
+		const badRes = await app.request("/api/config", undefined, {
+			AUDIO_BASE_URL: "http://insecure.example.com/krv",
+		});
+		const badBody = (await badRes.json()) as ReaderConfigResponse;
+		expect(badBody.krvSyncedAudioEnabled).toBe(false);
+		expect(badBody.korean.audioLabel).toBe("Wordproject Korean Narration");
+		expect(badBody.esvAudioEnabled).toBe(false);
+		expect(badBody.english.hasAudio).toBe(false);
 	});
 
-	it("filters Bible Brain filesets by testament (including set_type_code/NTPOTP) and skips HLS/opus streams", () => {
-		const filesets = selectAudioFilesetsForTestament(
-			{
-				abbr: "ENGESV",
-				name: "English Standard Version",
-				filesets: {
-					"dbp-prod": [
-						{ id: "ENGESVN2SA", set_type_code: "audio_drama_stream", set_size_code: "NT" },
-						{ id: "ENGESVN2DA-opus16", type: "audio_drama", size: "NT" },
-						{ id: "ENGESVN2DA", set_type_code: "audio_drama", set_size_code: "NTPOTP" },
-						{ id: "ENGESVN1DA", type: "audio", size: "NT", codec: "mp3" },
-						{ id: "ENGESVO1DA", type: "audio", size: "OT", codec: "mp3" },
-					],
-				},
-			},
-			"NT",
-		);
+	it("serves Supertonic custom KRV track with stable ID and Crossway ESV track when AUDIO_BASE_URL and ESV_API_KEY are set", async () => {
+		let helloAoAudioCalled = false;
+		const captured = { authHeader: null as string | null, query: null as string | null };
 
-		expect(filesets.map((f) => f.filesetId)).toEqual(["ENGESVN1DA", "ENGESVN2DA"]);
-		expect(filesets[0]?.audioStyle).toBe("standard");
-		expect(filesets[1]?.audioStyle).toBe("drama");
-	});
-
-	it("prioritizes Bible Brain audio + verse timestamps over Crossway when BIBLE_BRAIN_API_KEY is set", async () => {
-		let crosswayCalled = false;
-		const mockFetch: FetchLike = async (input) => {
+		const mockFetch: FetchLike = async (input, init) => {
 			const url = String(input);
-			if (url.startsWith("https://api.esv.org/")) {
-				crosswayCalled = true;
+			if (url.includes("/kor_old/")) {
+				helloAoAudioCalled = true;
 				return new Response("unexpected", { status: 500 });
 			}
-			if (url.includes("/bibles/ENGESV?")) {
-				return Response.json({
-					data: {
-						abbr: "ENGESV",
-						name: "English Standard Version",
-						filesets: {
-							"dbp-prod": [
-								{ id: "ENGESVN1DA", type: "audio", size: "NT" },
-								{ id: "ENGESVN2DA", type: "audio_drama", size: "NT" },
-							],
-						},
-					},
-				});
-			}
-			if (url.includes("/bibles?language_code=kor")) {
-				return Response.json({
-					data: [
-						{
-							abbr: "KORNKV",
-							name: "New Korean Revised Version",
-							vname: "개역개정",
-							filesets: {
-								"dbp-prod": [{ id: "KORNKVN1DA", type: "audio", size: "NT" }],
-							},
-						},
-						{
-							abbr: "KORKRV",
-							name: "Korean Revised Version",
-							vname: "개역한글",
-							filesets: {
-								"dbp-prod": [{ id: "KORKRVN1DA", type: "audio", size: "NT" }],
-							},
-						},
-					],
-				});
-			}
-			if (url.includes("/bibles/filesets/ENGESVN1DA/JHN/3")) {
-				return Response.json({ data: [{ path: "https://cdn.example.com/esv-std-jhn3.mp3" }] });
-			}
-			if (url.includes("/bibles/filesets/ENGESVN2DA/JHN/3")) {
-				return Response.json({ data: [{ path: "https://cdn.example.com/esv-drama-jhn3.mp3" }] });
-			}
-			if (url.includes("/timestamps/ENGESVN1DA/JHN/3")) {
-				return Response.json({
-					data: [
-						{ verse_start: 0, timestamp: 0 },
-						{ verse_start: 1, timestamp: 2.1 },
-						{ verse_start: "16", timestamp: "48.2" },
-						{ verse_start: 16, timestamp: 50.0 },
-					],
-				});
-			}
-			if (url.includes("/bibles/filesets/KORKRVN1DA/JHN/3")) {
-				return Response.json({ data: [{ path: "https://cdn.example.com/krv-jhn3.mp3" }] });
-			}
-			if (url.includes("/timestamps/KORKRVN1DA/JHN/3")) {
-				return Response.json({
-					data: [
-						{ verse_start: 1, timestamp: 1.4 },
-						{ verse_start: 16, timestamp: 51.7 },
-					],
+			if (url.startsWith("https://api.esv.org/v3/passage/audio/")) {
+				captured.authHeader = new Headers(init?.headers).get("Authorization");
+				captured.query = new URL(url).searchParams.get("q");
+				return new Response(null, {
+					status: 302,
+					headers: { Location: "https://audio.esv.org/hw/43003001-43003036.mp3" },
 				});
 			}
 			return new Response("Not Found", { status: 404 });
@@ -138,31 +69,36 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 
 		const app = createApp({ fetcher: mockFetch });
 		const res = await app.request("/api/audio/JHN/3", undefined, {
-			BIBLE_BRAIN_API_KEY: "bb-secret-key",
+			AUDIO_BASE_URL: "https://cdn.example.com/krv/",
 			ESV_API_KEY: "esv-secret-key",
 		});
 
 		expect(res.status).toBe(200);
-		expect(crosswayCalled).toBe(false);
+		expect(helloAoAudioCalled).toBe(false);
+		expect(captured.authHeader).toBe("Token esv-secret-key");
+		expect(captured.query).toBe("John 3");
 
 		const text = await res.text();
-		expect(text).not.toContain("bb-secret-key");
 		expect(text).not.toContain("esv-secret-key");
 
 		const body = JSON.parse(text) as ChapterAudioResponse;
 		const koTrack = body.tracks.find((t) => t.language === "ko");
-		const enStandard = body.tracks.find((t) => t.language === "en" && t.audioStyle === "standard");
-		const enDrama = body.tracks.find((t) => t.language === "en" && t.audioStyle === "drama");
+		const enTrack = body.tracks.find((t) => t.language === "en");
 
-		expect(koTrack?.filesetId).toBe("KORKRVN1DA");
-		expect(koTrack?.verseTimings?.[16]).toBe(51.7);
-		expect(enStandard?.url).toBe("https://cdn.example.com/esv-std-jhn3.mp3");
-		expect(enStandard?.verseTimings?.[16]).toBe(48.2);
-		expect(enStandard?.verseTimings?.[0]).toBeUndefined();
-		expect(enDrama?.url).toBe("https://cdn.example.com/esv-drama-jhn3.mp3");
+		expect(koTrack).toEqual({
+			id: "custom:krv:supertonic",
+			label: "개역한글 · Daniel (AI)",
+			language: "ko",
+			translationId: "krv",
+			url: "https://cdn.example.com/krv/JHN/3.mp3",
+			source: "custom",
+			note: "AI-synthesized narration (Supertonic 3 · Daniel)",
+		});
+		expect(enTrack?.source).toBe("esv-api");
+		expect(enTrack?.url).toBe("https://audio.esv.org/hw/43003001-43003036.mp3");
 	});
 
-	it("falls back to Crossway ESV API and zero-key Wordproject Korean audio when Bible Brain lacks ESV or key", async () => {
+	it("falls back to Wordproject Korean audio and Crossway single-chapter ESV query when AUDIO_BASE_URL is unset", async () => {
 		const secretKey = "esv-super-secret-token-123";
 		const captured = { authHeader: null as string | null, query: null as string | null };
 
@@ -204,88 +140,7 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		expect(enTrack?.url).toBe("https://audio.esv.org/hw/65001001-65001025.mp3");
 	});
 
-	it("supports future Bible Brain languages, text_plain preference, and ?lang= audio sync", async () => {
-		const mockFetch: FetchLike = async (input) => {
-			const url = String(input);
-			if (url.includes("/languages?")) {
-				expect(url).toContain("limit=250");
-				return Response.json({
-					data: [
-						{ id: 1, name: "English", iso: "eng", autonym: "English" },
-						{ id: 2, name: "Spanish", iso: "spa", autonym: "Español" },
-					],
-				});
-			}
-			if (url.includes("/bibles?language_code=spa")) {
-				expect(url).toContain("limit=250");
-				return Response.json({
-					data: [
-						{
-							abbr: "SPAFMT",
-							name: "Formatted Only",
-							filesets: { "dbp-prod": [{ id: "SPAFMTT", type: "text_format" }] },
-						},
-						{
-							abbr: "SPARVR",
-							name: "Reina Valera",
-							filesets: {
-								"dbp-prod": [
-									{ id: "SPARVRT", set_type_code: "text_plain" },
-									{ id: "SPARVRN1DA", set_type_code: "audio", set_size_code: "NT" },
-								],
-							},
-						},
-					],
-				});
-			}
-			if (url.includes("/bibles/filesets/SPARVRT/JHN/3")) {
-				return Response.json({
-					data: [{ verse_start: 16, verse_text: "Porque de tal manera amó Dios al mundo..." }],
-				});
-			}
-			if (url.includes("/bibles/filesets/SPARVRN1DA/JHN/3")) {
-				return Response.json({ data: [{ path: "https://cdn.example.com/spa-jhn3.mp3" }] });
-			}
-			if (url.includes("/timestamps/SPARVRN1DA/JHN/3")) {
-				return Response.json({ data: [{ verse_sequence: 16, timestamp: 42.5 }] });
-			}
-			return new Response("Not Found", { status: 404 });
-		};
-
-		const app = createApp({ fetcher: mockFetch });
-		const langRes = await app.request("/api/languages", undefined, {
-			BIBLE_BRAIN_API_KEY: "bb-key",
-		});
-		expect(langRes.status).toBe(200);
-		const langBody = (await langRes.json()) as {
-			bibleBrainEnabled: boolean;
-			languages: Array<{ iso: string }>;
-		};
-		expect(langBody.bibleBrainEnabled).toBe(true);
-		expect(langBody.languages.some((l) => l.iso === "spa")).toBe(true);
-
-		const passageRes = await app.request("/api/passage/lang:spa/JHN/3", undefined, {
-			BIBLE_BRAIN_API_KEY: "bb-key",
-		});
-		expect(passageRes.status).toBe(200);
-		const passageBody = (await passageRes.json()) as {
-			abbr: string;
-			verses: Array<{ verse: number; text: string }>;
-		};
-		expect(passageBody.abbr).toBe("SPARVR");
-		expect(passageBody.verses[0]?.verse).toBe(16);
-
-		const audioRes = await app.request("/api/audio/JHN/3?lang=spa", undefined, {
-			BIBLE_BRAIN_API_KEY: "bb-key",
-		});
-		expect(audioRes.status).toBe(200);
-		const audioBody = (await audioRes.json()) as ChapterAudioResponse;
-		const spaTrack = audioBody.tracks.find((t) => t.language === "spa");
-		expect(spaTrack?.url).toBe("https://cdn.example.com/spa-jhn3.mp3");
-		expect(spaTrack?.verseTimings?.[16]).toBe(42.5);
-	});
-
-	it("validates invalid chapter references, methods, SSRF URLs, and error headers", async () => {
+	it("validates invalid chapter references, removed legacy endpoints, methods, SSRF URLs, and error headers", async () => {
 		const mockFetch: FetchLike = async (input) => {
 			const url = String(input);
 			if (url.includes("/kor_old/GEN/1.json")) {
@@ -309,29 +164,21 @@ describe("Canonical 1-version-per-language & Bible Brain v4 Worker API", () => {
 		const app = createApp({ fetcher: mockFetch });
 		expect((await app.request("/api/audio/GEN/999")).status).toBe(400);
 		expect((await app.request("/api/audio/GEN/1abc")).status).toBe(400);
+		expect((await app.request("/api/languages")).status).toBe(404);
+		expect((await app.request("/api/passage/lang:spa/JHN/3")).status).toBe(404);
 
 		const badMethod = await app.request("/api/audio/GEN/1", { method: "POST" });
 		expect(badMethod.status).toBe(405);
 		expect(badMethod.headers.get("x-content-type-options")).toBe("nosniff");
 		expect(badMethod.headers.get("content-security-policy")).toContain("default-src 'none'");
 
-		const res = await app.request("/api/audio/GEN/1");
-		expect(res.status).toBe(200);
-		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-		const body = (await res.json()) as ChapterAudioResponse;
-		expect(body.tracks).toEqual([]);
-
-		const failPassage = await app.request("/api/passage/bb:ENGESV/GEN/1", undefined, {
-			BIBLE_BRAIN_API_KEY: "bb-key",
+		const ssrfAudioRes = await app.request("/api/audio/GEN/1", undefined, {
+			AUDIO_BASE_URL: "https://127.0.0.1/krv",
 		});
-		expect(failPassage.status).toBe(502);
-		expect(failPassage.headers.get("cache-control")).toBe("no-store");
-
-		const failLangs = await app.request("/api/languages", undefined, {
-			BIBLE_BRAIN_API_KEY: "bb-key",
-		});
-		expect(failLangs.status).toBe(502);
-		expect(failLangs.headers.get("cache-control")).toBe("no-store");
+		expect(ssrfAudioRes.status).toBe(200);
+		expect(ssrfAudioRes.headers.get("x-content-type-options")).toBe("nosniff");
+		const ssrfBody = (await ssrfAudioRes.json()) as ChapterAudioResponse;
+		expect(ssrfBody.tracks).toEqual([]);
 	});
 
 	it("serves curated Tyndale & Matthew Henry commentaries, normalizes content, and handles 404/400/502", async () => {

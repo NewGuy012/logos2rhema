@@ -1,14 +1,7 @@
-# Optional: Free Faith Comes By Hearing Bible Brain API v4 key (https://4.dbt.io/api_key/request)
-# Primary provider for multi-language text, drama/non-drama audio, and verse-level timestamps.
-# BIBLE_BRAIN_API_KEY=
-# Optional overrides for canonical Bible Brain bibleId (e.g. ENGESV or Korean Bible ID)
-# BIBLE_BRAIN_EN_BIBLE_ID=ENGESV
-# BIBLE_BRAIN_KO_BIBLE_ID=
+# Optional: Base URL for Cloudflare R2 / CDN hosting Supertonic 3 KRV MP3 files
+# Generated via `bun run audio:generate-krv`; expects files at {AUDIO_BASE_URL}/{USFM}/{CHAPTER}.mp3
+# AUDIO_BASE_URL=
 
 # Optional: Free non-commercial Crossway ESV API key (https://api.esv.org/)
-# Used as automatic English ESV audio fallback when Bible Brain ESV is unavailable.
+# Used for chapter-level English ESV audio playback (David Cochran Heath).
 # ESV_API_KEY=
-
-# Optional: Base URL for self-hosted/R2 human-narrated KRV MP3 files (e.g. https://cdn.example.com/audio/krv)
-# Expects files at {AUDIO_BASE_URL}/{USFM_BOOK}/{CHAPTER}.mp3
-# AUDIO_BASE_URL=

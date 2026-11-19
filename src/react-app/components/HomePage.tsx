@@ -20,7 +20,7 @@ interface HomePageProps {
 	lastVerse?: number;
 	selectedEn: TranslationMeta;
 	selectedKo: TranslationMeta;
-	bibleBrainEnabled: boolean;
+	krvSyncedAudioEnabled: boolean;
 	favorites?: FavoriteItem[];
 	highlights?: HighlightItem[];
 	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
@@ -36,7 +36,7 @@ export function HomePage({
 	lastVerse = 1,
 	selectedEn,
 	selectedKo,
-	bibleBrainEnabled,
+	krvSyncedAudioEnabled,
 	favorites = [],
 	highlights = [],
 	onOpenPassage,
@@ -84,7 +84,7 @@ export function HomePage({
 				<div className="home-kicker">
 					<span className="home-sync-pill">
 						<Headphones size={12} />
-						<span>{bibleBrainEnabled ? "Bible Brain Verse-Synced Audio" : "Audio Available"}</span>
+						<span>{krvSyncedAudioEnabled ? "Verse-Synced Korean Audio" : "Audio Available"}</span>
 					</span>
 				</div>
 				<p className="home-subtitle">

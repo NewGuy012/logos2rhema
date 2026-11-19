@@ -46,7 +46,6 @@ export function extractHelloAoAudioTracks(
 			translationId: options.translationId,
 			url,
 			source: "helloao",
-			audioStyle: "standard",
 			verseTimings,
 			note: options.note,
 		});

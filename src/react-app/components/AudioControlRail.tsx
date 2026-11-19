@@ -207,26 +207,18 @@ export function AudioControlRail({
 							</div>
 
 							{langTracks.length > 1 && (
-								<div className="rail-track-list" role="group" aria-label="Audio style">
-									{langTracks.map((track) => {
-										const styleLabel =
-											track.audioStyle === "drama"
-												? "Drama"
-												: track.audioStyle === "standard"
-													? "Standard"
-													: track.label.split(" ")[0];
-										return (
-											<button
-												key={track.id}
-												type="button"
-												className={`quick-inline-chip ${track.id === activeTrack.id ? "active" : ""}`}
-												onClick={() => onSelectTrack(track)}
-												title={track.label}
-											>
-												{styleLabel}
-											</button>
-										);
-									})}
+								<div className="rail-track-list" role="group" aria-label="Audio track">
+									{langTracks.map((track) => (
+										<button
+											key={track.id}
+											type="button"
+											className={`quick-inline-chip ${track.id === activeTrack.id ? "active" : ""}`}
+											onClick={() => onSelectTrack(track)}
+											title={track.label}
+										>
+											{track.label}
+										</button>
+									))}
 								</div>
 							)}
 

@@ -266,7 +266,7 @@ export default function App() {
 
 	const [selectedEn, setSelectedEn] = useState<TranslationMeta>(CANONICAL_BIBLES.en);
 	const [selectedKo, setSelectedKo] = useState<TranslationMeta>(CANONICAL_BIBLES.ko);
-	const [bibleBrainEnabled, setBibleBrainEnabled] = useState(false);
+	const [krvSyncedAudioEnabled, setKrvSyncedAudioEnabled] = useState(false);
 
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [rawEnVerses, setRawEnVerses] = useState<VerseEntry[]>([]);
@@ -530,7 +530,7 @@ export default function App() {
 			if (cancelled) return;
 			setSelectedEn(cfg.english);
 			setSelectedKo(cfg.korean);
-			setBibleBrainEnabled(cfg.bibleBrainEnabled);
+			setKrvSyncedAudioEnabled(cfg.krvSyncedAudioEnabled);
 		});
 		loadLexicon().then((lex) => {
 			if (!cancelled) setLexicon(lex);
@@ -970,7 +970,7 @@ export default function App() {
 					lastVerse={lastVerse}
 					selectedEn={selectedEn}
 					selectedKo={selectedKo}
-					bibleBrainEnabled={bibleBrainEnabled}
+					krvSyncedAudioEnabled={krvSyncedAudioEnabled}
 					favorites={favorites}
 					highlights={highlights}
 					onOpenPassage={navigateTo}

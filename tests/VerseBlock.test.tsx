@@ -448,11 +448,11 @@ describe("Reader UI & audio hooks", () => {
 				lastVerse={12}
 				selectedEn={CANONICAL_BIBLES.en}
 				selectedKo={CANONICAL_BIBLES.ko}
-				bibleBrainEnabled={true}
+				krvSyncedAudioEnabled={true}
 				onOpenPassage={onOpenPassage}
 			/>,
 		);
-		expect(getByText(home.container, "Bible Brain Verse-Synced Audio")).toBeDefined();
+		expect(getByText(home.container, "Verse-Synced Korean Audio")).toBeDefined();
 		const continueSection = home.container.querySelector(".home-continue-section") as ParentNode;
 		const continueCard = continueSection.querySelector(".home-continue-card") as ParentNode;
 		const continueMeta = continueCard.querySelector(".home-continue-meta") as Element;
@@ -522,7 +522,7 @@ describe("Reader UI & audio hooks", () => {
 				return Response.json({
 					english: CANONICAL_BIBLES.en,
 					korean: CANONICAL_BIBLES.ko,
-					bibleBrainEnabled: false,
+					krvSyncedAudioEnabled: false,
 					esvAudioEnabled: false,
 				});
 			}
@@ -797,19 +797,25 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(bar.container, /Use 개역한글/));
 		expect(onSelectLanguage).toHaveBeenCalledWith("ko");
 
-		const standardTrack = {
-			id: "bb:ENGESVN1DA",
-			label: "ESV · Narration",
-			language: "en",
-			translationId: "esv",
-			url: "https://cdn.example.com/std.mp3",
-			source: "bible-brain" as const,
-			audioStyle: "standard" as const,
-			verseTimings: { 1: 0, 12: 34.5, 16: 48.2 },
+		const supertonicTrack = {
+			id: "custom:krv:supertonic",
+			label: "개역한글 · Daniel (AI)",
+			language: "ko",
+			translationId: "krv",
+			url: "https://cdn.example.com/JHN/3.mp3",
+			source: "custom" as const,
+			verseTimings: { 1: 2.3, 12: 34.5, 16: 48.2 },
 		};
-		const dramaTrack = { ...standardTrack, id: "bb:ENGESVN2DA", audioStyle: "drama" as const };
-		expect(resolveVerseAtTime(standardTrack.verseTimings, 48.5)).toBe(16);
-		expect(resolveTimeForVerse(standardTrack.verseTimings, 17)).toBe(48.2);
+		const altTrack = {
+			...supertonicTrack,
+			id: "helloao:krv:wordproject",
+			label: "Wordproject Reader (KRV)",
+			source: "helloao" as const,
+		};
+		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 1.5)).toBeNull();
+		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 2.1)).toBe(1);
+		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 48.5)).toBe(16);
+		expect(resolveTimeForVerse(supertonicTrack.verseTimings, 17)).toBe(48.2);
 
 		const onSyncToVisible = mock(() => {});
 		const onSelectTrack = mock(() => {});
@@ -821,9 +827,9 @@ describe("Reader UI & audio hooks", () => {
 				bookEn="John"
 				bookKo="요한복음"
 				chapter={3}
-				tracks={[standardTrack, dramaTrack]}
-				preferredLang="en"
-				activeTrack={standardTrack}
+				tracks={[supertonicTrack, altTrack]}
+				preferredLang="ko"
+				activeTrack={supertonicTrack}
 				isPlaying={true}
 				currentTime={35}
 				visibleVerse={16}
@@ -846,9 +852,9 @@ describe("Reader UI & audio hooks", () => {
 		const mobileSyncBar = render(
 			<FloatingBottomBar
 				{...baseBarProps()}
-				tracks={[standardTrack]}
-				preferredLang="en"
-				activeTrack={standardTrack}
+				tracks={[supertonicTrack]}
+				preferredLang="ko"
+				activeTrack={supertonicTrack}
 				isPlaying={true}
 				currentTime={35}
 				activeVerse={12}
@@ -865,9 +871,9 @@ describe("Reader UI & audio hooks", () => {
 		mobileSyncBar.rerender(
 			<FloatingBottomBar
 				{...baseBarProps()}
-				tracks={[standardTrack]}
-				preferredLang="en"
-				activeTrack={standardTrack}
+				tracks={[supertonicTrack]}
+				preferredLang="ko"
+				activeTrack={supertonicTrack}
 				isPlaying={true}
 				currentTime={35}
 				activeVerse={12}
@@ -882,8 +888,8 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(mobileSyncBar.container, "Follow v.12"));
 		expect(onMobileFollow).toHaveBeenCalledTimes(1);
 
-		fireClick(getButton(rail.container, "Drama"));
-		expect(onSelectTrack).toHaveBeenCalledWith(dramaTrack);
+		fireClick(getButton(rail.container, "Wordproject Reader (KRV)"));
+		expect(onSelectTrack).toHaveBeenCalledWith(altTrack);
 
 		fireClick(
 			rail.container.querySelector('button[aria-label="Playback speed"]') as HTMLButtonElement,
@@ -935,13 +941,13 @@ describe("Reader UI & audio hooks", () => {
 				useHumanAudio({
 					tracks: [
 						{
-							id: "bb:KORKRVN1DA",
-							label: "KRV",
+							id: "custom:krv:supertonic",
+							label: "개역한글 · Daniel (AI)",
 							language: "ko",
 							translationId: "krv",
 							url: "https://cdn.example.com/krv.mp3",
-							source: "bible-brain",
-							verseTimings: { 1: 0, 16: 48.2 },
+							source: "custom",
+							verseTimings: { 1: 2.3, 16: 48.2 },
 						},
 					],
 					visibleVerse: 16,
@@ -1009,7 +1015,7 @@ describe("Reader UI & audio hooks", () => {
 		}
 	});
 
-	it("hydrates static KRV timings only for Wordproject fallback and preserves Bible Brain/ESV tracks", async () => {
+	it("hydrates static KRV timings for Supertonic custom and Wordproject fallback tracks while preserving ESV", async () => {
 		clearAudioTimingsCache();
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -1020,20 +1026,20 @@ describe("Reader UI & audio hooks", () => {
 					chapter: 3,
 					tracks: [
 						{
+							id: "custom:krv:supertonic",
+							label: "개역한글 · Daniel (AI)",
+							language: "ko",
+							translationId: "krv",
+							url: "https://cdn.example.com/JHN/3.mp3",
+							source: "custom",
+						},
+						{
 							id: "helloao:krv:wordproject",
 							label: "Wordproject Reader (KRV)",
 							language: "ko",
 							translationId: "krv",
 							url: "https://audio.bible.helloao.org/api/kor_old/JHN/3/audio/wordproject.mp3",
 							source: "helloao",
-						},
-						{
-							id: "bb:KORKRVN1DA",
-							label: "KRV Bible Brain",
-							language: "ko",
-							translationId: "krv",
-							url: "https://cdn.example.com/bb-krv-jhn3.mp3",
-							source: "bible-brain",
 						},
 						{
 							id: "esv-api:JHN:3",
@@ -1044,6 +1050,16 @@ describe("Reader UI & audio hooks", () => {
 							source: "esv-api",
 						},
 					],
+				});
+			}
+			if (url === "/data/timings/krv-supertonic/JHN.json") {
+				return Response.json({
+					translationId: "krv",
+					audioSource: "custom:krv:supertonic",
+					usfm: "JHN",
+					chapters: {
+						"3": { "1": 2.345, "16": 51.789, bad: "x" },
+					},
 				});
 			}
 			if (url === "/data/timings/krv-wordproject/JHN.json") {
@@ -1061,18 +1077,21 @@ describe("Reader UI & audio hooks", () => {
 
 		try {
 			const res = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
+			const supertonicTrack = res.tracks.find((t) => t.id === "custom:krv:supertonic");
 			const wpTrack = res.tracks.find((t) => t.id === "helloao:krv:wordproject");
-			const bbTrack = res.tracks.find((t) => t.id === "bb:KORKRVN1DA");
 			const esvTrack = res.tracks.find((t) => t.id === "esv-api:JHN:3");
+			expect(supertonicTrack?.verseTimings).toEqual({ 1: 2.345, 16: 51.789 });
+			expect(supertonicTrack?.note).toBe(
+				"AI-synthesized (Supertonic 3 · Daniel) · Exact verse sync",
+			);
 			expect(wpTrack?.verseTimings).toEqual({ 1: 2.4, 16: 51.7 });
 			expect(wpTrack?.note).toBe("Verse-synced (offline KRV alignment)");
-			expect(bbTrack?.verseTimings).toBeUndefined();
 			expect(esvTrack?.verseTimings).toBeUndefined();
 
 			// Gracefully handles missing timing JSON (404)
 			const missing = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 99 });
 			expect(
-				missing.tracks.find((t) => t.id === "helloao:krv:wordproject")?.verseTimings,
+				missing.tracks.find((t) => t.id === "custom:krv:supertonic")?.verseTimings,
 			).toBeUndefined();
 		} finally {
 			globalThis.fetch = originalFetch;
@@ -1134,7 +1153,7 @@ describe("Reader UI & audio hooks", () => {
 				return Response.json({
 					english: CANONICAL_BIBLES.en,
 					korean: CANONICAL_BIBLES.ko,
-					bibleBrainEnabled: false,
+					krvSyncedAudioEnabled: false,
 					esvAudioEnabled: false,
 				});
 			}
