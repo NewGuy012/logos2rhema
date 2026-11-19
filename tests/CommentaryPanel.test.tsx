@@ -5,9 +5,15 @@ import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
 import { clearCommentaryCache, loadChapterCommentary } from "../src/react-app/lib/bible-loader";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import type { ChapterCommentaryResponse } from "../src/shared/types";
-import { fireClick, getButton, getByText, render, setInputValue } from "./setup";
-
-const noop = () => {};
+import {
+	fireClick,
+	getButton,
+	getByText,
+	noop,
+	render,
+	setInputValue,
+	withMockFetch,
+} from "./setup";
 
 describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 	beforeEach(() => {
@@ -204,43 +210,41 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 	});
 
 	it("caches commentary fetches and evicts failures so retries succeed", async () => {
-		const originalFetch = globalThis.fetch;
 		let callCount = 0;
-		globalThis.fetch = (async () => {
-			callCount++;
-			if (callCount === 1) {
-				return Response.json({ error: "Commentary lookup failed" }, { status: 502 });
-			}
-			return Response.json({
-				entries: [
-					{
-						id: "tyndale:GEN:1:1",
-						verseStart: 1,
-						paragraphs: ["1:1 In the beginning."],
-					},
-				],
-			});
-		}) as unknown as typeof fetch;
+		await withMockFetch(
+			() => {
+				callCount++;
+				if (callCount === 1) {
+					return Response.json({ error: "Commentary lookup failed" }, { status: 502 });
+				}
+				return Response.json({
+					entries: [
+						{
+							id: "tyndale:GEN:1:1",
+							verseStart: 1,
+							paragraphs: ["1:1 In the beginning."],
+						},
+					],
+				});
+			},
+			async () => {
+				await expect(
+					loadChapterCommentary({ commentaryId: "tyndale", usfm: "GEN", chapter: 1 }),
+				).rejects.toThrow("Commentary lookup failed");
 
-		try {
-			await expect(
-				loadChapterCommentary({ commentaryId: "tyndale", usfm: "GEN", chapter: 1 }),
-			).rejects.toThrow("Commentary lookup failed");
-
-			const first = await loadChapterCommentary({
-				commentaryId: "tyndale",
-				usfm: "GEN",
-				chapter: 1,
-			});
-			const second = await loadChapterCommentary({
-				commentaryId: "tyndale",
-				usfm: "GEN",
-				chapter: 1,
-			});
-			expect(callCount).toBe(2);
-			expect(first).toEqual(second);
-		} finally {
-			globalThis.fetch = originalFetch;
-		}
+				const first = await loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "GEN",
+					chapter: 1,
+				});
+				const second = await loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "GEN",
+					chapter: 1,
+				});
+				expect(callCount).toBe(2);
+				expect(first).toEqual(second);
+			},
+		);
 	});
 });

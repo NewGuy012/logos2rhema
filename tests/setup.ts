@@ -53,6 +53,14 @@ export function renderHook<T>(useHook: () => T): { result: { current: T } } {
 	return { result };
 }
 
+export const noop = () => {};
+
+export function flushAsync(ms = 10): Promise<void> {
+	return act(async () => {
+		await new Promise((r) => setTimeout(r, ms));
+	});
+}
+
 export async function waitUntil(assertion: () => void, timeoutMs = 1500): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	let lastError: unknown;
@@ -62,12 +70,99 @@ export async function waitUntil(assertion: () => void, timeoutMs = 1500): Promis
 			return;
 		} catch (err) {
 			lastError = err;
-			await act(async () => {
-				await new Promise((r) => setTimeout(r, 10));
-			});
+			await flushAsync();
 		}
 	}
 	throw lastError;
+}
+
+export function mockDesktopMatchMedia(): () => void {
+	const original = window.matchMedia;
+	window.matchMedia = ((query: string) => ({
+		matches: query.includes("min-width: 1024px"),
+		media: query,
+		onchange: null,
+		addListener: noop,
+		removeListener: noop,
+		addEventListener: noop,
+		removeEventListener: noop,
+		dispatchEvent: () => false,
+	})) as typeof window.matchMedia;
+	return () => {
+		window.matchMedia = original;
+	};
+}
+
+export async function withMockFetch(
+	handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+	fn: () => Promise<void> | void,
+): Promise<void> {
+	const original = globalThis.fetch;
+	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+		Promise.resolve(handler(String(input), init))) as unknown as typeof fetch;
+	try {
+		await fn();
+	} finally {
+		globalThis.fetch = original;
+	}
+}
+
+export function installMockAudio(options?: {
+	readyState?: number;
+	initialTime?: number;
+	emitTimeUpdateOnPlay?: boolean;
+}) {
+	const original = globalThis.Audio;
+	let currentTime = options?.initialTime ?? 0;
+	const readyState = options?.readyState ?? 4;
+	const listeners = new Map<string, Array<() => void>>();
+	const emit = (type: string) => {
+		for (const fn of listeners.get(type) ?? []) fn();
+	};
+
+	class MockAudio {
+		preload = "metadata";
+		src = "";
+		duration = 120;
+		readyState = readyState;
+		paused = true;
+		playbackRate = 1;
+		preservesPitch = true;
+		get currentTime() {
+			return currentTime;
+		}
+		set currentTime(val: number) {
+			currentTime = val;
+		}
+		load() {}
+		removeAttribute() {}
+		addEventListener(type: string, fn: () => void) {
+			listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+		}
+		removeEventListener() {}
+		pause() {
+			this.paused = true;
+			emit("pause");
+		}
+		play() {
+			this.paused = false;
+			emit("play");
+			if (options?.emitTimeUpdateOnPlay) emit("timeupdate");
+			return Promise.resolve();
+		}
+	}
+
+	globalThis.Audio = MockAudio as unknown as typeof Audio;
+	return {
+		getCurrentTime: () => currentTime,
+		setCurrentTime: (val: number) => {
+			currentTime = val;
+		},
+		emit,
+		restore: () => {
+			globalThis.Audio = original;
+		},
+	};
 }
 
 export function getByText(root: ParentNode, pattern: string | RegExp): HTMLElement {

@@ -90,7 +90,7 @@ describe("korean-morphology", () => {
 		const analysis = analyzeKoreanChapter(
 			[
 				{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" },
-				{ verse: 3, text: "하나님이 가라사대 빛이 있으라 하시매" },
+				{ verse: 3, text: "하나님이 가라사대 빛이 있으라 하시매 들을찌어다" },
 			],
 			SAMPLE_LEXICON,
 		);
@@ -104,6 +104,7 @@ describe("korean-morphology", () => {
 		expect(grammarIds).toContain("krv-sinira");
 		expect(grammarIds).toContain("krv-garasadae");
 		expect(grammarIds).toContain("krv-mae");
+		expect(grammarIds).toContain("krv-jini");
 	});
 
 	it("romanizes Korean words with liaison, nasalization, and aspiration", () => {
