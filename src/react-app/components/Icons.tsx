@@ -121,15 +121,6 @@ export const Home = makeIcon(
 	</>,
 );
 
-export const LayoutGrid = makeIcon(
-	<>
-		<rect width="7" height="7" x="3" y="3" rx="1" />
-		<rect width="7" height="7" x="14" y="3" rx="1" />
-		<rect width="7" height="7" x="14" y="14" rx="1" />
-		<rect width="7" height="7" x="3" y="14" rx="1" />
-	</>,
-);
-
 export const Loader2 = makeIcon(<path d="M21 12a9 9 0 1 1-6.219-8.56" />);
 
 export const Pause = makeIcon(

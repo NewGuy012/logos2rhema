@@ -1,20 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
-import type { BookMeta, FavoriteItem, HighlightItem, TranslationMeta } from "../../shared/types";
+import type { FavoriteItem, HighlightItem, TranslationMeta } from "../../shared/types";
 import { useDismissListeners } from "../hooks/usePopover";
-import { GenresBrowser } from "./BookChapterBrowser";
 import { FavoritesList } from "./FavoritesList";
-import {
-	Bible,
-	Bookmark,
-	BookOpen,
-	ChevronDown,
-	Home,
-	LayoutGrid,
-	Search,
-	Settings,
-} from "./Icons";
+import { Bible, Bookmark, BookOpen, ChevronDown, Home, Search, Settings } from "./Icons";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
 export type ReaderTheme = "paper" | "sepia" | "dark";
@@ -49,7 +39,7 @@ interface TopBarProps {
 	onChangeStudyMask: (mode: StudyMaskMode) => void;
 }
 
-type OpenPopover = "favorites" | "genres" | "display" | null;
+type OpenPopover = "favorites" | "display" | null;
 
 function SegmentedSetting<T extends string | number>({
 	title,
@@ -124,7 +114,6 @@ export function TopBar({
 	onChangeStudyMask,
 }: TopBarProps) {
 	const [openPopover, setOpenPopover] = useState<OpenPopover>(null);
-	const [selectedGenreBook, setSelectedGenreBook] = useState<BookMeta | null>(null);
 	const navRef = useRef<HTMLElement | null>(null);
 
 	const lastBook = useMemo(
@@ -134,11 +123,9 @@ export function TopBar({
 
 	const closePopovers = useCallback(() => {
 		setOpenPopover(null);
-		setSelectedGenreBook(null);
 	}, []);
 
 	const togglePopover = (target: Exclude<OpenPopover, null>) => {
-		setSelectedGenreBook(null);
 		setOpenPopover((prev) => (prev === target ? null : target));
 	};
 
@@ -191,10 +178,10 @@ export function TopBar({
 								onContinueReading?.();
 							}}
 							aria-current={!isHome ? "page" : undefined}
-							title={`Continue ${lastBook.en} ${lastChapter}:${lastVerse}`}
+							title={`Read ${lastBook.en} ${lastChapter}:${lastVerse}`}
 						>
 							<BookOpen size={15} />
-							<span>Continue</span>
+							<span>Read</span>
 						</button>
 
 						<div className="popover-anchor">
@@ -228,40 +215,6 @@ export function TopBar({
 											onRemoveHighlight={onRemoveHighlight}
 											onClearFavorites={onClearFavorites}
 											onClearHighlights={onClearHighlights}
-										/>
-									</div>
-								</div>
-							)}
-						</div>
-
-						<div className="popover-anchor">
-							<button
-								type="button"
-								className={`icon-btn ${openPopover === "genres" ? "active" : ""}`}
-								onClick={() => togglePopover("genres")}
-								aria-expanded={openPopover === "genres"}
-								aria-haspopup="true"
-								title="Browse Bible genres"
-							>
-								<LayoutGrid size={15} />
-								<span>Genres</span>
-								<ChevronDown size={13} className="top-nav-caret" />
-							</button>
-
-							{openPopover === "genres" && (
-								<div className="popover-card top-nav-popover top-genres-popover">
-									<p className="popover-title">Genres</p>
-									<div className="top-nav-popover-body">
-										<GenresBrowser
-											selectedBook={selectedGenreBook}
-											currentBookNumber={lastBookNumber}
-											currentChapter={lastChapter}
-											compact={true}
-											onSelectBook={setSelectedGenreBook}
-											onSelectChapter={(book, ch) => {
-												closePopovers();
-												onOpenPassage?.(book, ch);
-											}}
 										/>
 									</div>
 								</div>

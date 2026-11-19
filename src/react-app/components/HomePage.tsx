@@ -30,6 +30,13 @@ interface HomePageProps {
 	onClearHighlights?: () => void;
 }
 
+type ScriptureGrouping = "scripture" | "genres";
+
+const SCRIPTURE_GROUPINGS: ReadonlyArray<{ id: ScriptureGrouping; label: string }> = [
+	{ id: "scripture", label: "Scripture" },
+	{ id: "genres", label: "Genres" },
+];
+
 export function HomePage({
 	lastBookNumber,
 	lastChapter,
@@ -47,22 +54,21 @@ export function HomePage({
 }: HomePageProps) {
 	const [query, setQuery] = useState("");
 	const [selectedBook, setSelectedBook] = useState<BookMeta | null>(null);
+	const [grouping, setGrouping] = useState<ScriptureGrouping>("scripture");
 	const [favoritesOpen, setFavoritesOpen] = useState(false);
-	const [genresOpen, setGenresOpen] = useState(false);
-	const [selectedGenreBook, setSelectedGenreBook] = useState<BookMeta | null>(null);
 	const favoritesPanelId = useId();
-	const genresPanelId = useId();
 
 	const lastBook = useMemo(
 		() => getBookByNumber(lastBookNumber) ?? BIBLE_BOOKS[0],
 		[lastBookNumber],
 	);
 
-	const { otBooks, ntBooks, totalMatches } = useMemo(() => {
+	const { otBooks, ntBooks, matchedBookNumbers, totalMatches } = useMemo(() => {
 		const matches = filterBooks(query);
 		return {
 			otBooks: matches.filter((b) => b.testament === "OT"),
 			ntBooks: matches.filter((b) => b.testament === "NT"),
+			matchedBookNumbers: new Set(matches.map((b) => b.number)),
 			totalMatches: matches.length,
 		};
 	}, [query]);
@@ -159,45 +165,13 @@ export function HomePage({
 				)}
 			</section>
 
-			<section className="home-section home-genres-section" aria-label="Bible Genres">
-				<h2 className="home-section-title">
-					<button
-						type="button"
-						className="home-disclosure-btn"
-						aria-expanded={genresOpen}
-						aria-controls={genresOpen ? genresPanelId : undefined}
-						onClick={() => {
-							if (genresOpen) setSelectedGenreBook(null);
-							setGenresOpen((prev) => !prev);
-						}}
-					>
-						<span>Browse Genres</span>
-						<span className="home-disclosure-icon" aria-hidden="true">
-							{genresOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-						</span>
-					</button>
-				</h2>
-
-				{genresOpen && (
-					<div id={genresPanelId}>
-						<GenresBrowser
-							selectedBook={selectedGenreBook}
-							currentBookNumber={lastBook.number}
-							currentChapter={lastChapter}
-							onSelectBook={setSelectedGenreBook}
-							onSelectChapter={onOpenPassage}
-						/>
-					</div>
-				)}
-			</section>
-
-			<section className="home-section" aria-label="Browse All Books">
+			<section className="home-section" aria-label="Scripture">
 				<div className="home-browser-header">
 					<h2 className="home-section-title">
-						{selectedBook ? `${selectedBook.en} · ${selectedBook.ko}` : "Browse Scripture"}
+						{selectedBook ? `${selectedBook.en} · ${selectedBook.ko}` : "Scripture"}
 					</h2>
 
-					{selectedBook && (
+					{selectedBook ? (
 						<button
 							type="button"
 							className="icon-btn"
@@ -207,6 +181,28 @@ export function HomePage({
 							<ArrowLeft size={14} />
 							<span>All Books</span>
 						</button>
+					) : (
+						<div
+							className="segmented-row home-grouping-toggle"
+							role="tablist"
+							aria-label="Scripture book grouping"
+						>
+							{SCRIPTURE_GROUPINGS.map((option) => {
+								const active = grouping === option.id;
+								return (
+									<button
+										key={option.id}
+										type="button"
+										role="tab"
+										aria-selected={active}
+										className={`segmented-btn ${active ? "active" : ""}`.trim()}
+										onClick={() => setGrouping(option.id)}
+									>
+										{option.label}
+									</button>
+								);
+							})}
+						</div>
 					)}
 				</div>
 
@@ -235,6 +231,13 @@ export function HomePage({
 						currentBookNumber={lastBook.number}
 						currentChapter={lastChapter}
 						showChapterCount={true}
+						onSelectBook={setSelectedBook}
+						onSelectChapter={onOpenPassage}
+					/>
+				) : grouping === "genres" ? (
+					<GenresBrowser
+						currentBookNumber={lastBook.number}
+						allowedBookNumbers={query.trim() ? matchedBookNumbers : undefined}
 						onSelectBook={setSelectedBook}
 						onSelectChapter={onOpenPassage}
 					/>

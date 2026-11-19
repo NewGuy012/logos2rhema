@@ -2,7 +2,6 @@ import type { CSSProperties } from "react";
 
 import { BIBLE_GENRES, getBookByNumber, parsePassageReference } from "../../shared/books";
 import type { BookMeta, Testament } from "../../shared/types";
-import { ArrowLeft } from "./Icons";
 
 export function submitPassageQuery(
 	query: string,
@@ -54,7 +53,6 @@ export function BookChapterGrid({
 	currentBookNumber,
 	currentChapter,
 	showChapterCount = false,
-	compact = false,
 	verticalColumns,
 	onSelectBook,
 	onSelectChapter,
@@ -64,14 +62,13 @@ export function BookChapterGrid({
 	currentBookNumber: number;
 	currentChapter: number;
 	showChapterCount?: boolean;
-	compact?: boolean;
 	verticalColumns?: number;
 	onSelectBook: (book: BookMeta) => void;
 	onSelectChapter: (bookNumber: number, chapter: number) => void;
 }) {
 	if (selectedBook) {
 		return (
-			<div className={`chapters-grid ${compact ? "top-genre-chapters-grid" : ""}`.trim()}>
+			<div className="chapters-grid">
 				{Array.from({ length: selectedBook.chapters }, (_, i) => i + 1).map((ch) => (
 					<button
 						key={ch}
@@ -120,91 +117,64 @@ export function BookChapterGrid({
 }
 
 export function GenresBrowser({
-	selectedBook,
 	currentBookNumber,
-	currentChapter,
-	compact = false,
+	allowedBookNumbers,
 	onSelectBook,
 	onSelectChapter,
 }: {
-	selectedBook: BookMeta | null;
 	currentBookNumber: number;
-	currentChapter: number;
-	compact?: boolean;
-	onSelectBook: (book: BookMeta | null) => void;
+	allowedBookNumbers?: ReadonlySet<number>;
+	onSelectBook: (book: BookMeta) => void;
 	onSelectChapter: (bookNumber: number, chapter: number) => void;
 }) {
-	if (selectedBook) {
-		return (
-			<div className="home-genre-detail">
-				<div className="home-browser-header">
-					<h3 className="home-genre-book-title">
-						{selectedBook.en} · {selectedBook.ko}
-					</h3>
-					<button
-						type="button"
-						className="icon-btn"
-						onClick={() => onSelectBook(null)}
-						aria-label="Back to all genres"
-					>
-						<ArrowLeft size={14} />
-						<span>All Genres</span>
-					</button>
-				</div>
-				<BookChapterGrid
-					books={[]}
-					selectedBook={selectedBook}
-					currentBookNumber={currentBookNumber}
-					currentChapter={currentChapter}
-					showChapterCount={true}
-					compact={compact}
-					onSelectBook={onSelectBook}
-					onSelectChapter={onSelectChapter}
-				/>
-			</div>
-		);
+	const visibleGenres = BIBLE_GENRES.map((genre) => ({
+		genre,
+		books: genre.bookNumbers
+			.map((num) => getBookByNumber(num))
+			.filter((b): b is BookMeta =>
+				Boolean(b && (!allowedBookNumbers || allowedBookNumbers.has(b.number))),
+			),
+	})).filter((entry) => entry.books.length > 0);
+
+	if (visibleGenres.length === 0) {
+		return <p className="home-testament-empty">No matching books</p>;
 	}
 
 	return (
-		<div className={`home-genres-list ${compact ? "top-genres-list" : ""}`.trim()}>
-			{BIBLE_GENRES.map((genre) => {
-				const books = genre.bookNumbers
-					.map((num) => getBookByNumber(num))
-					.filter((b): b is BookMeta => Boolean(b));
-				return (
-					<div key={genre.id} className="home-genre-card">
-						<div className="home-genre-head">
-							<div className="home-genre-title">
-								<span className="home-genre-name">{genre.nameEn}</span>
-								<span className="home-genre-ko" lang="ko">
-									{genre.nameKo}
-								</span>
-							</div>
-							<span className="home-genre-meta">
-								{genre.testament} · {books.length}
+		<div className="home-genres-list">
+			{visibleGenres.map(({ genre, books }) => (
+				<div key={genre.id} className="home-genre-card">
+					<div className="home-genre-head">
+						<div className="home-genre-title">
+							<span className="home-genre-name">{genre.nameEn}</span>
+							<span className="home-genre-ko" lang="ko">
+								{genre.nameKo}
 							</span>
 						</div>
-						<div className="home-genre-books">
-							{books.map((book) => (
-								<button
-									key={book.usfm}
-									type="button"
-									className={`home-genre-chip ${book.number === currentBookNumber ? "current" : ""}`}
-									onClick={() =>
-										book.chapters === 1 ? onSelectChapter(book.number, 1) : onSelectBook(book)
-									}
-									title={`${book.en} · ${book.ko} (${book.chapters}ch)`}
-								>
-									<span>{book.en}</span>
-									<span className="home-genre-chip-ko" lang="ko">
-										{book.ko}
-									</span>
-								</button>
-							))}
-						</div>
+						<span className="home-genre-meta">
+							{genre.testament} · {books.length}
+						</span>
 					</div>
-				);
-			})}
+					<div className="home-genre-books">
+						{books.map((book) => (
+							<button
+								key={book.usfm}
+								type="button"
+								className={`home-genre-chip ${book.number === currentBookNumber ? "current" : ""}`}
+								onClick={() =>
+									book.chapters === 1 ? onSelectChapter(book.number, 1) : onSelectBook(book)
+								}
+								title={`${book.en} · ${book.ko} (${book.chapters}ch)`}
+							>
+								<span>{book.en}</span>
+								<span className="home-genre-chip-ko" lang="ko">
+									{book.ko}
+								</span>
+							</button>
+						))}
+					</div>
+				</div>
+			))}
 		</div>
 	);
 }

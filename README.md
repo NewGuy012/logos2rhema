@@ -1,52 +1,99 @@
-# Logos2Rhema — Bilingual Bible Reader (English ESV · 한국어 개역한글)
+<div align="center">
 
-A lean, distraction-free bilingual Bible web app for reading and listening to Scripture side-by-side while learning Korean.
+# Logos2Rhema
+
+**Bilingual Bible reader (`ESV` · `개역한글`) for reading, listening, and learning Korean side-by-side.**
+
+### [Open Live App → logos2rhema.juyoung-m-yoo.workers.dev](https://logos2rhema.juyoung-m-yoo.workers.dev/)
+
+[![Live App](https://img.shields.io/badge/Live_App-Cloudflare_Workers-8b5a3c?style=flat-square&logo=cloudflareworkers&logoColor=white)](https://logos2rhema.juyoung-m-yoo.workers.dev/)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react&logoColor=white)
+![Hono](https://img.shields.io/badge/Hono-4-e36002?style=flat-square&logo=hono&logoColor=white)
+![Bun](https://img.shields.io/badge/Bun-runtime_%26_test-000000?style=flat-square&logo=bun&logoColor=white)
+
+</div>
+
+---
 
 ## Features
 
-- **Home & Navigation**: Clean Home view (`#/`) with **Continue Where You Left Off**, collapsible **Favorites** (Bookmarks & Highlights), collapsible **Browse Genres**, bilingual passage search (`John 3:16`, `요 3:16`, `시 23`), and a full OT/NT browser. Quick-jump modal (`⌘K` / `Ctrl+K`) and TopBar **Favorites** / **Genres** popovers are accessible everywhere.
-- **Bundled Canonical Editions**: Displays **English (`ESV`)** and **Korean (`개역한글` KRV 1961)** bundled locally under `public/data/`, with a **Stack Order** toggle (`EN / 한` vs. `한 / EN`) in Display settings.
-- **3-Column Desktop Workspace**:
-  - **Left Rail**: Collapsible sticky **Audio & Verse Sync** player (Play/Pause, `한` / `EN` toggle, scrubber, 10s skip, speed menu, and two-way visible-verse auto-sync with scroll pause/follow recovery).
-  - **Center**: Stacked verse pairs with verse deep-links (`#/JHN/3/16`), verse/chapter **Bookmarks**, text **Highlights** (`⌘H` / `Ctrl+H` or floating toolbar), and interactive Korean word tooltips with **Revised Romanization**, **Web Speech (`ko-KR`) pronunciation**, and **View in Dictionary**.
-  - **Right Rail (Tabbed)**: Collapsible sticky panel with **Dictionary** (**Korean Dictionary & KRV Grammar Guide** synced to chapter vocabulary with search and pronunciation playback) and **Commentary** (**Tyndale Open Study Notes** & **Matthew Henry Bible Commentary** synced to verse selection with keyword/verse search and book/chapter introductions).
-- **Audio & Commentary Worker Endpoints**: Serves **Supertonic 3 (`Daniel`)** verse-synced Korean KRV audio from Cloudflare R2 (`AUDIO_BASE_URL`), Crossway **ESV** chapter audio (`ESV_API_KEY`), and keyless HelloAO commentaries:
-  - `GET /api/config` — returns canonical translation metadata and audio capability flags
-  - `GET /api/audio/:usfm/:chapter` — resolves `ko` (Supertonic 3) and `en` (Crossway ESV) chapter audio tracks
-  - `GET /api/audio/esv/:usfm/:chapter` — proxies/redirects Crossway ESV audio when `ESV_API_KEY` is configured
-  - `GET /api/commentaries` — returns curated English commentary metadata (`tyndale`, `matthew-henry`)
-  - `GET /api/commentary/:commentaryId/:usfm/:chapter` — proxies and normalizes chapter commentary from `bible.helloao.org`
-- **Editorial Display Controls**: Paper, Sepia, and Dark themes; text scaling (`S`–`XL`); Serif (명조) vs. Sans (고딕) Korean typefaces; Stack Order; and hover-to-reveal **Study Mode** blur.
-- **Hardened Worker & Assets**: HTTPS-only upstream/media validation with SSRF/IP/port/key-leak guards, upstream timeouts, safe JSON parsing, `502` / `no-store` error boundaries, prototype-safe dictionary lookups, and strict CSP/security headers (`public/_headers` + Worker middleware).
+- **Side-by-Side Scripture** — Read bundled English (**ESV**) and Korean (**개역한글**, KRV 1961) stacked verse by verse, flip stack order (`EN / 한` ↔ `한 / EN`), and practice recall with hover-to-reveal **Study Mode** blur.
+- **Instant Korean Dictionary & Grammar** — Hover or tap any Korean word for morphological analysis, **Revised Romanization**, **Web Speech (`ko-KR`)** pronunciation, and a chapter-synced **Words & Grammar** panel.
+- **Verse-Synced Audio** — Listen to **Supertonic 3 (`Daniel`)** Korean narration synced verse by verse (two-way scroll follow, speed controls, `±10s` skip) alongside **Crossway ESV** English audio.
+- **Integrated Commentary** — Switch between **Tyndale Open Study Notes** and **Matthew Henry Commentary** synced to your active verse, with keyword/verse search and book/chapter introductions.
+- **Fast Navigation & Personalization** — Jump via bilingual references (`John 3:16`, `요 3:16`, `시 23`), toggle **Scripture** / **Genres** book groupings on Home, save **Bookmarks** and **Highlights**, and choose Paper, Sepia, or Dark themes, Serif/Sans Korean fonts, and `S`–`XL` text scaling.
 
-## Commands (Bun)
+## Keyboard Shortcuts
 
-```bash
-bun install             # Install dependencies
-bun run dev             # Start Vite + Cloudflare Worker dev server
-bun run check           # Run Bun formatter check + native Bun TypeScript check
-bun run format          # Format codebase with bun fmt
-bun test                # Run unit, Worker API, and happy-dom React tests via Bun
-bun run build           # Typecheck with bun check and build Worker + client bundle
-bun run data:build      # Rebuild bundled ESV/KRV chapters and compact Korean lexicon
-bun run audio:generate-krv  # Generate Supertonic 3 KRV MP3s (.cache) + exact verse timings
-```
+| Shortcut        | Action                                                          |
+| :-------------- | :-------------------------------------------------------------- |
+| `⌘K` / `Ctrl+K` | Open or close the passage quick-jump modal                      |
+| `⌘H` / `Ctrl+H` | Highlight or remove highlight on selected verse text            |
+| `←` / `→`       | Skip audio `±10s` while playing, or switch chapters when paused |
 
-## Optional Audio Configuration
+## Tech Stack
 
-Copy `.dev.vars.example` to `.dev.vars` (gitignored; kept server-side in Worker bindings):
+| Layer                  | Technology                                                                                                                                                                  |
+| :--------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Frontend**           | [React 19](https://react.dev/), [Vite](https://vite.dev/), custom editorial CSS (`Paper` / `Sepia` / `Dark`)                                                                |
+| **Edge API**           | [Hono](https://hono.dev/) on [Cloudflare Workers](https://workers.cloudflare.com/)                                                                                          |
+| **Language & Tooling** | [TypeScript](https://www.typescriptlang.org/), [Bun](https://bun.sh/) (`bun test`, `bun fmt`, `bun check`), [Wrangler](https://developers.cloudflare.com/workers/wrangler/) |
+| **Data & Audio**       | Bundled ESV/KRV JSON & Korean lexicon (`public/data/`), [HelloAO](https://bible.helloao.org/) commentaries, Crossway ESV & Supertonic 3 audio                               |
 
-```env
-AUDIO_BASE_URL=https://your-r2-domain.example.com
-ESV_API_KEY=your_free_esv_key
-```
-
-To generate and deploy the Supertonic 3 (`Daniel` / `M5`) Korean audio locally (requires [`uv`](https://docs.astral.sh/uv/)):
+## Quick Start
 
 ```bash
-bun run audio:generate-krv --dry-run
-caffeinate -i bun run audio:generate-krv --testament NT --voice Daniel --speed 0.95 --steps 10
-caffeinate -i bun run audio:generate-krv --testament OT --voice Daniel --speed 0.95 --steps 10
+bun install
+bun run dev
 ```
 
-Upload `.cache/krv-supertonic-audio/{USFM}/{CHAPTER}.mp3` to your Cloudflare R2 bucket with `Cache-Control: public, max-age=31536000, immutable` and set `AUDIO_BASE_URL` in `.dev.vars` and your Cloudflare Worker bindings.
+Bundled Scripture text, Korean lexicon, and HelloAO commentaries work out of the box with zero configuration.
+
+### Scripts
+
+| Command                      | Description                                               |
+| :--------------------------- | :-------------------------------------------------------- |
+| `bun run dev`                | Start Vite + Cloudflare Worker dev server                 |
+| `bun test`                   | Run unit, Worker API, and `happy-dom` React tests         |
+| `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking |
+| `bun run format`             | Format codebase with `bun fmt`                            |
+| `bun run build`              | Typecheck and build Worker + client bundle into `dist/`   |
+| `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                 |
+| `bun run data:build`         | Rebuild bundled ESV/KRV chapters and Korean lexicon       |
+| `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings         |
+
+## API Endpoints
+
+All Worker routes enforce `GET`/`HEAD`-only access, strict CSP/security headers, HTTPS upstream validation, and `502` / `no-store` error boundaries.
+
+| Endpoint                                           | Purpose                                                                 |
+| :------------------------------------------------- | :---------------------------------------------------------------------- |
+| `GET /api/health`                                  | Worker health check                                                     |
+| `GET /api/config`                                  | Canonical translation metadata and audio capability flags               |
+| `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3) and English (Crossway ESV) chapter tracks |
+| `GET /api/audio/esv/:usfm/:chapter`                | Proxy or redirect Crossway ESV chapter audio                            |
+| `GET /api/commentaries`                            | Curated English commentary metadata (`tyndale`, `matthew-henry`)        |
+| `GET /api/commentary/:commentaryId/:usfm/:chapter` | Normalized chapter commentary & introductions from `bible.helloao.org`  |
+
+<details>
+<summary><strong>Optional: Configure ESV &amp; Supertonic 3 Korean Audio</strong></summary>
+
+1. Copy `.dev.vars.example` to `.dev.vars` (gitignored):
+
+   ```env
+   AUDIO_BASE_URL=https://your-r2-domain.example.com
+   ESV_API_KEY=your_free_esv_key
+   ```
+
+2. _(Optional)_ Generate Supertonic 3 (`Daniel`) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)):
+
+   ```bash
+   bun run audio:generate-krv --dry-run
+   caffeinate -i bun run audio:generate-krv --testament NT --voice Daniel --speed 0.95 --steps 10
+   caffeinate -i bun run audio:generate-krv --testament OT --voice Daniel --speed 0.95 --steps 10
+   ```
+
+3. Upload `.cache/krv-supertonic-audio/{USFM}/{CHAPTER}.mp3` to your Cloudflare R2 bucket with `Cache-Control: public, max-age=31536000, immutable` and configure `AUDIO_BASE_URL` / `ESV_API_KEY` in `.dev.vars` and your Worker bindings.
+
+</details>
