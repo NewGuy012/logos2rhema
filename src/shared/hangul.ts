@@ -220,6 +220,14 @@ export function hasFinalConsonant(word: string): boolean {
 	return info !== null && info.finalIdx > 0;
 }
 
+export function endsWithOpenAEoVowel(word: string): boolean {
+	const info = getLastFinalIndex(word);
+	if (!info || info.finalIdx !== 0) return false;
+	const jung = Math.floor((info.code - HANGUL_START) / 28) % 21;
+	// Open vowels ㅏ (0), ㅐ (1), ㅓ (4), ㅔ (5) drop redundant -아/-어 in connectives.
+	return jung === 0 || jung === 1 || jung === 4 || jung === 5;
+}
+
 export function replaceLastFinalConsonant(word: string, finalJamo: string): string | null {
 	const info = getLastFinalIndex(word);
 	if (!info) return null;

@@ -710,7 +710,7 @@ const KRV_GRAMMAR_RULES: readonly KrvGrammarRule[] = [
 		modern: "~하셨습니다 / ~했습니다",
 		explanation:
 			"Classical narrative declarative ending in 개역한글. When paired with -시-, it marks honorific action by God or Jesus.",
-		matcher: /(?:시니라|니라)$/,
+		matcher: /니라$/,
 	},
 	{
 		id: "krv-garasadae",
@@ -718,7 +718,7 @@ const KRV_GRAMMAR_RULES: readonly KrvGrammarRule[] = [
 		modern: "말씀하셨다 / 말하였다",
 		explanation:
 			"Traditional KRV quotation verbs introducing direct speech; 가라사대 and 이르시되 carry high honorific weight.",
-		matcher: /^(?:가라사대|가로되|이르시되|이르되)$/,
+		matcher: /^(?:가라사대|가로되|이르시?되)$/,
 	},
 	{
 		id: "krv-mae",
@@ -726,7 +726,7 @@ const KRV_GRAMMAR_RULES: readonly KrvGrammarRule[] = [
 		modern: "~하니까 / ~할 때에",
 		explanation:
 			"Archaic connective ending showing cause or immediate sequence ('when / since / as').",
-		matcher: /(?:시매|하매|으매|매)$/,
+		matcher: /매$/,
 	},
 	{
 		id: "krv-jini",
@@ -734,7 +734,7 @@ const KRV_GRAMMAR_RULES: readonly KrvGrammarRule[] = [
 		modern: "~해야 한다 / ~되기를",
 		explanation:
 			"Solemn prophetic or imperative KRV endings expressing necessity ('shall / must') or divine command ('let there be').",
-		matcher: /(?:지니라|지어다)$/,
+		matcher: /(?:지|찌)(?:니라|어다)$/,
 	},
 	{
 		id: "krv-doda",

@@ -327,7 +327,7 @@ function buildCompactBibleLexicon(
 	let totalHangulWords = 0;
 	let matchedWords = 0;
 
-	// Pre-warm common suffixes so analyzeKoreanVerse extracts exact matched lemmas
+	// Collect matched Kengdic lemmas and fallback stems used across the KRV corpus
 	for (const book of krvBooks.values()) {
 		for (const verses of Object.values(book.chapters)) {
 			for (const verse of verses) {
@@ -339,13 +339,12 @@ function buildCompactBibleLexicon(
 						matchedWords++;
 						if (
 							token.lemma.length >= 2 &&
-							!BIBLICAL_GLOSSARY[token.lemma] &&
-							fullKengdic[token.lemma]
+							!Object.hasOwn(BIBLICAL_GLOSSARY, token.lemma) &&
+							Object.hasOwn(fullKengdic, token.lemma)
 						) {
 							compact[token.lemma] = fullKengdic[token.lemma];
 						}
 					} else {
-						// Check a couple extra stem possibilities directly against fullKengdic
 						const withRieul = replaceLastFinalConsonant(token.lemma, "ㄹ");
 						const altCandidates = [
 							token.lemma,
@@ -354,7 +353,7 @@ function buildCompactBibleLexicon(
 							stripLastFinalConsonant(token.lemma)?.stem ?? "",
 						].filter((c) => c.length >= 2);
 						for (const alt of altCandidates) {
-							if (fullKengdic[alt] && !BIBLICAL_GLOSSARY[alt]) {
+							if (Object.hasOwn(fullKengdic, alt) && !Object.hasOwn(BIBLICAL_GLOSSARY, alt)) {
 								compact[alt] = fullKengdic[alt];
 								break;
 							}
