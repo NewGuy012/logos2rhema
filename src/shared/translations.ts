@@ -1,6 +1,5 @@
 import type { TranslationLanguage, TranslationMeta } from "./types";
 
-/** Canonical Bible editions (one per language). */
 export const CANONICAL_BIBLES: Record<TranslationLanguage, TranslationMeta> = {
 	en: {
 		id: "esv",

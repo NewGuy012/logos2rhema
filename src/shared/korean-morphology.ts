@@ -331,7 +331,7 @@ const EPENTHETIC_EU_ENDINGS: readonly RuleSpec[] = [
 	["냐", "question ('do ...?')"],
 	["뇨", "archaic question ('do ...?')"],
 	["면", "'if / when'"],
-	["라", "imperative ('command')"],
+	["라", "imperative / declarative"],
 	["사", "archaic connective ('having ...')"],
 	["되", "'though / saying'"],
 ];
@@ -399,165 +399,130 @@ const KRV_SOLEMN_SPECS: readonly (readonly [tail: string, note: string])[] = [
 	["로다", "solemn praise / blessing"],
 ];
 
-function dedupeSuffixRules(rules: readonly SuffixRule[]): SuffixRule[] {
-	const seen = new Set<string>();
-	const unique: SuffixRule[] = [];
-	for (const rule of rules) {
-		if (seen.has(rule.suffix)) continue;
-		seen.add(rule.suffix);
-		unique.push(rule);
-	}
-	return unique;
-}
-
-const VERB_ENDING_RULES: readonly SuffixRule[] = dedupeSuffixRules([
-	...toRules("verb", HONORIFIC_SI_ENDINGS),
-	...toRules(
-		"verb",
-		HONORIFIC_SI_ENDINGS.map(([tail, note]): RuleSpec => [`으${tail}`, note]),
+const VERB_ENDING_RULES: readonly SuffixRule[] = toRules("verb", [
+	...HONORIFIC_SI_ENDINGS,
+	...HONORIFIC_SI_ENDINGS.map(([tail, note]): RuleSpec => [`으${tail}`, note]),
+	...HUMBLE_OPT_TAILS.map(([tail, note]): RuleSpec => [`사${tail}`, note]),
+	...HUMBLE_SI_TAILS,
+	...HUMBLE_OPT_TAILS,
+	["삽나이까", "humble archaic question"],
+	["이니이다", "polite KRV declarative"],
+	["음이니이다", "nominalizer + polite 'is'"],
+	...EPENTHETIC_EU_ENDINGS.map(([tail, note]): RuleSpec => [`으${tail}`, note]),
+	["겠느니라", "future/certainty declarative"],
+	["겠느냐", "future/certainty question"],
+	["겠느뇨", "future/certainty archaic question"],
+	["겠나이다", "polite future declarative"],
+	["겠노라", "1st-person resolve ('I will')"],
+	["겠으니", "future + 'so / since'"],
+	["겠고", "future + 'and'"],
+	["겠다", "future / 'will / would'"],
+	...["였", "었", "았"].flatMap((tense) =>
+		PAST_ENDINGS.map(([tail, note]): RuleSpec => [`${tense}${tail}`, note]),
 	),
-	...toRules("verb", [
-		...HUMBLE_OPT_TAILS.map(([tail, note]): RuleSpec => [`사${tail}`, note]),
-		...HUMBLE_SI_TAILS,
-		...HUMBLE_OPT_TAILS,
-		["삽나이까", "humble archaic question"],
-		["이니이다", "polite KRV declarative"],
-		["음이니이다", "nominalizer + polite 'is'"],
+	...PAST_ENDINGS.map(([tail, note]): RuleSpec => [`했${tail}`, note, "하"]),
+	...[...HUMBLE_SI_TAILS, ...HUMBLE_OPT_TAILS].map(([tail, note]): RuleSpec => [
+		`하${tail}`,
+		note,
+		"하",
 	]),
-	...toRules(
-		"verb",
-		EPENTHETIC_EU_ENDINGS.map(([tail, note]): RuleSpec => [`으${tail}`, note]),
-	),
-	...toRules("verb", [
-		["겠느니라", "future/certainty declarative"],
-		["겠느냐", "future/certainty question"],
-		["겠느뇨", "future/certainty archaic question"],
-		["겠나이다", "polite future declarative"],
-		["겠노라", "1st-person resolve ('I will')"],
-		["겠으니", "future + 'so / since'"],
-		["겠고", "future + 'and'"],
-		["겠다", "future / 'will / would'"],
+	["한지라", "'because / since'", "하"],
+	["한즉", "'since / when'", "하"],
+	["한대", "'when / as'", "하"],
+	["한대로", "'according to'", "하"],
+	["한바", "'that which'", "하"],
+	["한것", "'the thing that'", "하"],
+	["할것", "'that which will'", "하"],
+	["하냐", "question ('do ...?')", "하"],
+	["하므로", "'because / since'", "하"],
+	["된바", "'that which is'", "되"],
+	...KRV_SOLEMN_SPECS.flatMap(([tail, note]): RuleSpec[] => [
+		[`을찌${tail}`, `${note} (archaic KRV)`],
+		[`찌${tail}`, `${note} (archaic KRV)`],
+		[`지${tail}`, note],
 	]),
-	...toRules(
-		"verb",
-		["였", "었", "았"].flatMap((tense) =>
-			PAST_ENDINGS.map(([tail, note]): RuleSpec => [`${tense}${tail}`, note]),
-		),
+	["을찌라", "solemn declarative ('shall') (archaic KRV)"],
+	["찌라", "solemn declarative ('shall') (archaic KRV)"],
+	["을지라", "solemn declarative ('shall')"],
+	["지라", "'because / since'"],
+	["찐대", "'if indeed / since' (archaic KRV)"],
+	["을찐저", "archaic prophetic ('surely')"],
+	["찐저", "archaic prophetic ('surely')"],
+	["는지라", "'because / since'"],
+	["은지라", "'because / since'"],
+	["은즉", "'since / when'"],
+	["는즉", "'since / when'"],
+	["은대", "'when / as'"],
+	["느니라", "timeless declarative"],
+	["는도다", "poetic exclamatory"],
+	["노라", "1st-person declarative"],
+	["노니", "1st-person 'for I ...'"],
+	["느냐", "question ('do you ...?')"],
+	["느뇨", "archaic question ('do ...?')"],
+	["거니와", "'indeed, yet / besides'"],
+	["거나", "'whether ... or'"],
+	["거든", "'if / when'"],
+	["거늘", "archaic connective ('when / since')"],
+	["건대", "'when considering'"],
+	["는다", "present declarative"],
+	["한다", "present declarative", "하"],
+	["더이다", "polite past observed"],
+	["더라", "observed past"],
+	["더니", "'and then / since'"],
+	["던", "retrospective past modifier"],
+	["도다", "exclamatory"],
+	["나니", "'for / since'"],
+	["는데", "'while / when / and'"],
+	["는대로", "'as / according to'"],
+	["은대로", "'as / according to'"],
+	["는바", "'that which'"],
+	["은바", "'that which'"],
+	["는것", "'the thing that'"],
+	["은것", "'the thing that'"],
+	["을것", "'that which will'"],
+	["기가", "nominalized subject"],
+	["기에", "'for / at doing'"],
+	["기를", "nominalized object"],
+	["기로", "'by / to do'"],
+	["기는", "nominalized topic"],
+	["기도", "nominalized + 'also'"],
+	["기만", "nominalized + 'only'"],
+	["기까지", "nominalized + 'until'"],
+	["지도", "'nor / even'"],
+	["지는", "negative/connective + topic"],
+	["고자", "'wishing to / intending to'"],
+	["고도", "'even after / although'"],
+	["고는", "'after doing'"],
+	["는구나", "exclamatory ('how ...!')"],
+	["구나", "exclamatory ('how ...!')"],
+	["을꼬", "archaic question ('what shall ...?')"],
+	["꼬", "archaic question ('what shall ...?')"],
+	["고", "'and / then'"],
+	["도", "'even / though'"],
+	...["어", "아", "여"].flatMap((vowel) =>
+		CONNECTIVE_PAIRS.map(([tail, note]): RuleSpec => [`${vowel}${tail}`, note]),
 	),
-	...toRules(
-		"verb",
-		PAST_ENDINGS.map(([tail, note]): RuleSpec => [`했${tail}`, note, "하"]),
-	),
-	...toRules("verb", [
-		...[...HUMBLE_SI_TAILS, ...HUMBLE_OPT_TAILS].map(([tail, note]): RuleSpec => [
-			`하${tail}`,
-			note,
-			"하",
-		]),
-		["한지라", "'because / since'", "하"],
-		["한즉", "'since / when'", "하"],
-		["한대", "'when / as'", "하"],
-		["한대로", "'according to'", "하"],
-		["한바", "'that which'", "하"],
-		["한것", "'the thing that'", "하"],
-		["할것", "'that which will'", "하"],
-		["하냐", "question ('do ...?')", "하"],
-		["하므로", "'because / since'", "하"],
-		["된바", "'that which is'", "되"],
-		...KRV_SOLEMN_SPECS.flatMap(([tail, note]): RuleSpec[] => [
-			[`을찌${tail}`, `${note} (archaic KRV)`],
-			[`찌${tail}`, `${note} (archaic KRV)`],
-			[`지${tail}`, note],
-		]),
-		["을찌라", "solemn declarative ('shall') (archaic KRV)"],
-		["찌라", "solemn declarative ('shall') (archaic KRV)"],
-		["을지라", "solemn declarative ('shall')"],
-		["지라", "'because / since'"],
-		["찐대", "'if indeed / since' (archaic KRV)"],
-		["을찐저", "archaic prophetic ('surely')"],
-		["찐저", "archaic prophetic ('surely')"],
-		["는지라", "'because / since'"],
-		["은지라", "'because / since'"],
-		["은즉", "'since / when'"],
-		["는즉", "'since / when'"],
-		["은대", "'when / as'"],
-		["느니라", "timeless declarative"],
-		["는도다", "poetic exclamatory"],
-		["노라", "1st-person declarative"],
-		["노니", "1st-person 'for I ...'"],
-		["느냐", "question ('do you ...?')"],
-		["느뇨", "archaic question ('do ...?')"],
-		["거니와", "'indeed, yet / besides'"],
-		["거나", "'whether ... or'"],
-		["거든", "'if / when'"],
-		["거늘", "archaic connective ('when / since')"],
-		["건대", "'when considering'"],
-		["는다", "present declarative"],
-		["한다", "present declarative", "하"],
-		["더이다", "polite past observed"],
-		["더라", "observed past"],
-		["더니", "'and then / since'"],
-		["던", "retrospective past modifier"],
-		["도다", "exclamatory"],
-		["나니", "'for / since'"],
-		["는데", "'while / when / and'"],
-		["는대로", "'as / according to'"],
-		["은대로", "'as / according to'"],
-		["는바", "'that which'"],
-		["은바", "'that which'"],
-		["는것", "'the thing that'"],
-		["은것", "'the thing that'"],
-		["을것", "'that which will'"],
-		["기가", "nominalized subject"],
-		["기에", "'for / at doing'"],
-		["기를", "nominalized object"],
-		["기로", "'by / to do'"],
-		["기는", "nominalized topic"],
-		["기도", "nominalized + 'also'"],
-		["기만", "nominalized + 'only'"],
-		["기까지", "nominalized + 'until'"],
-		["지도", "'nor / even'"],
-		["지는", "negative/connective + topic"],
-		["고자", "'wishing to / intending to'"],
-		["고도", "'even after / although'"],
-		["고는", "'after doing'"],
-		["는구나", "exclamatory ('how ...!')"],
-		["구나", "exclamatory ('how ...!')"],
-		["을꼬", "archaic question ('what shall ...?')"],
-		["꼬", "archaic question ('what shall ...?')"],
-		["고", "'and / then'"],
-		["도", "'even / though'"],
-	]),
-	...toRules(
-		"verb",
-		["어", "아", "여"].flatMap((vowel) =>
-			CONNECTIVE_PAIRS.map(([tail, note]): RuleSpec => [`${vowel}${tail}`, note]),
-		),
-	),
-	...toRules("verb", [
-		["다가", "'while doing, then'"],
-		["라고", "quotative ('to / saying')"],
-		["지", "negative / auxiliary connective"],
-		["치", "contracted -하지 ('not / do')", "하"],
-		["케", "contracted -하게 (causative)", "하"],
-		["게", "causative / 'so that'"],
-		["기", "nominalizer ('-ing')"],
-		["자", "hortative ('let us ...')"],
-		["을까", "'lest / might'"],
-		["까", "'lest / might'"],
-		["즉", "'when / since' (after -ㄴ)"],
-		["대", "'when / as' (after -ㄴ)"],
-		["는", "present modifier"],
-		["은", "past/adj modifier"],
-		["을", "future modifier"],
-		["음", "nominalizer"],
-		["서", "'and then / so'"],
-		["여", "connective"],
-		["아", "connective"],
-		["어", "connective"],
-		["라", "imperative / declarative"],
-	]),
-	...toRules("verb", EPENTHETIC_EU_ENDINGS),
+	["다가", "'while doing, then'"],
+	["라고", "quotative ('to / saying')"],
+	["지", "negative / auxiliary connective"],
+	["치", "contracted -하지 ('not / do')", "하"],
+	["케", "contracted -하게 (causative)", "하"],
+	["게", "causative / 'so that'"],
+	["기", "nominalizer ('-ing')"],
+	["자", "hortative ('let us ...')"],
+	["을까", "'lest / might'"],
+	["까", "'lest / might'"],
+	["즉", "'when / since' (after -ㄴ)"],
+	["대", "'when / as' (after -ㄴ)"],
+	["는", "present modifier"],
+	["은", "past/adj modifier"],
+	["을", "future modifier"],
+	["음", "nominalizer"],
+	["서", "'and then / so'"],
+	["여", "connective"],
+	["아", "connective"],
+	["어", "connective"],
+	...EPENTHETIC_EU_ENDINGS,
 ]);
 
 const byLongestSuffix = (a: SuffixRule, b: SuffixRule) => b.suffix.length - a.suffix.length;
@@ -586,10 +551,9 @@ const RIEUL_MODIFIER_ENDINGS = new Set([
 	"지로다",
 	"까",
 	"꼬",
-	"것",
 ]);
 
-const NIEUN_MODIFIER_ENDINGS = new Set(["지라", "즉", "대", "바", "대로", "것"]);
+const NIEUN_MODIFIER_ENDINGS = new Set(["지라", "즉", "대"]);
 
 /** Endings that only attach after a -ㄹ/-ㄴ modifier coda, never directly to a bare verb stem. */
 const MODIFIER_ONLY_ENDINGS = new Set(["까", "즉", "대"]);
@@ -669,11 +633,7 @@ function isPredicateHit(entry: LexiconEntry): boolean {
 function isNominalHit(entry: LexiconEntry, stem: string): boolean {
 	if (DETERMINER_ONLY.has(stem)) return false;
 	return (
-		entry.pos !== "verb" &&
-		entry.pos !== "adj" &&
-		entry.pos !== "adv" &&
-		entry.pos !== "interj" &&
-		entry.pos !== "particle"
+		entry.pos !== "verb" && entry.pos !== "adj" && entry.pos !== "adv" && entry.pos !== "interj"
 	);
 }
 
@@ -682,7 +642,6 @@ function matchesCodaReq(stem: string, req?: CodaReq): boolean {
 	const coda = stripLastFinalConsonant(stem);
 	if (req === "consonant") return coda !== null;
 	if (req === "vowel") return coda === null;
-	// vowelOrRieul (로/로부터/로서/로써 attach after open vowels or ㄹ)
 	return coda === null || coda.final === "ㄹ";
 }
 
@@ -742,6 +701,21 @@ function getBIrregularLemma(stem: string): string | null {
 	return patched ? `${patched}다` : null;
 }
 
+function pushUnique(target: string[], val: string | null | undefined): void {
+	if (val && !target.includes(val)) target.push(val);
+}
+
+function withRieulLemma(stem: string): string | null {
+	const withRieul = replaceLastFinalConsonant(stem, "ㄹ");
+	return withRieul ? `${withRieul}다` : null;
+}
+
+function pushStemContractions(target: string[], stem: string): void {
+	for (const [tail, replacement] of STEM_CONTRACTIONS) {
+		if (stem.endsWith(tail)) pushUnique(target, `${stem.slice(0, -tail.length)}${replacement}`);
+	}
+}
+
 function generateRegularPredicateCandidates(
 	rawStem: string,
 	suffix: string,
@@ -749,50 +723,40 @@ function generateRegularPredicateCandidates(
 ): string[] {
 	if (!rawStem) return [];
 	const candidates: string[] = [];
-	const push = (val: string | null | undefined) => {
-		if (val && !candidates.includes(val)) candidates.push(val);
-	};
 
 	// 으/은/을/음 endings only attach directly to consonant-final (non-ㄹ) stems.
 	const lastCoda = stripLastFinalConsonant(rawStem);
 	const blockedBeforeEu =
 		isEuInitialEnding(suffix) && (lastCoda === null || lastCoda.final === "ㄹ");
-	if (!blockedBeforeEu) {
-		push(`${rawStem}다`);
-	}
+	if (!blockedBeforeEu) pushUnique(candidates, `${rawStem}다`);
 
-	for (const [tail, replacement] of STEM_CONTRACTIONS) {
-		if (rawStem.endsWith(tail)) push(`${rawStem.slice(0, -tail.length)}${replacement}`);
-	}
+	pushStemContractions(candidates, rawStem);
 
 	// Contracted past ㅆ: check ㅡ-irregular before open-vowel stem.
 	if (lastCoda?.final === "ㅆ") {
 		const euRestored = restoreEuIrregularStem(rawStem);
-		if (euRestored) push(`${euRestored}다`);
-		push(`${lastCoda.stem}다`);
+		if (euRestored) pushUnique(candidates, `${euRestored}다`);
+		pushUnique(candidates, `${lastCoda.stem}다`);
 	}
 
-	if (allowHaSuffix && !rawStem.endsWith("하")) push(`${rawStem}하다`);
+	if (allowHaSuffix && !rawStem.endsWith("하")) pushUnique(candidates, `${rawStem}하다`);
 	return candidates;
 }
 
 function generateIrregularPredicateCandidates(rawStem: string, suffix: string): string[] {
 	if (!rawStem) return [];
 	const candidates: string[] = [];
-	const push = (val: string | null | undefined) => {
-		if (val && !candidates.includes(val)) candidates.push(val);
-	};
 
 	const vowelEnding = startsWithVowelEnding(suffix);
 	const lastCoda = stripLastFinalConsonant(rawStem);
 
-	push(getBIrregularLemma(rawStem));
+	pushUnique(candidates, getBIrregularLemma(rawStem));
 
 	// 르-irregular
 	const lastChar = rawStem[rawStem.length - 1];
 	if (lastChar === "러" || lastChar === "라" || lastChar === "렀" || lastChar === "랐") {
 		const prev = stripLastFinalConsonant(rawStem.slice(0, -1));
-		if (prev && prev.final === "ㄹ") push(`${prev.stem}르다`);
+		if (prev && prev.final === "ㄹ") pushUnique(candidates, `${prev.stem}르다`);
 	}
 
 	// 러-irregular
@@ -801,7 +765,7 @@ function generateIrregularPredicateCandidates(rawStem: string, suffix: string): 
 		(lastChar === "러" || lastChar === "렀") &&
 		rawStem[rawStem.length - 2] === "르"
 	) {
-		push(`${rawStem.slice(0, -1)}다`);
+		pushUnique(candidates, `${rawStem.slice(0, -1)}다`);
 	}
 
 	// ㅡ-irregular
@@ -815,28 +779,27 @@ function generateIrregularPredicateCandidates(rawStem: string, suffix: string): 
 		suffix.startsWith("다가")
 	) {
 		const euRestored = restoreEuIrregularStem(rawStem);
-		if (euRestored) push(`${euRestored}다`);
+		if (euRestored) pushUnique(candidates, `${euRestored}다`);
 		if (!hasFinalConsonant(rawStem) && vowelEnding) {
-			push(`${rawStem}으다`);
+			pushUnique(candidates, `${rawStem}으다`);
 		}
 	}
 
 	// ㄷ-irregular (before vowel-initial endings only)
 	if (vowelEnding && lastCoda?.final === "ㄹ") {
 		const withDigeut = replaceLastFinalConsonant(rawStem, "ㄷ");
-		if (withDigeut) push(`${withDigeut}다`);
+		if (withDigeut) pushUnique(candidates, `${withDigeut}다`);
 	}
 
 	// ㅅ-irregular (before vowel-initial endings only)
 	if (vowelEnding && !hasFinalConsonant(rawStem)) {
 		const withSiot = replaceLastFinalConsonant(rawStem, "ㅅ");
-		if (withSiot) push(`${withSiot}다`);
+		if (withSiot) pushUnique(candidates, `${withSiot}다`);
 	}
 
 	// ㄹ-deletion (before ㄴ/ㅅ/ㅂ/오 endings only)
 	if (allowsRieulDeletion(suffix) && !hasFinalConsonant(rawStem)) {
-		const withRieul = replaceLastFinalConsonant(rawStem, "ㄹ");
-		if (withRieul) push(`${withRieul}다`);
+		pushUnique(candidates, withRieulLemma(rawStem));
 	}
 
 	return candidates;
@@ -1019,13 +982,13 @@ function matchNominalRules(
 				? coda.stem.length >= 2 || (allowSingleCharNoun && coda.final === "ㅁ")
 				: coda.final === "ㅁ" && (coda.stem.length >= 2 || allowSingleCharNoun));
 		if (coda && allowCoda) {
-			// Skip -ㅁ nominalizer when the unstripped stem itself is a real predicate (남은 -> 남다, 삼아 -> 삼다, 참아 -> 참다)
+			// Skip -ㅁ nominalizer when the unstripped stem itself is a real predicate (e.g. 남은 -> 남다)
 			const directStemPred = combinedLookup(`${stem}다`);
 			const blocksCodaNominal =
 				coda.final === "ㅁ" &&
 				directStemPred &&
 				isPredicateHit(directStemPred) &&
-				(rule.suffix === "은" || rule.suffix === "을" || rule.suffix === "아");
+				(rule.suffix === "은" || rule.suffix === "을");
 			if (!blocksCodaNominal) {
 				const hit = findPredicateToken(
 					raw,
@@ -1050,19 +1013,26 @@ function matchBareConnectivePredicate(
 ): GlossToken | null {
 	const { word } = parts;
 	const candidates: string[] = [];
-	for (const [tail, replacement] of STEM_CONTRACTIONS) {
-		if (word.endsWith(tail)) candidates.push(`${word.slice(0, -tail.length)}${replacement}`);
-	}
+	pushStemContractions(candidates, word);
 	if (word.length >= 2 && endsWithOpenAEoVowel(word)) {
-		candidates.push(`${word}다`);
+		pushUnique(candidates, `${word}다`);
 	}
-	candidates.push(...generateIrregularPredicateCandidates(word, ""));
+	for (const cand of generateIrregularPredicateCandidates(word, "")) {
+		pushUnique(candidates, cand);
+	}
 	return matchFirstPredicate(raw, parts, candidates, lookup, "-아/-어 (connective)");
 }
 
-function withRieulLemma(stem: string): string | null {
-	const withRieul = replaceLastFinalConsonant(stem, "ㄹ");
-	return withRieul ? `${withRieul}다` : null;
+function matchingVerbRules(word: string): Array<{ rule: SuffixRule; stem: string }> {
+	const matched: Array<{ rule: SuffixRule; stem: string }> = [];
+	for (const rule of SORTED_VERB_ENDING_RULES) {
+		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
+		matched.push({
+			rule,
+			stem: `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`,
+		});
+	}
+	return matched;
 }
 
 function matchVerbOrModifier(
@@ -1096,12 +1066,8 @@ function matchVerbOrModifier(
 	}
 
 	// Try ALL regular verb suffix splits before irregular stems so regular verbs beat irregular steals.
-	const matchedRules: Array<{ rule: SuffixRule; stem: string }> = [];
-	for (const rule of SORTED_VERB_ENDING_RULES) {
-		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
-		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
-		matchedRules.push({ rule, stem });
-
+	const matchedRules = matchingVerbRules(word);
+	for (const { rule, stem } of matchedRules) {
 		if (!MODIFIER_ONLY_ENDINGS.has(rule.suffix)) {
 			const hit = findPredicateToken(
 				raw,
@@ -1181,10 +1147,7 @@ function findNounHaFallback(
 	parts: TokenParts,
 	passes: ReadonlyArray<{ lookup: EntryLookup }>,
 ): GlossToken | null {
-	const { word } = parts;
-	for (const rule of SORTED_VERB_ENDING_RULES) {
-		if (!word.endsWith(rule.suffix) || word.length <= rule.suffix.length) continue;
-		const stem = `${word.slice(0, -rule.suffix.length)}${rule.stemPatch ?? ""}`;
+	for (const { rule, stem } of matchingVerbRules(parts.word)) {
 		if (!stem.endsWith("하") || stem.length < 3) continue;
 		const nounRoot = stem.slice(0, -1);
 		for (const { lookup } of passes) {
@@ -1197,16 +1160,24 @@ function findNounHaFallback(
 	return null;
 }
 
+function isWordChar(code: number): boolean {
+	return (
+		(code >= 0xac00 && code <= 0xd7a3) ||
+		(code >= 0x30 && code <= 0x39) ||
+		(code >= 0x41 && code <= 0x5a) ||
+		(code >= 0x61 && code <= 0x7a)
+	);
+}
+
 function splitPunctuation(raw: string): TokenParts {
-	const leadMatch = raw.match(/^([^\uAC00-\uD7A3a-zA-Z0-9]+)/);
-	const leadPunct = leadMatch ? leadMatch[1] : "";
-	const withoutLead = raw.slice(leadPunct.length);
-	const trailMatch = withoutLead.match(/([^\uAC00-\uD7A3a-zA-Z0-9]+)$/);
-	const trailPunct = trailMatch ? trailMatch[1] : "";
+	let start = 0;
+	while (start < raw.length && !isWordChar(raw.charCodeAt(start))) start++;
+	let end = raw.length;
+	while (end > start && !isWordChar(raw.charCodeAt(end - 1))) end--;
 	return {
-		leadPunct,
-		word: withoutLead.slice(0, withoutLead.length - trailPunct.length),
-		trailPunct,
+		leadPunct: raw.slice(0, start),
+		word: raw.slice(start, end),
+		trailPunct: raw.slice(end),
 	};
 }
 

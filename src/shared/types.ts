@@ -19,8 +19,7 @@ export interface TranslationMeta {
 	nativeName: string;
 }
 
-type WordPos =
-	"noun" | "verb" | "adj" | "adv" | "pronoun" | "particle" | "name" | "numeral" | "interj";
+type WordPos = "noun" | "verb" | "adj" | "adv" | "pronoun" | "name" | "numeral" | "interj";
 
 export interface LexiconEntry {
 	gloss: string;

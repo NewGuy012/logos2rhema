@@ -263,7 +263,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	요단강: { gloss: "Jordan River", pos: "name" },
 	애논: { gloss: "Aenon", pos: "name" },
 
-	// Essential KRV Nouns, Verbs & Places (fixes Kengdic homograph noise)
+	// Essential KRV Nouns, Verbs & Places
 	성문: { gloss: "city gate", hanja: "城門", pos: "noun" },
 	성읍: { gloss: "town / city", hanja: "城邑", pos: "noun" },
 	기업: { gloss: "inheritance / heritage", hanja: "基業", pos: "noun" },
@@ -565,7 +565,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	가사: { gloss: "Gaza", pos: "name" },
 	삼성: { gloss: "Orion (constellation)", hanja: "參星", pos: "name" },
 
-	// Biblical Disambiguations & High-Frequency KRV Vocabulary (prevents Kengdic secular/homograph noise)
+	// Biblical Disambiguations & High-Frequency KRV Vocabulary
 	안식: { gloss: "rest / Sabbath", hanja: "安息", pos: "noun" },
 	안식하다: { gloss: "to rest / keep Sabbath", hanja: "安息하다", pos: "verb" },
 	비취다: { gloss: "to shine / give light (KRV spelling)", pos: "verb" },
@@ -784,7 +784,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	고: { gloss: "height (or reason / affliction)", hanja: "高", pos: "noun" },
 	밧: { gloss: "bath (liquid measure)", pos: "noun" },
 
-	// Biblical Disambiguations (overrides secular/modern homographs across KRDICT, Wiktionary & Kengdic)
+	// Biblical Disambiguations
 	하나: { gloss: "one", pos: "numeral" },
 	당신: { gloss: "you (formal / respectful)", pos: "pronoun" },
 	누구든지: { gloss: "whoever / anyone", pos: "pronoun" },
@@ -1208,7 +1208,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	칠만: { gloss: "seventy thousand", hanja: "七萬", pos: "numeral" },
 	팔만: { gloss: "eighty thousand", hanja: "八萬", pos: "numeral" },
 
-	// Additional Biblical Proper Names, Tribes & Places (verified against ESV)
+	// Biblical Proper Names, Tribes & Places
 	아론: { gloss: "Aaron", pos: "name" },
 	미리암: { gloss: "Miriam", pos: "name" },
 	에서: { gloss: "Esau", pos: "name" },
@@ -1475,7 +1475,7 @@ export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	알렉산더: { gloss: "Alexander", pos: "name" },
 	두발: { gloss: "Tubal (or two feet)", pos: "name" },
 
-	// Additional Verified KRV Disambiguations & Archaic Forms
+	// KRV Disambiguations & Archaic Forms
 	열다: { gloss: "to open", pos: "verb" },
 	자다: { gloss: "to sleep / lie down", pos: "verb" },
 	싸다: { gloss: "to wrap / cover / bind", pos: "verb" },

@@ -121,7 +121,7 @@ const GENRE_SPECS: readonly GenreSpec[] = [
 	["prophecy", "Prophecy (Apocalyptic)", "예언서 (계시록)", "NT", 66, 66],
 ];
 
-export const BIBLE_GENRES: readonly BibleGenre[] = GENRE_SPECS.map(
+export const BIBLE_GENRES: readonly BibleGenre[] = /* @__PURE__ */ GENRE_SPECS.map(
 	([id, nameEn, nameKo, testament, startBook, endBook]) => ({
 		id,
 		nameEn,
@@ -134,7 +134,7 @@ export const BIBLE_GENRES: readonly BibleGenre[] = GENRE_SPECS.map(
 const BOOKS_BY_NUMBER = new Map<number, BookMeta>(BIBLE_BOOKS.map((b) => [b.number, b]));
 const BOOKS_BY_USFM = new Map<string, BookMeta>(BIBLE_BOOKS.map((b) => [b.usfm, b]));
 
-const ALIASES = new Map<string, number>([
+export const BOOK_ALIASES = new Map<string, number>([
 	["psalm", 19],
 	["sos", 22],
 	["song of songs", 22],
@@ -213,7 +213,7 @@ export function findBookByQuery(rawQuery: string): BookMeta | undefined {
 	if (!normalized) return undefined;
 
 	const compact = normalized.replace(/\s+/g, "");
-	const aliasNum = ALIASES.get(normalized) ?? ALIASES.get(compact);
+	const aliasNum = BOOK_ALIASES.get(normalized) ?? BOOK_ALIASES.get(compact);
 	if (aliasNum) return getBookByNumber(aliasNum);
 
 	for (const book of BIBLE_BOOKS) {
@@ -235,10 +235,10 @@ export function findBookByQuery(rawQuery: string): BookMeta | undefined {
 }
 
 export function parsePassageReference(input: string): ParsedReference | null {
-	const trimmed = input.trim();
-	if (!trimmed) return null;
+	const trimmed = input.trim().replace(/\s+/g, " ");
+	if (!trimmed || trimmed.length > 100) return null;
 
-	const match = trimmed.match(/^(.+?)\s*(\d+)(?:\s*[:장절.]\s*(\d+))?\s*[장절]?$/);
+	const match = trimmed.match(/^(.+?)\s?(\d+)(?:\s?[:장절.]\s?(\d+))?\s?[장절]?$/);
 	if (!match) {
 		const bookOnly = findBookByQuery(trimmed);
 		return bookOnly ? { bookNumber: bookOnly.number, chapter: 1 } : null;
