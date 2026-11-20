@@ -1842,7 +1842,9 @@ async function pullAndMergeOutputs(
 	rootDir: string,
 	allowedUsfms: ReadonlySet<string>,
 ): Promise<{ mp3Count: number; timingCount: number; mergedReport: boolean }> {
-	const pullTmp = await mkdtemp(join(rootDir, ".cache", ".remote-pull-"));
+	const cacheParent = join(rootDir, ".cache");
+	await mkdir(cacheParent, { recursive: true });
+	const pullTmp = await mkdtemp(join(cacheParent, ".remote-pull-"));
 	try {
 		await downloadDirectory(
 			runner,
@@ -2103,7 +2105,9 @@ export async function runRemoteWorkflow(
 		}
 
 		// Stage minimal inputs locally and push to remoteRunDir
-		const inputStageDir = await mkdtemp(join(rootDir, ".cache", ".remote-push-"));
+		const cacheParent = join(rootDir, ".cache");
+		await mkdir(cacheParent, { recursive: true });
+		const inputStageDir = await mkdtemp(join(cacheParent, ".remote-push-"));
 		try {
 			await mkdir(join(inputStageDir, "scripts"), { recursive: true });
 			await mkdir(join(inputStageDir, "src", "shared"), { recursive: true });

@@ -6,3 +6,11 @@
 # Free non-commercial Crossway ESV API key (https://api.esv.org/)
 # Used for live ESV chapter text (/api/esv/:usfm/:chapter) and English audio playback (David Cochran Heath).
 # ESV_API_KEY=
+
+# Optional Thunder Compute (`tnr` CLI) & SSH offload defaults for `bun run audio:generate-krv:remote`
+# THUNDER_INSTANCE=0
+# THUNDER_SSH_TARGET=tnr-0
+# THUNDER_SSH_PORT=
+# THUNDER_SSH_KEY=~/.ssh/id_ed25519
+# THUNDER_REMOTE_DIR=~/logos2rhema-krv-tts
+# THUNDER_DEVICE=auto

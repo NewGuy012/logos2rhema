@@ -53,17 +53,18 @@ Bundled Korean Scripture (`public/data/bibles/krv/`), Korean lexicon, and HelloA
 
 ### Scripts
 
-| Command                      | Description                                                                                                                      |
-| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run dev`                | Start Bun dev server with HMR + local Hono API (binds `127.0.0.1` by default; pass `USE_LIVE_ESV=1` to force live `api.esv.org`) |
-| `bun test`                   | Run unit, Worker API, and `happy-dom` React tests                                                                                |
-| `bun run check`              | Run `bun fmt --check` and native `bun check` typechecking                                                                        |
-| `bun run format`             | Format codebase with `bun fmt`                                                                                                   |
-| `bun run build`              | Typecheck and build client SPA bundle into `dist/client/` (fails if static ESV files exist)                                      |
-| `bun run deploy`             | Deploy to Cloudflare Workers via Wrangler                                                                                        |
-| `bun run data:build`         | Rebuild bundled KRV chapters and Korean lexicon (and optional local-only `.cache/esv-local/` if `data-sources/esv.spb` exists)   |
-| `bun run audio:generate-krv` | Generate Supertonic 3 KRV audio and verse timings                                                                                |
-| `bun run audio:upload-krv`   | Upload local KRV MP3s to private Cloudflare R2 via Wrangler                                                                      |
+| Command                             | Description                                                                                                                      |
+| :---------------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run dev`                       | Start Bun dev server with HMR + local Hono API (binds `127.0.0.1` by default; pass `USE_LIVE_ESV=1` to force live `api.esv.org`) |
+| `bun test`                          | Run unit, Worker API, and `happy-dom` React tests                                                                                |
+| `bun run check`                     | Run `bun fmt --check` and native `bun check` typechecking                                                                        |
+| `bun run format`                    | Format codebase with `bun fmt`                                                                                                   |
+| `bun run build`                     | Typecheck and build client SPA bundle into `dist/client/` (fails if static ESV files exist)                                      |
+| `bun run deploy`                    | Deploy to Cloudflare Workers via Wrangler                                                                                        |
+| `bun run data:build`                | Rebuild bundled KRV chapters and Korean lexicon (and optional local-only `.cache/esv-local/` if `data-sources/esv.spb` exists)   |
+| `bun run audio:generate-krv`        | Generate Supertonic 3 KRV audio and verse timings locally or remotely (`--thunder` / `--ssh`)                                    |
+| `bun run audio:generate-krv:remote` | Offload Supertonic 3 KRV generation to Thunder Compute using `.dev.vars` defaults or `tnr`                                       |
+| `bun run audio:upload-krv`          | Upload local KRV MP3s to private Cloudflare R2 via Wrangler                                                                      |
 
 ## API Endpoints
 
@@ -91,13 +92,23 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, and strict CSP/s
 
    _(Optional private dev cache)_: If you keep a personal `data-sources/esv.spb` locally (gitignored), `bun run data:build` writes `.cache/esv-local/{USFM}.json` (gitignored, never bundled into `dist/client/`) for fast offline local `bun run dev`.
 
-2. _(Optional)_ Generate Supertonic 3 (`Daniel`, AI TTS) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)):
+2. _(Optional)_ Generate Supertonic 3 (`Daniel`, AI TTS) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)), or offload to a **Thunder Compute VM** via the `tnr` CLI or direct SSH:
 
    ```bash
+   # Local dry-run / generation
    bun run audio:generate-krv --dry-run
    caffeinate -i bun run audio:generate-krv --testament NT --voice Daniel --speed 0.95 --steps 10
-   caffeinate -i bun run audio:generate-krv --testament OT --voice Daniel --speed 0.95 --steps 10
+
+   # Remote Thunder Compute (`tnr` CLI) — isolated 4-chapter RUT test (does not touch production audio or R2)
+   bun run audio:generate-krv --thunder 0 --book RUT --staging rut-test --force --dry-run
+   bun run audio:generate-krv --thunder 0 --book RUT --staging rut-test --force
+
+   # Direct SSH option & multi-book runs (also supports Korean/English names, e.g. "룻기", "Philemon")
+   bun run audio:generate-krv --ssh tnr-0 --books RUT,PHM,JUD --staging multi-test --force
+   bun run audio:generate-krv --thunder 0 --books GEN,EXO --force
    ```
+
+   Remote runs cache `.venv` (with CUDA `onnxruntime-gpu` when a GPU is detected) and Supertonic 3 weights on the VM, and never upload to R2 unless `--upload` is explicitly passed outside staging mode. Use `--shell` for an interactive `tnr connect` / SSH session, or `--setup-only` to pre-warm the VM environment.
 
    When `.cache/krv-supertonic-audio/` exists locally (and `AUDIO_BASE_URL` is unset), `bun run dev` and `bun run preview` serve chapters directly from disk via `GET /api/audio/krv/:usfm/:chapter`.
 
@@ -106,6 +117,7 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, and strict CSP/s
    ```bash
    bunx wrangler login
    bun run audio:upload-krv --dry-run
+   bun run audio:upload-krv --books RUT,PHM
    caffeinate -i bun run audio:upload-krv
    ```
 
