@@ -63,9 +63,17 @@ _WORKER_STYLE: Any = None
 @dataclass(frozen=True)
 class VerseJob:
     verse: int
-    raw_text: str
     spoken_text: str
     chunks: list[str]
+
+
+@dataclass(frozen=True)
+class SynthConfig:
+    steps: int
+    speed: float
+    verse_pause_sec: float
+    header_pause_sec: float
+    bitrate_kbps: int
 
 
 def load_korean_book_names() -> dict[str, str]:
@@ -200,7 +208,6 @@ def prepare_chapter_verses(raw_verses: list[dict[str, Any]]) -> list[VerseJob]:
         jobs.append(
             VerseJob(
                 verse=verse_num,
-                raw_text=raw_text,
                 spoken_text=spoken,
                 chunks=chunks,
             )
@@ -356,8 +363,7 @@ def encode_cbr_mp3(
                 total_bytes += len(flushed)
         os.replace(tmp_path, out_path)
     except Exception:
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
         raise
 
     return total_bytes
@@ -371,11 +377,7 @@ def synthesize_chapter(
     book_ko: str,
     chapter: int,
     verses: list[VerseJob],
-    steps: int,
-    speed: float,
-    verse_pause_sec: float,
-    header_pause_sec: float,
-    bitrate_kbps: int,
+    cfg: SynthConfig,
     mp3_path: Path,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     sr = int(tts.sample_rate)
@@ -384,11 +386,11 @@ def synthesize_chapter(
         tts,
         voice_style,
         [header_text],
-        steps=steps,
-        speed=speed,
+        steps=cfg.steps,
+        speed=cfg.speed,
     )
-    header_pause = np.zeros(int(round(header_pause_sec * sr)), dtype=np.float32)
-    verse_pause = np.zeros(int(round(verse_pause_sec * sr)), dtype=np.float32)
+    header_pause = np.zeros(int(round(cfg.header_pause_sec * sr)), dtype=np.float32)
+    verse_pause = np.zeros(int(round(cfg.verse_pause_sec * sr)), dtype=np.float32)
 
     segments: list[np.ndarray] = [header_pcm, header_pause]
     sample_cursor = int(header_pcm.size + header_pause.size)
@@ -400,8 +402,8 @@ def synthesize_chapter(
             tts,
             voice_style,
             v.chunks,
-            steps=steps,
-            speed=speed,
+            steps=cfg.steps,
+            speed=cfg.speed,
         )
         verse_dur = float(verse_pcm.size) / float(sr)
         if verse_dur < MIN_VERSE_DURATION_SEC:
@@ -430,7 +432,7 @@ def synthesize_chapter(
             f"{usfm} {chapter}: invalid final timestamp {prev_start} >= duration {total_duration:.3f}s"
         )
 
-    mp3_bytes = encode_cbr_mp3(mastered, sr, bitrate_kbps, mp3_path)
+    mp3_bytes = encode_cbr_mp3(mastered, sr, cfg.bitrate_kbps, mp3_path)
 
     metrics = {
         "duration": round(total_duration, 2),
@@ -455,8 +457,7 @@ def atomic_write_json(path: Path, data: Any, *, compact: bool = True) -> None:
                 json.dump(data, fh, ensure_ascii=False, indent=2)
         os.replace(tmp_path, path)
     except Exception:
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
         raise
 
 
@@ -595,11 +596,7 @@ def _synthesize_job(
     tts: Any,
     voice_style: Any,
     job: tuple[str, str, int, list[VerseJob], int],
-    steps: int,
-    speed: float,
-    verse_pause_sec: float,
-    header_pause_sec: float,
-    bitrate_kbps: int,
+    cfg: SynthConfig,
 ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
     usfm, book_ko, ch_num, verses, total_verses = job
     mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
@@ -612,11 +609,7 @@ def _synthesize_job(
             book_ko=book_ko,
             chapter=ch_num,
             verses=verses,
-            steps=steps,
-            speed=speed,
-            verse_pause_sec=verse_pause_sec,
-            header_pause_sec=header_pause_sec,
-            bitrate_kbps=bitrate_kbps,
+            cfg=cfg,
             mp3_path=mp3_path,
         )
         return usfm, ch_num, total_verses, timings, metrics, time.time() - t0
@@ -626,22 +619,9 @@ def _synthesize_job(
 
 def _process_chapter_job(
     job: tuple[str, str, int, list[VerseJob], int],
-    steps: int,
-    speed: float,
-    verse_pause_sec: float,
-    header_pause_sec: float,
-    bitrate_kbps: int,
+    cfg: SynthConfig,
 ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
-    return _synthesize_job(
-        _WORKER_TTS,
-        _WORKER_STYLE,
-        job,
-        steps,
-        speed,
-        verse_pause_sec,
-        header_pause_sec,
-        bitrate_kbps,
-    )
+    return _synthesize_job(_WORKER_TTS, _WORKER_STYLE, job, cfg)
 
 
 def main() -> int:
@@ -848,6 +828,14 @@ def main() -> int:
         except Exception as err:  # noqa: BLE001
             record_error(idx_done, usfm, ch_num, err)
 
+    cfg = SynthConfig(
+        steps=args.steps,
+        speed=args.speed,
+        verse_pause_sec=args.pause,
+        header_pause_sec=args.header_pause,
+        bitrate_kbps=args.bitrate,
+    )
+
     try:
         if worker_count == 1:
             voice_style = tts.get_voice_style(resolved_voice)
@@ -856,16 +844,7 @@ def main() -> int:
                     idx,
                     job[0],
                     job[2],
-                    lambda j=job: _synthesize_job(
-                        tts,
-                        voice_style,
-                        j,
-                        args.steps,
-                        args.speed,
-                        args.pause,
-                        args.header_pause,
-                        args.bitrate,
-                    ),
+                    lambda j=job: _synthesize_job(tts, voice_style, j, cfg),
                 )
         else:
             # Release main-process ONNX model memory before spawning worker processes.
@@ -877,15 +856,7 @@ def main() -> int:
                 initargs=(resolved_voice, args.threads),
             ) as executor:
                 future_to_ref = {
-                    executor.submit(
-                        _process_chapter_job,
-                        job,
-                        args.steps,
-                        args.speed,
-                        args.pause,
-                        args.header_pause,
-                        args.bitrate,
-                    ): (job[0], job[2])
+                    executor.submit(_process_chapter_job, job, cfg): (job[0], job[2])
                     for job in jobs
                 }
                 for done_idx, future in enumerate(as_completed(future_to_ref), start=1):

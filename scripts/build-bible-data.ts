@@ -442,7 +442,6 @@ async function loadKrdictCandidates(zipPath: string): Promise<Map<string, DictCa
 						enGloss = firstText.trim();
 					}
 					if (!enGloss || !/[a-zA-Z]/.test(enGloss)) continue;
-					if (isRomanizationOnly(term, enGloss)) continue;
 
 					const gloss = formatKrdictGloss(term, enGloss, pos);
 					if (!gloss || gloss.length < 2) continue;
@@ -637,17 +636,13 @@ function isRedundantInflectedKengdicForm(surface: string, knownHeadwords: Set<st
 		if (!surface.endsWith(suf) || surface.length <= suf.length + 1) continue;
 		const stem = surface.slice(0, -suf.length);
 		if (
-			knownHeadwords.has(stem) ||
-			knownHeadwords.has(`${stem}다`) ||
-			knownHeadwords.has(`${stem}하다`) ||
-			Object.hasOwn(BIBLICAL_GLOSSARY, stem) ||
-			Object.hasOwn(BIBLICAL_GLOSSARY, `${stem}다`) ||
-			Object.hasOwn(BIBLICAL_GLOSSARY, `${stem}하다`)
+			[stem, `${stem}다`, `${stem}하다`].some(
+				(cand) => knownHeadwords.has(cand) || Object.hasOwn(BIBLICAL_GLOSSARY, cand),
+			)
 		) {
 			return true;
 		}
 	}
-	if (BLOCKED_LEXICON_HEADWORDS.has(surface)) return true;
 	if (/(?:었다|았다|였다|했다)$/.test(surface) && !knownHeadwords.has(surface)) return true;
 	return false;
 }

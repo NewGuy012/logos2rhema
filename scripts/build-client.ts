@@ -1,5 +1,5 @@
 import { cp, mkdir, rm, stat } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 
 const ROOT_DIR = join(import.meta.dir, "..");
 const ENTRY_HTML = join(ROOT_DIR, "index.html");
@@ -55,7 +55,10 @@ async function buildClient(): Promise<void> {
 
 	await cp(PUBLIC_DIR, DIST_CLIENT_DIR, {
 		recursive: true,
-		filter: (src) => src !== PUBLIC_ESV_DIR && !src.startsWith(`${PUBLIC_ESV_DIR}${sep}`),
+		filter: (src) =>
+			basename(src) !== ".DS_Store" &&
+			src !== PUBLIC_ESV_DIR &&
+			!src.startsWith(`${PUBLIC_ESV_DIR}${sep}`),
 	});
 	await Bun.write(join(DIST_CLIENT_DIR, ".assetsignore"), ".dev.vars\nwrangler.json\n");
 

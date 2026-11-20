@@ -1,4 +1,4 @@
-import { mkdir, rename, stat } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs as parseCliArgs } from "node:util";
 
@@ -180,8 +180,13 @@ function saveCheckpoint(data: CheckpointData): Promise<void> {
 		.then(async () => {
 			await mkdir(CACHE_DIR, { recursive: true });
 			const tmpPath = `${CHECKPOINT_PATH}.${process.pid}.tmp`;
-			await Bun.write(tmpPath, `${JSON.stringify(data, null, 2)}\n`);
-			await rename(tmpPath, CHECKPOINT_PATH);
+			try {
+				await Bun.write(tmpPath, `${JSON.stringify(data, null, 2)}\n`);
+				await rename(tmpPath, CHECKPOINT_PATH);
+			} catch (err) {
+				await rm(tmpPath, { force: true }).catch(() => {});
+				throw err;
+			}
 		});
 	return checkpointSaveChain;
 }
@@ -292,12 +297,14 @@ async function main(): Promise<void> {
 	}
 
 	const checkpoint = await loadCheckpoint();
-	const bucketMap = (checkpoint.buckets[options.bucket] ??= {});
+	const bucketMap = Object.hasOwn(checkpoint.buckets, options.bucket)
+		? checkpoint.buckets[options.bucket]
+		: (checkpoint.buckets[options.bucket] = {});
 
 	const pending = options.force
 		? items
 		: items.filter((item) => {
-				const recorded = bucketMap[item.key];
+				const recorded = Object.hasOwn(bucketMap, item.key) ? bucketMap[item.key] : undefined;
 				return !recorded || recorded.size !== item.size || recorded.mtimeMs !== item.mtimeMs;
 			});
 
