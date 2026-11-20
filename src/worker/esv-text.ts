@@ -50,7 +50,8 @@ const VOID_HTML_TAGS = new Set([
 
 const BLOCK_BOUNDARY_TAGS = new Set(["p", "div", "br", "li", "blockquote", "h1", "h2", "h3", "h4"]);
 
-type TagRole = "skip" | "heading" | "verse-num" | "small-caps" | "selah" | "block" | "inline";
+type TagRole =
+	"skip" | "heading" | "speaker" | "verse-num" | "small-caps" | "selah" | "block" | "inline";
 
 export type FetchEsvChapterResult =
 	{ status: "ok"; verses: VerseEntry[] } | { status: "rate_limited" } | { status: "error" };
@@ -112,13 +113,15 @@ function classifyOpenTag(tagName: string, attrs: string): TagRole {
 	if ((tagName === "b" || tagName === "span") && classes.has("verse-num")) {
 		return "verse-num";
 	}
+	if (classes.has("speaker")) {
+		return "speaker";
+	}
 	if (
 		tagName === "h3" ||
 		tagName === "h4" ||
 		classes.has("subheading") ||
 		classes.has("psalm-title") ||
-		classes.has("psalm-acrostic-title") ||
-		classes.has("speaker")
+		classes.has("psalm-acrostic-title")
 	) {
 		return "heading";
 	}
@@ -147,7 +150,7 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 	let verseNumDepth = 0;
 	let smallCapsDepth = 0;
 
-	let pendingHeadings: string[] = [];
+	let pendingHeadings: Array<{ text: string; isSpeaker: boolean }> = [];
 	let headingBuffer = "";
 	let verseNumBuffer = "";
 	let currentVerse: number | null = null;
@@ -156,7 +159,7 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 
 	const adjustDepth = (role: TagRole, delta: 1 | -1) => {
 		if (role === "skip") skipDepth += delta;
-		else if (role === "heading") headingDepth += delta;
+		else if (role === "heading" || role === "speaker") headingDepth += delta;
 		else if (role === "verse-num") verseNumDepth += delta;
 		else if (role === "small-caps") smallCapsDepth += delta;
 	};
@@ -219,7 +222,7 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 
 			if (role === "verse-num" && !isSelfClosing) {
 				verseNumBuffer = "";
-			} else if (role === "heading" && headingDepth === 1) {
+			} else if ((role === "heading" || role === "speaker") && headingDepth === 1) {
 				headingBuffer = "";
 			} else if (
 				role === "selah" &&
@@ -262,14 +265,19 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 				if (Number.isInteger(nextVerseNum) && nextVerseNum >= 1) {
 					flushCurrentVerse();
 					currentVerse = nextVerseNum;
-					currentVerseHeadings = pendingHeadings;
+					currentVerseHeadings = pendingHeadings.map((h) => h.text);
 					pendingHeadings = [];
 				}
-			} else if (popped.role === "heading" && headingDepth === 0) {
+			} else if ((popped.role === "heading" || popped.role === "speaker") && headingDepth === 0) {
 				const heading = normalizeText(headingBuffer);
 				headingBuffer = "";
 				if (heading) {
-					pendingHeadings.push(heading);
+					const isSpeaker = popped.role === "speaker";
+					if (isSpeaker && pendingHeadings[pendingHeadings.length - 1]?.isSpeaker) {
+						pendingHeadings[pendingHeadings.length - 1] = { text: heading, isSpeaker: true };
+					} else {
+						pendingHeadings.push({ text: heading, isSpeaker });
+					}
 				}
 			} else if (popped.role === "block" && skipDepth === 0) {
 				if (headingDepth > 0) headingBuffer += " ";

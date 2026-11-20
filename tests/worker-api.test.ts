@@ -563,6 +563,28 @@ describe("Worker API & Security Boundaries", () => {
 			{ verse: 20, text: "He said to them, “Because of your little faith.”" },
 			{ verse: 22, text: "As they were gathering in Galilee…" },
 		]);
+
+		const sng1Html = `
+			<h3>The Bride Confesses Her Love</h3>
+			<h4 class="speaker">She</h4>
+			<p class="block-indent"><span class="line"><b class="verse-num">2&nbsp;</b>Let him kiss me</span></p>
+			<h4 class="speaker">Others</h4>
+			<p class="block-indent"><span class="line">We will exult and rejoice in you;</span></p>
+			<h4 class="speaker">She</h4>
+			<p class="block-indent"><span class="line"><b class="verse-num">5&nbsp;</b>I am very dark, but lovely,</span></p>
+		`;
+		expect(parseEsvPassageHtml(sng1Html)).toEqual([
+			{
+				verse: 2,
+				heading: "The Bride Confesses Her Love — She",
+				text: "Let him kiss me We will exult and rejoice in you;",
+			},
+			{
+				verse: 5,
+				heading: "She",
+				text: "I am very dark, but lovely,",
+			},
+		]);
 	});
 
 	it("serves /api/esv/:usfm/:chapter via Crossway HTML API and localEsvLoader with strict compliance headers", async () => {
