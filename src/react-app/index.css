@@ -277,8 +277,7 @@ button:focus-visible {
 
 .dict-disclosure-btn:focus-visible,
 .home-favorite-open:focus-visible,
-.home-disclosure-btn:focus-visible,
-.rail-settings-btn:focus-visible {
+.home-disclosure-btn:focus-visible {
 	outline-offset: -1.5px;
 }
 
@@ -339,7 +338,6 @@ button:focus-visible {
 }
 
 .dict-disclosure-btn:hover,
-.rail-settings-btn:hover,
 .pill-nav-btn:hover:not(:disabled),
 .rail-skip-btn:hover:not(:disabled) {
 	background: var(--glass-control);
@@ -413,7 +411,6 @@ button:focus-visible {
 .top-search-icon,
 .dict-panel-header,
 .right-rail-tab svg,
-.rail-settings-btn svg,
 .home-commentary-source-toggle,
 .home-highlight-icon,
 .home-favorite-icon {
@@ -433,8 +430,7 @@ button:focus-visible {
 	justify-self: end;
 }
 
-.ko-tooltip-title-group,
-.rail-settings-label {
+.ko-tooltip-title-group {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.35rem;
@@ -1669,8 +1665,7 @@ button:focus-visible {
 	border-bottom: none;
 }
 
-.dict-disclosure-btn,
-.rail-settings-btn {
+.dict-disclosure-btn {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -1681,29 +1676,14 @@ button:focus-visible {
 		background-color 180ms var(--ease-spring),
 		color 180ms ease,
 		transform 140ms var(--ease-spring);
-}
-
-.dict-disclosure-btn {
 	flex-shrink: 0;
 	width: 100%;
 	gap: 0.5rem;
 	padding: 0.56rem 0.75rem;
 }
 
-.rail-settings-btn {
-	width: calc(100% + 0.7rem);
-	margin: -0.12rem -0.35rem;
-	padding: 0.26rem 0.38rem;
-	border-radius: 10px;
-	gap: 0.4rem;
-}
-
 .dict-disclosure-btn:active {
 	transform: scale(0.99);
-}
-
-.rail-settings-btn:active {
-	transform: scale(0.98);
 }
 
 .grammar-cards {
@@ -2969,8 +2949,7 @@ button:focus-visible {
 	justify-content: flex-end;
 }
 
-.home-favorites-group,
-.rail-settings {
+.home-favorites-group {
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
@@ -3764,7 +3743,6 @@ button:focus-visible {
 	display: flex;
 	flex-direction: column;
 	gap: 0.42rem;
-	padding-top: 0.08rem;
 }
 
 .rail-sync-toggle {

@@ -1079,9 +1079,9 @@ describe("Reader UI & audio hooks", () => {
 				row.querySelector("dt")?.textContent,
 				row.querySelector("dd")?.textContent,
 			]);
-		const settingsBtn = getButton(rail.container, "Settings");
-		expect(settingsBtn.querySelector(".rail-settings-label svg")).not.toBeNull();
-		fireClick(settingsBtn);
+		expect(rail.container.querySelector(".rail-settings-btn")).toBeNull();
+		expect(rail.container.querySelector(".rail-sync-box")).not.toBeNull();
+		expect(getByText(rail.container, "Verse Sync")).toBeDefined();
 		expect(readSyncDetails()).toEqual([
 			["Reading", "v.16"],
 			["Playing", "v.12"],
@@ -1094,6 +1094,31 @@ describe("Reader UI & audio hooks", () => {
 
 		renderRail(12, true, rail);
 		expect(getButton(rail.container, "Play from v.12").getAttribute("aria-pressed")).toBe("true");
+
+		const untimedRail = render(
+			<AudioControlRail
+				{...baseBarProps()}
+				tracks={[enTrack]}
+				preferredLang="en"
+				activeTrack={enTrack}
+				visibleVerse={1}
+				activeVerse={null}
+				autoSync={true}
+				isFollowingAudio={true}
+				onChangeSpeed={onChangeSpeed}
+				onToggleAutoSync={noop}
+				onSyncToVisibleVerse={onSyncToVisible}
+				onFollowActiveVerse={onFollowActive}
+			/>,
+		);
+		expect(untimedRail.container.querySelector(".rail-settings-btn")).toBeNull();
+		expect(getByText(untimedRail.container, "Verse Sync")).toBeDefined();
+		expect(getByText(untimedRail.container, "Verse sync unavailable for this audio")).toBeDefined();
+		const untimedToggle = untimedRail.container.querySelector(
+			'.rail-sync-toggle[role="switch"]',
+		) as HTMLButtonElement;
+		expect(untimedToggle.disabled).toBe(true);
+		expect(untimedToggle.textContent).toContain("Off");
 
 		const mockAudio = installMockAudio();
 		try {
