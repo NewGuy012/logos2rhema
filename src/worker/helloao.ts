@@ -11,7 +11,6 @@ interface HelloAoCommentaryPayload {
 		introductionSummary?: unknown;
 	};
 	chapter?: {
-		number?: unknown;
 		introduction?: unknown;
 		content?: unknown;
 	};
@@ -56,11 +55,14 @@ function splitParagraphs(raw: unknown): string[] {
 
 function parsePositiveVerse(raw: unknown): number | null {
 	if (typeof raw === "number") {
-		return Number.isInteger(raw) && raw >= 1 ? raw : null;
+		return Number.isSafeInteger(raw) && raw >= 1 ? raw : null;
 	}
-	if (typeof raw === "string" && /^\d+$/.test(raw.trim())) {
-		const num = Number.parseInt(raw.trim(), 10);
-		return num >= 1 ? num : null;
+	if (typeof raw === "string") {
+		const trimmed = raw.trim();
+		if (/^[1-9]\d*$/.test(trimmed)) {
+			const num = Number.parseInt(trimmed, 10);
+			return Number.isSafeInteger(num) ? num : null;
+		}
 	}
 	return null;
 }
@@ -79,7 +81,7 @@ function normalizeHelloAoCommentary(
 
 	const rawContent = Array.isArray(payload.chapter?.content) ? payload.chapter.content : [];
 	const entries: CommentaryEntry[] = [];
-	const usedIds = new Set<string>();
+	const verseCounts = new Map<number, number>();
 	let pendingHeading: string | undefined;
 
 	for (const rawItem of rawContent) {
@@ -108,12 +110,12 @@ function normalizeHelloAoCommentary(
 		const paragraphs = splitParagraphs(item.content ?? item.text);
 		if (paragraphs.length === 0) continue;
 
-		let id = `${commentaryId}:${usfm}:${chapter}:${verseStart}`;
-		let suffix = 2;
-		while (usedIds.has(id)) {
-			id = `${commentaryId}:${usfm}:${chapter}:${verseStart}-${suffix++}`;
-		}
-		usedIds.add(id);
+		const count = (verseCounts.get(verseStart) ?? 0) + 1;
+		verseCounts.set(verseStart, count);
+		const id =
+			count === 1
+				? `${commentaryId}:${usfm}:${chapter}:${verseStart}`
+				: `${commentaryId}:${usfm}:${chapter}:${verseStart}-${count}`;
 
 		entries.push({
 			id,

@@ -1,8 +1,13 @@
 import type { AudioTrackOption } from "../shared/types";
 import { isSafeHttpsUrl } from "../shared/url";
-import { cancelBody, type FetchLike, fetchWithTimeout } from "./http";
+import { cancelBody, fetchHeadersWithTimeout, type FetchLike } from "./http";
 
-const ESV_AUDIO_API_BASE = "https://api.esv.org/v3/passage/audio/";
+export const ESV_API_BASE = "https://api.esv.org/v3/passage";
+const ESV_AUDIO_API_BASE = `${ESV_API_BASE}/audio/`;
+
+export function esvAuthHeaders(apiKey: string, accept: string): Record<string, string> {
+	return { Authorization: `Token ${apiKey}`, Accept: accept };
+}
 
 export function formatEsvPassageQuery(
 	bookEn: string,
@@ -32,13 +37,15 @@ export async function resolveEsvAudioUrl(
 	const query = formatEsvPassageQuery(options.bookEn, options.chapter, options.chaptersInBook);
 	const endpoint = `${ESV_AUDIO_API_BASE}?q=${encodeURIComponent(query)}`;
 
-	const response = await fetchWithTimeout(fetcher, endpoint, {
-		headers: {
-			Authorization: `Token ${apiKey}`,
-			Accept: "audio/mpeg, */*",
-		},
-		redirect: "manual",
-	});
+	let response: Response;
+	try {
+		response = await fetchHeadersWithTimeout(fetcher, endpoint, {
+			headers: esvAuthHeaders(apiKey, "audio/mpeg, */*"),
+			redirect: "manual",
+		});
+	} catch {
+		return null;
+	}
 
 	if (response.status >= 300 && response.status < 400) {
 		cancelBody(response);
@@ -53,13 +60,9 @@ export async function resolveEsvAudioUrl(
 	}
 
 	if (response.ok) {
-		if (
-			response.url &&
-			!response.url.startsWith(ESV_AUDIO_API_BASE) &&
-			isSafeEsvUrl(response.url, apiKey)
-		) {
+		if (response.url && !response.url.startsWith(ESV_AUDIO_API_BASE)) {
 			cancelBody(response);
-			return { url: response.url };
+			return isSafeEsvUrl(response.url, apiKey) ? { url: response.url } : null;
 		}
 		return { url: "", directStreamResponse: response };
 	}

@@ -6,6 +6,7 @@ export const SUPERTONIC_MOBILE_BADGE = "AI 낭독 · Supertonic";
 export const SUPERTONIC_LICENSE_NAME = "BigScience OpenRAIL-M";
 export const SUPERTONIC_LICENSE_URL =
 	"https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE";
+export const AUDIO_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800";
 
 export function hasVerseTimings(timings: Record<number, number> | undefined): boolean {
 	return Boolean(timings && Object.keys(timings).length > 0);
@@ -16,9 +17,15 @@ export function normalizeVerseTimings(raw: unknown): Record<number, number> | un
 	const timings: Record<number, number> = {};
 	let count = 0;
 	for (const [vStr, sec] of Object.entries(raw as Record<string, unknown>)) {
-		if (!/^\d+$/.test(vStr)) continue;
+		if (!/^[1-9]\d*$/.test(vStr)) continue;
 		const vNum = Number.parseInt(vStr, 10);
-		if (vNum >= 1 && typeof sec === "number" && Number.isFinite(sec) && sec >= 0) {
+		if (
+			Number.isSafeInteger(vNum) &&
+			vNum >= 1 &&
+			typeof sec === "number" &&
+			Number.isFinite(sec) &&
+			sec >= 0
+		) {
 			timings[vNum] = sec;
 			count++;
 		}

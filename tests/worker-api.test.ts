@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+	AUDIO_CACHE_CONTROL,
 	normalizeVerseTimings,
 	SUPERTONIC_TRACK_ATTRIBUTION,
 	SUPERTONIC_TRACK_ID,
@@ -415,7 +416,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(fullRes.headers.get("accept-ranges")).toBe("bytes");
 		expect(fullRes.headers.get("content-disposition")).toBe("inline");
 		expect(fullRes.headers.get("etag")).toBe('"etag-gen-1"');
-		expect(fullRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+		expect(fullRes.headers.get("cache-control")).toBe(AUDIO_CACHE_CONTROL);
 		expect(bucket.getCalls).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 
@@ -448,7 +449,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(notModifiedRes.status).toBe(304);
 		expect(await notModifiedRes.text()).toBe("");
 		expect(notModifiedRes.headers.get("etag")).toBe('"etag-gen-1"');
-		expect(notModifiedRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+		expect(notModifiedRes.headers.get("cache-control")).toBe(AUDIO_CACHE_CONTROL);
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
 

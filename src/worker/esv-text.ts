@@ -1,9 +1,10 @@
 import type { VerseEntry } from "../shared/types";
-import { formatEsvPassageQuery } from "./esv-audio";
+import { ESV_API_BASE, esvAuthHeaders, formatEsvPassageQuery } from "./esv-audio";
 import { fetchJsonObject, type FetchLike } from "./http";
 
-const ESV_HTML_API_BASE = "https://api.esv.org/v3/passage/html/";
+const ESV_HTML_API_BASE = `${ESV_API_BASE}/html/`;
 const MAX_ESV_HTML_BYTES = 512 * 1024;
+const MAX_TAG_STACK_DEPTH = 256;
 
 const NAMED_HTML_ENTITIES: Readonly<Record<string, string>> = {
 	amp: "&",
@@ -75,8 +76,24 @@ function decodeHtmlEntities(input: string): string {
 			}
 			return match;
 		}
-		return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match;
+		const key = entity.toLowerCase();
+		return Object.hasOwn(NAMED_HTML_ENTITIES, key) ? NAMED_HTML_ENTITIES[key] : match;
 	});
+}
+
+function stripHtmlComments(html: string): string {
+	let idx = html.indexOf("<!--");
+	if (idx < 0) return html;
+	let out = "";
+	let cursor = 0;
+	while (idx >= 0) {
+		out += html.slice(cursor, idx);
+		const end = html.indexOf("-->", idx + 4);
+		if (end < 0) return out;
+		cursor = end + 3;
+		idx = html.indexOf("<!--", cursor);
+	}
+	return out + html.slice(cursor);
 }
 
 function extractTagClasses(attrs: string): Set<string> {
@@ -137,6 +154,7 @@ function normalizeText(raw: string): string {
 export function parseEsvPassageHtml(html: string): VerseEntry[] {
 	const verses: VerseEntry[] = [];
 	const stack: Array<{ tag: string; role: TagRole }> = [];
+	const openTagCounts = new Map<string, number>();
 
 	let skipDepth = 0;
 	let headingDepth = 0;
@@ -155,6 +173,11 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 		else if (role === "heading" || role === "speaker") headingDepth += delta;
 		else if (role === "verse-num") verseNumDepth += delta;
 		else if (role === "small-caps") smallCapsDepth += delta;
+	};
+
+	const appendBlockSpace = () => {
+		if (headingDepth > 0) headingBuffer += " ";
+		else if (currentVerse !== null) verseBuffer += " ";
 	};
 
 	const flushCurrentVerse = () => {
@@ -178,8 +201,9 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 		verseBuffer = "";
 	};
 
-	const tokenRe = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z0-9]+)\b([^>]*)>|([^<]+)/g;
-	for (const match of html.matchAll(tokenRe)) {
+	const cleanedHtml = stripHtmlComments(html);
+	const tokenRe = /<(\/?)([a-zA-Z0-9]+)\b([^>]*)>|([^<]+)/g;
+	for (const match of cleanedHtml.matchAll(tokenRe)) {
 		const textChunk = match[4];
 		if (textChunk !== undefined) {
 			if (skipDepth > 0) continue;
@@ -206,8 +230,9 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 			const isSelfClosing = VOID_HTML_TAGS.has(tagName) || rawAttrs.trimEnd().endsWith("/");
 			const role = classifyOpenTag(tagName, rawAttrs);
 
-			if (!isSelfClosing) {
+			if (!isSelfClosing && stack.length < MAX_TAG_STACK_DEPTH) {
 				stack.push({ tag: tagName, role });
+				openTagCounts.set(tagName, (openTagCounts.get(tagName) ?? 0) + 1);
 				adjustDepth(role, 1);
 			}
 
@@ -225,13 +250,12 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 			) {
 				verseBuffer += " ";
 			} else if (role === "block") {
-				if (headingDepth > 0) headingBuffer += " ";
-				else if (currentVerse !== null) verseBuffer += " ";
+				appendBlockSpace();
 			}
 			continue;
 		}
 
-		if (VOID_HTML_TAGS.has(tagName)) continue;
+		if (VOID_HTML_TAGS.has(tagName) || (openTagCounts.get(tagName) ?? 0) === 0) continue;
 
 		// Pop back to matching open tag (defensive against malformed/unclosed inline HTML)
 		let popIdx = -1;
@@ -246,6 +270,7 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 		while (stack.length > popIdx) {
 			const popped = stack.pop();
 			if (!popped) break;
+			openTagCounts.set(popped.tag, Math.max(0, (openTagCounts.get(popped.tag) ?? 1) - 1));
 			const wasSkip = skipDepth > 0;
 			adjustDepth(popped.role, -1);
 
@@ -273,8 +298,7 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 					}
 				}
 			} else if (popped.role === "block" && skipDepth === 0) {
-				if (headingDepth > 0) headingBuffer += " ";
-				else if (currentVerse !== null) verseBuffer += " ";
+				appendBlockSpace();
 			}
 		}
 	}
@@ -310,10 +334,7 @@ export async function fetchEsvChapterVerses(
 	});
 	const endpoint = `${ESV_HTML_API_BASE}?${params.toString()}`;
 	const res = await fetchJsonObject(fetcher, endpoint, {
-		headers: {
-			Authorization: `Token ${apiKey}`,
-			Accept: "application/json",
-		},
+		headers: esvAuthHeaders(apiKey, "application/json"),
 		maxBytes: MAX_ESV_HTML_BYTES,
 	});
 	if (res.status === "rate_limited") return { status: "rate_limited" };

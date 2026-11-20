@@ -22,6 +22,28 @@ export function fetchWithTimeout(
 	return fetcher(input, signal ? { ...init, signal } : init);
 }
 
+export async function fetchHeadersWithTimeout(
+	fetcher: FetchLike,
+	input: string | URL,
+	init: RequestInit = {},
+	timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+	const controller = new AbortController();
+	const parent = init.signal;
+	const onParentAbort = () => controller.abort(parent?.reason);
+	if (parent) {
+		if (parent.aborted) controller.abort(parent.reason);
+		else parent.addEventListener("abort", onParentAbort, { once: true });
+	}
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await fetcher(input, { ...init, signal: controller.signal });
+	} finally {
+		clearTimeout(timer);
+		parent?.removeEventListener("abort", onParentAbort);
+	}
+}
+
 export async function readJsonWithLimit(response: Response, maxBytes: number): Promise<unknown> {
 	const rawLen = response.headers.get("content-length");
 	const contentLen = rawLen !== null && rawLen.trim() !== "" ? Number(rawLen) : Number.NaN;
@@ -39,15 +61,19 @@ export async function readJsonWithLimit(response: Response, maxBytes: number): P
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let total = 0;
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		total += value.byteLength;
-		if (total > maxBytes) {
-			reader.cancel().catch(() => {});
-			throw new Error("Upstream response exceeded size limit");
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > maxBytes) {
+				throw new Error("Upstream response exceeded size limit");
+			}
+			chunks.push(value);
 		}
-		chunks.push(value);
+	} catch (err) {
+		reader.cancel().catch(() => {});
+		throw err;
 	}
 	const merged = new Uint8Array(total);
 	let offset = 0;
@@ -58,7 +84,7 @@ export async function readJsonWithLimit(response: Response, maxBytes: number): P
 	return JSON.parse(new TextDecoder().decode(merged)) as unknown;
 }
 
-export type FetchJsonResult =
+type FetchJsonResult =
 	| { status: "ok"; data: Record<string, unknown> }
 	| { status: "not_found" }
 	| { status: "rate_limited" }

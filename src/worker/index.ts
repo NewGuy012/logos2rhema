@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 
 import {
+	AUDIO_CACHE_CONTROL,
 	SUPERTONIC_TRACK_ATTRIBUTION,
 	SUPERTONIC_TRACK_ID,
 	SUPERTONIC_TRACK_LABEL,
@@ -63,7 +64,7 @@ interface WorkerDeps {
 
 const SAFE_AUDIO_MIME_RE = /^audio\/[a-z0-9.+-]+$/i;
 const RANGE_HEADER_RE = /^bytes=(?:(\d+)-(\d+)?|-(\d+))$/;
-const AUDIO_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const NO_STORE_PRIVATE = "private, no-store";
 
 type ParsedByteRange =
 	| {
@@ -125,9 +126,13 @@ function matchesIfNoneMatch(header: string | undefined, httpEtag: string | undef
 	return tokens?.some((token) => normalize(token) === target) ?? false;
 }
 
-function sanitizeAudioMime(rawType: string | null | undefined): string {
+function sanitizeAudioMime(rawType: string | null | undefined): {
+	mime: string;
+	isAudio: boolean;
+} {
 	const cleanType = (rawType ?? "").split(";")[0].trim();
-	return SAFE_AUDIO_MIME_RE.test(cleanType) ? cleanType : "audio/mpeg";
+	const isAudio = SAFE_AUDIO_MIME_RE.test(cleanType);
+	return { mime: isAudio ? cleanType : "audio/mpeg", isAudio };
 }
 
 function resolveReturnedRange(
@@ -171,13 +176,14 @@ function applySecurityHeaders(headers: Headers): void {
 	headers.set("X-Frame-Options", "DENY");
 	headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
 	headers.set("Cross-Origin-Opener-Policy", "same-origin");
+	headers.set("Cross-Origin-Resource-Policy", "same-origin");
 	headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 	headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 }
 
 function jsonError(
 	c: Context<{ Bindings: WorkerBindings }>,
-	status: 400 | 404 | 405 | 429 | 502 | 503,
+	status: 400 | 404 | 429 | 502 | 503,
 	error: string,
 	cacheControl = "no-store",
 ): Response {
@@ -186,9 +192,9 @@ function jsonError(
 }
 
 function parsePositiveInt(raw: string | undefined, min: number, max: number): number | null {
-	if (!raw || !/^\d+$/.test(raw)) return null;
+	if (!raw || !/^[1-9]\d*$/.test(raw)) return null;
 	const val = Number.parseInt(raw, 10);
-	return val >= min && val <= max ? val : null;
+	return Number.isSafeInteger(val) && val >= min && val <= max ? val : null;
 }
 
 function parseChapterRef(
@@ -199,6 +205,10 @@ function parseChapterRef(
 	if (!book) return null;
 	const chapter = parsePositiveInt(c.req.param("chapter"), 1, book.chapters);
 	return chapter !== null ? { book, usfm, chapter } : null;
+}
+
+function esvPassageOpts(book: BookMeta, chapter: number) {
+	return { bookEn: book.en, chapter, chaptersInBook: book.chapters };
 }
 
 export function createApp(deps: WorkerDeps = {}) {
@@ -227,7 +237,8 @@ export function createApp(deps: WorkerDeps = {}) {
 
 	app.notFound((c) => jsonError(c, 404, "Not found"));
 
-	app.onError((_err, c) => {
+	app.onError((err, c) => {
+		console.error("Worker route error:", err instanceof Error ? err.name : "UnknownError");
 		const res = jsonError(c, 502, "Upstream service error");
 		applySecurityHeaders(res.headers);
 		return res;
@@ -236,7 +247,7 @@ export function createApp(deps: WorkerDeps = {}) {
 	app.get("/api/esv/:usfm/:chapter", async (c) => {
 		const parsed = parseChapterRef(c);
 		if (!parsed) {
-			return jsonError(c, 400, "Invalid book or chapter reference", "private, no-store");
+			return jsonError(c, 400, "Invalid book or chapter reference", NO_STORE_PRIVATE);
 		}
 		const { book, usfm, chapter } = parsed;
 
@@ -247,28 +258,24 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (!verses || verses.length === 0) {
 			const esvApiKey = c.env?.ESV_API_KEY?.trim();
 			if (!esvApiKey) {
-				return jsonError(c, 503, "ESV text is not configured", "private, no-store");
+				return jsonError(c, 503, "ESV text is not configured", NO_STORE_PRIVATE);
 			}
-			const result = await fetchEsvChapterVerses(
-				esvApiKey,
-				{ bookEn: book.en, chapter, chaptersInBook: book.chapters },
-				fetcher,
-			);
+			const result = await fetchEsvChapterVerses(esvApiKey, esvPassageOpts(book, chapter), fetcher);
 			if (result.status === "rate_limited") {
 				return jsonError(
 					c,
 					429,
 					"ESV API rate limit reached. Please try again shortly.",
-					"private, no-store",
+					NO_STORE_PRIVATE,
 				);
 			}
 			if (result.status !== "ok") {
-				return jsonError(c, 502, "ESV passage unavailable", "private, no-store");
+				return jsonError(c, 502, "ESV passage unavailable", NO_STORE_PRIVATE);
 			}
 			verses = result.verses;
 		}
 
-		c.header("Cache-Control", "private, no-store");
+		c.header("Cache-Control", NO_STORE_PRIVATE);
 		return c.json({
 			translationId: CANONICAL_BIBLES.en.id,
 			bookNumber: book.number,
@@ -305,16 +312,18 @@ export function createApp(deps: WorkerDeps = {}) {
 			});
 		}
 
+		let esvDegraded = false;
 		if (esvApiKey) {
 			const esvTrack = await fetchEsvAudioTrack(
 				esvApiKey,
-				{ usfm, bookEn: book.en, chapter, chaptersInBook: book.chapters },
+				{ usfm, ...esvPassageOpts(book, chapter) },
 				fetcher,
-			).catch(() => null);
+			);
 			if (esvTrack) tracks.push(esvTrack);
+			else esvDegraded = true;
 		}
 
-		c.header("Cache-Control", "private, max-age=1800");
+		c.header("Cache-Control", esvDegraded ? NO_STORE_PRIVATE : "private, max-age=1800");
 		return c.json({ tracks } satisfies ChapterAudioResponse);
 	});
 
@@ -377,7 +386,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		const headers = new Headers();
-		headers.set("Content-Type", sanitizeAudioMime(object.httpMetadata?.contentType));
+		headers.set("Content-Type", sanitizeAudioMime(object.httpMetadata?.contentType).mime);
 		headers.set("Accept-Ranges", "bytes");
 		headers.set("Content-Disposition", "inline");
 		headers.set("Cache-Control", AUDIO_CACHE_CONTROL);
@@ -394,7 +403,7 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (parsedRange) {
 			const { offset, length } = resolveReturnedRange(object, parsedRange);
 			if (length <= 0 || offset < 0 || offset + length > object.size) {
-				if (!isHead) cancelBody(object);
+				cancelBody(object);
 				return rangeNotSatisfiableResponse(object.size);
 			}
 			headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
@@ -418,11 +427,7 @@ export function createApp(deps: WorkerDeps = {}) {
 			return jsonError(c, 503, "ESV audio is not configured");
 		}
 
-		const resolved = await resolveEsvAudioUrl(
-			esvApiKey,
-			{ bookEn: book.en, chapter, chaptersInBook: book.chapters },
-			fetcher,
-		).catch(() => null);
+		const resolved = await resolveEsvAudioUrl(esvApiKey, esvPassageOpts(book, chapter), fetcher);
 		if (!resolved) {
 			return jsonError(c, 502, "ESV audio unavailable for this passage");
 		}
@@ -433,13 +438,13 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 
 		if (resolved.directStreamResponse) {
-			const headers = new Headers();
-			headers.set(
-				"Content-Type",
-				sanitizeAudioMime(resolved.directStreamResponse.headers.get("content-type")),
+			const { mime, isAudio } = sanitizeAudioMime(
+				resolved.directStreamResponse.headers.get("content-type"),
 			);
+			const headers = new Headers();
+			headers.set("Content-Type", mime);
 			headers.set("Content-Disposition", "inline");
-			headers.set("Cache-Control", "private, max-age=1800");
+			headers.set("Cache-Control", isAudio ? "private, max-age=1800" : NO_STORE_PRIVATE);
 			const contentLength = resolved.directStreamResponse.headers.get("content-length")?.trim();
 			if (contentLength && /^\d+$/.test(contentLength)) {
 				headers.set("Content-Length", contentLength);

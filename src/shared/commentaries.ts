@@ -2,8 +2,14 @@ import type { CommentaryEntry, CommentaryId, CommentaryMeta } from "./types";
 
 const MAX_PREVIEW_PARAGRAPHS = 2;
 const MAX_PREVIEW_CHARS = 480;
+const SHORT_NOTE_MAX_PARAGRAPHS = 3;
+const SHORT_NOTE_MAX_CHARS = 650;
 
 export const DEFAULT_COMMENTARY_ID: CommentaryId = "tyndale";
+
+export function isCommentaryId(value: unknown): value is CommentaryId {
+	return value === "tyndale" || value === "matthew-henry";
+}
 
 export const COMMENTARY_SOURCES: readonly CommentaryMeta[] = [
 	{
@@ -26,16 +32,8 @@ export const COMMENTARY_SOURCES: readonly CommentaryMeta[] = [
 	},
 ] as const;
 
-const COMMENTARY_MAP = new Map<CommentaryId, CommentaryMeta>(
-	COMMENTARY_SOURCES.map((source) => [source.id, source]),
-);
-
-export function isCommentaryId(value: unknown): value is CommentaryId {
-	return typeof value === "string" && COMMENTARY_MAP.has(value as CommentaryId);
-}
-
 export function getCommentaryMeta(id: CommentaryId): CommentaryMeta {
-	return COMMENTARY_MAP.get(id) ?? COMMENTARY_SOURCES[0];
+	return COMMENTARY_SOURCES.find((source) => source.id === id) ?? COMMENTARY_SOURCES[0];
 }
 
 export interface IndexedCommentaryEntry {
@@ -90,7 +88,7 @@ export function filterCommentaryEntries(
 	trimmedLowerQuery: string,
 ): IndexedCommentaryEntry[] {
 	if (!trimmedLowerQuery) return [...indexedEntries];
-	const verseQueryMatch = trimmedLowerQuery.match(/^v\.?\s*(\d+)$/i);
+	const verseQueryMatch = trimmedLowerQuery.match(/^v\.?\s*(\d+)$/);
 	const queryVerse = verseQueryMatch ? Number.parseInt(verseQueryMatch[1], 10) : null;
 
 	return indexedEntries.filter(({ entry, effectiveEnd }) => {
@@ -107,7 +105,7 @@ export function buildCommentaryPreview(paragraphs: readonly string[]): {
 	isTruncated: boolean;
 } {
 	const totalChars = paragraphs.reduce((sum, p) => sum + p.length, 0);
-	if (paragraphs.length <= 3 && totalChars <= 650) {
+	if (paragraphs.length <= SHORT_NOTE_MAX_PARAGRAPHS && totalChars <= SHORT_NOTE_MAX_CHARS) {
 		return { preview: [...paragraphs], isTruncated: false };
 	}
 

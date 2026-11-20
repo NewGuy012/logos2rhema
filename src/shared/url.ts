@@ -1,6 +1,20 @@
 const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 
+function safeDecodePercent(value: string): string {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value.replace(/%[0-9a-fA-F]{2}/g, (seq) => {
+			try {
+				return decodeURIComponent(seq);
+			} catch {
+				return seq;
+			}
+		});
+	}
+}
+
 export function isSafeHttpsUrl(
 	rawUrl: string,
 	options?: { allowedHostSuffix?: string; forbiddenSubstring?: string },
@@ -36,12 +50,8 @@ export function isSafeHttpsUrl(
 		if (options?.forbiddenSubstring) {
 			const needle = options.forbiddenSubstring.toLowerCase();
 			const encodedNeedle = encodeURIComponent(options.forbiddenSubstring).toLowerCase();
-			const candidates = [rawUrl, parsed.href];
-			for (const value of [rawUrl, parsed.href]) {
-				try {
-					candidates.push(decodeURIComponent(value));
-				} catch {}
-			}
+			const baseUrls = [rawUrl, parsed.href];
+			const candidates = [...baseUrls, ...baseUrls.map(safeDecodePercent)];
 			if (
 				candidates.some((value) => {
 					const lower = value.toLowerCase();
