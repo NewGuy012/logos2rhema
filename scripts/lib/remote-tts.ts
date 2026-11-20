@@ -309,7 +309,7 @@ Synthesis & Upload Options:
   --bitrate <INT>           CBR MP3 bitrate in kbps (default: 96)
   --workers <INT>           Worker processes (0 = auto)
   --threads <INT>           ONNX intra-op threads per worker (default: 2)
-  --batch-size <INT>        Chunks per ONNX call (0 = auto: 32 on CUDA, 1 on CPU)
+  --batch-size <INT>        Chunks per ONNX call (0 = auto: 64 on CUDA, 1 on CPU)
   --mp3-quality <INT>       LAME MP3 quality 0 (best/slowest) to 9 (fastest) (default: 2)
   --verbose                 Show ONNX Runtime startup warnings
   --force                   Regenerate chapters even if outputs already exist
@@ -1702,7 +1702,7 @@ async function downloadDirectory(
 		const rsh = buildRsyncRshCommand(endpoint, controlPath);
 		const res = await runner.run(
 			"rsync",
-			["-az", "--partial", "-e", rsh, src, `${localDestDir}/`],
+			["-az", "--skip-compress=mp3", "--partial", "-e", rsh, src, `${localDestDir}/`],
 			{ stdin: "ignore" },
 		);
 		if (res.exitCode !== 0) {
