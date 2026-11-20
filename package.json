@@ -14,6 +14,7 @@
 		"wrangler": "4.166.0"
 	},
 	"private": true,
+	"packageManager": "bun@1.4.5",
 	"scripts": {
 		"audio:generate-krv": "uv run scripts/generate-krv-audio.py",
 		"audio:upload-krv": "bun run scripts/upload-krv-audio.ts",
