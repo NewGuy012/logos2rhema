@@ -1,4 +1,4 @@
-import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
+import { getBookByNumber, getBookOrDefault } from "../../shared/books";
 import type { BookMeta } from "../../shared/types";
 
 export const MAX_STORED_ITEMS = 200;
@@ -67,7 +67,7 @@ export function formatBilingualRef(
 	chapter: number,
 	verse?: number,
 ): { refEn: string; refKo: string } {
-	const book = getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0];
+	const book = getBookOrDefault(bookNumber);
 	if (verse !== undefined) {
 		return {
 			refEn: `${book.en} ${chapter}:${verse}`,

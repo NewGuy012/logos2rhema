@@ -72,6 +72,12 @@ function applyPlaybackRate(audio: HTMLAudioElement, rate: number): void {
 	}
 }
 
+function clearAudioSource(audio: HTMLAudioElement): void {
+	audio.pause();
+	audio.removeAttribute("src");
+	audio.load();
+}
+
 interface UseHumanAudioOptions {
 	tracks: AudioTrackOption[];
 	visibleVerse?: number;
@@ -177,6 +183,7 @@ export function useHumanAudio({
 				}
 			},
 			error: () => {
+				if (!audio.getAttribute("src")) return;
 				pendingSyncVerseRef.current = null;
 				setIsPlaying(false);
 				setIsLoading(false);
@@ -186,10 +193,8 @@ export function useHumanAudio({
 
 		for (const [evt, fn] of Object.entries(handlers)) audio.addEventListener(evt, fn);
 		return () => {
-			audio.pause();
-			audio.removeAttribute("src");
-			audio.load();
 			for (const [evt, fn] of Object.entries(handlers)) audio.removeEventListener(evt, fn);
+			clearAudioSource(audio);
 		};
 	}, []);
 
@@ -218,9 +223,7 @@ export function useHumanAudio({
 		const track = activeTrackRef.current;
 		if (!track?.url || !isSafeAudioSrc(track.url)) {
 			shouldAutoPlayOnTrackSwapRef.current = false;
-			audio.pause();
-			audio.removeAttribute("src");
-			audio.load();
+			clearAudioSource(audio);
 			setIsPlaying(false);
 			pendingSyncVerseRef.current = null;
 			if (track?.url) {

@@ -186,13 +186,14 @@ export function useDraggablePanel<T extends HTMLElement>({
 			: undefined;
 
 	return {
-		panelRef,
+		panelProps: {
+			ref: panelRef,
+			style: floatingStyle,
+			...(enabled ? { onMouseDown, onMouseDownCapture } : {}),
+		},
 		position: currentPosition,
 		isFloating,
 		isDragging,
-		onMouseDown,
-		onMouseDownCapture,
 		resetPosition,
-		floatingStyle,
 	};
 }

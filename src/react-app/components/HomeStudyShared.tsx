@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import {
 	BIBLE_BOOKS,
 	getAdjacentChapter,
-	getBookByNumber,
+	getBookOrDefault,
 	resolveBookChapter,
 } from "../../shared/books";
 import { ArrowRight, BookOpen, ChevronLeft, ChevronRight } from "./Icons";
@@ -31,7 +31,7 @@ export function HomePassageBar({
 	onChangePassage,
 	onOpenInReader,
 }: HomePassageBarProps) {
-	const currentBook = getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0];
+	const currentBook = getBookOrDefault(bookNumber);
 	const prevTarget = getAdjacentChapter(bookNumber, chapter, -1);
 	const nextTarget = getAdjacentChapter(bookNumber, chapter, 1);
 

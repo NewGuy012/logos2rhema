@@ -62,15 +62,7 @@ export function AudioControlRail({
 	onMinimize,
 }: AudioControlRailProps) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
-	const {
-		panelRef,
-		isFloating,
-		isDragging,
-		onMouseDown,
-		onMouseDownCapture,
-		resetPosition,
-		floatingStyle,
-	} = useDraggablePanel<HTMLElement>({
+	const { panelProps, isFloating, isDragging, resetPosition } = useDraggablePanel<HTMLElement>({
 		enabled: true,
 		position: floatingPosition,
 		onPositionChange: onFloatingPositionChange,
@@ -85,11 +77,8 @@ export function AudioControlRail({
 
 	return (
 		<aside
-			ref={panelRef}
+			{...panelProps}
 			className={`audio-rail ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
-			style={floatingStyle}
-			onMouseDown={onMouseDown}
-			onMouseDownCapture={onMouseDownCapture}
 			aria-label="Audio Playback and Verse Sync"
 		>
 			<div className="rail-card">

@@ -163,22 +163,19 @@ function makeTopBarProps(
 		lastBookNumber: 8,
 		lastChapter: 4,
 		lastVerse: 12,
-		stackOrder: "en-first",
-		theme: "paper",
-		fontScale: 1,
-		enFontStyle: "newsreader",
-		koFontStyle: "serif",
-		studyMask: "none",
+		prefs: {
+			stackOrder: "en-first",
+			theme: "paper",
+			fontScale: 1,
+			enFontStyle: "newsreader",
+			koFontStyle: "serif",
+			studyMask: "none",
+		},
 		onGoHome: noop,
 		onContinueReading: noop,
 		onOpenPassage: noop,
-		onChangeStackOrder: noop,
+		onChangePref: noop,
 		onOpenSearch: noop,
-		onChangeTheme: noop,
-		onChangeFontScale: noop,
-		onChangeEnFontStyle: noop,
-		onChangeKoFontStyle: noop,
-		onChangeStudyMask: noop,
 		...overrides,
 	};
 }
@@ -506,8 +503,7 @@ describe("Reader UI & audio hooks", () => {
 		const onGoHome = mock(() => {});
 		const onContinue = mock(() => {});
 		const onTopOpen = mock(() => {});
-		const onFlip = mock(() => {});
-		const onChangeEnFont = mock(() => {});
+		const onChangePref = mock(() => {});
 		const onOpenSearch = mock(() => {});
 		const sharedTopBarProps = makeTopBarProps({
 			favorites: [
@@ -523,9 +519,8 @@ describe("Reader UI & audio hooks", () => {
 			onGoHome,
 			onContinueReading: onContinue,
 			onOpenPassage: onTopOpen,
-			onChangeStackOrder: onFlip,
+			onChangePref,
 			onOpenSearch,
-			onChangeEnFontStyle: onChangeEnFont,
 		});
 		const topBar = render(<TopBar {...sharedTopBarProps} />);
 		fireClick(topBar.container.querySelector('a[aria-label="Logos2Rhema Home"]') as Element);
@@ -542,11 +537,11 @@ describe("Reader UI & audio hooks", () => {
 		expect(settingsPopover).not.toBeNull();
 		expect(getButton(settingsPopover, "Newsreader").className).toContain("active");
 		fireClick(getButton(settingsPopover, "Newsreader"));
-		expect(onChangeEnFont).not.toHaveBeenCalled();
+		expect(onChangePref).not.toHaveBeenCalled();
 		fireClick(getButton(settingsPopover, "Lora"));
-		expect(onChangeEnFont).toHaveBeenCalledWith("lora");
+		expect(onChangePref).toHaveBeenCalledWith({ enFontStyle: "lora" });
 		fireClick(getButton(settingsPopover, "한 / EN"));
-		expect(onFlip).toHaveBeenCalledWith("ko-first");
+		expect(onChangePref).toHaveBeenCalledWith({ stackOrder: "ko-first" });
 
 		fireClick(getButton(topBar.container, /Favorites/));
 		fireClick(

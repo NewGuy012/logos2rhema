@@ -104,6 +104,14 @@ function cachedFetch<T>(
 	return promise;
 }
 
+async function readApiError(res: Response, fallback: string): Promise<string> {
+	try {
+		const payload = (await res.json()) as { error?: unknown };
+		if (typeof payload?.error === "string" && payload.error) return payload.error;
+	} catch {}
+	return fallback;
+}
+
 export async function loadLexicon(): Promise<LexiconMap> {
 	if (!lexiconPromise) {
 		lexiconPromise = fetch("/data/lexicon.json")
@@ -144,16 +152,13 @@ export async function loadTranslationChapter(
 		const promise = fetch(`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`)
 			.then(async (res) => {
 				if (!res.ok) {
-					let message = `Failed to load ${translationId} ${book.usfm} ${chapter}`;
-					try {
-						const payload = (await res.json()) as { error?: string };
-						if (payload?.error) message = payload.error;
-					} catch {}
-					throw new Error(message);
+					throw new Error(
+						await readApiError(res, `Failed to load ${translationId} ${book.usfm} ${chapter}`),
+					);
 				}
 				const payload = (await res.json()) as Partial<ChapterTextResponse>;
-				const verses = Array.isArray(payload.verses) ? payload.verses : [];
-				cacheEsvChapter(book, chapter, verses);
+				const verses = Array.isArray(payload?.verses) ? payload.verses : [];
+				if (verses.length > 0) cacheEsvChapter(book, chapter, verses);
 				return verses;
 			})
 			.finally(() => {
@@ -171,7 +176,8 @@ export async function loadTranslationChapter(
 		if (!res.ok) throw new Error(`Failed to load ${translationId} ${book.usfm}`);
 		return (await res.json()) as BookBibleData;
 	});
-	return data.chapters[String(chapter)] ?? [];
+	const verses = data?.chapters?.[String(chapter)];
+	return Array.isArray(verses) ? verses : [];
 }
 
 function fetchStaticBookTimings(
@@ -195,9 +201,10 @@ export async function loadSyncedChapterAudio(options: {
 	try {
 		const res = await fetch(`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`);
 		if (!res.ok) return { tracks: [] };
-		const payload = (await res.json()) as ChapterAudioResponse;
+		const payload = (await res.json()) as Partial<ChapterAudioResponse>;
+		const rawTracks = Array.isArray(payload?.tracks) ? payload.tracks : [];
 		const tracks = await Promise.all(
-			payload.tracks.map(async (track) => {
+			rawTracks.map(async (track) => {
 				if (hasVerseTimings(track.verseTimings)) return track;
 				const timingsDir = STATIC_TIMINGS_DIR_BY_TRACK_ID[track.id];
 				if (!timingsDir) return track;
@@ -228,12 +235,7 @@ export function loadChapterCommentary(options: {
 		async () => {
 			const res = await fetch(url);
 			if (!res.ok) {
-				let message = "Unable to load commentary.";
-				try {
-					const payload = (await res.json()) as { error?: string };
-					if (payload?.error) message = payload.error;
-				} catch {}
-				throw new Error(message);
+				throw new Error(await readApiError(res, "Unable to load commentary."));
 			}
 			return (await res.json()) as ChapterCommentaryResponse;
 		},

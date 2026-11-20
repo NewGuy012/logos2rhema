@@ -1,8 +1,74 @@
 import type { ReactNode } from "react";
 
 import { containsHangul, romanizeHangul } from "../../shared/hangul";
-import type { LexiconEntry } from "../../shared/types";
-import { ChevronDown, ChevronRight, Pin, Search, Volume2, X } from "./Icons";
+import type { FootnoteVocabEntry, LexiconEntry } from "../../shared/types";
+import { ChevronDown, ChevronRight, Loader2, Pin, Search, Volume2, X } from "./Icons";
+
+export function toggleSetItem(prev: Set<string>, id: string): Set<string> {
+	const next = new Set(prev);
+	if (next.has(id)) next.delete(id);
+	else next.add(id);
+	return next;
+}
+
+export function filterVocabEntries(
+	entries: readonly FootnoteVocabEntry[],
+	query: string,
+): FootnoteVocabEntry[] {
+	const raw = query.trim();
+	if (!raw) return [...entries];
+	const lower = raw.toLowerCase();
+	return entries.filter(
+		(entry) =>
+			entry.lemma.toLowerCase().includes(lower) ||
+			entry.gloss.toLowerCase().includes(lower) ||
+			Boolean(entry.hanja?.includes(raw)) ||
+			entry.surfaceForms.some((form) => form.toLowerCase().includes(lower)),
+	);
+}
+
+export function PanelStatus({
+	loading,
+	loadingText,
+	error,
+	onRetry,
+	emptyText,
+}: {
+	loading?: boolean;
+	loadingText?: string;
+	error?: string | null;
+	onRetry?: () => void;
+	emptyText?: string | null;
+}) {
+	if (loading) {
+		return (
+			<div className="commentary-status" role="status">
+				<Loader2 size={16} className="spin" />
+				<span>{loadingText}</span>
+			</div>
+		);
+	}
+	if (error) {
+		return (
+			<div className="commentary-status commentary-error">
+				<p className="commentary-status-text">{error}</p>
+				{onRetry && (
+					<button type="button" className="quick-inline-chip active" onClick={onRetry}>
+						Try again
+					</button>
+				)}
+			</div>
+		);
+	}
+	if (emptyText) {
+		return (
+			<div className="commentary-status">
+				<p className="commentary-status-text">{emptyText}</p>
+			</div>
+		);
+	}
+	return null;
+}
 
 export function PanelHeaderText({
 	title,

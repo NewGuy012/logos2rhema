@@ -11,8 +11,7 @@ import {
 import type { ChapterCommentaryResponse, CommentaryId, CommentaryMeta } from "../../shared/types";
 import { loadChapterCommentary } from "../lib/bible-loader";
 import { scrollChildIntoContainer } from "../lib/scroll";
-import { Loader2 } from "./Icons";
-import { PanelDisclosure, PanelSearchInput } from "./RailShared";
+import { PanelDisclosure, PanelSearchInput, PanelStatus, toggleSetItem } from "./RailShared";
 
 export function useChapterCommentary({
 	commentaryId,
@@ -161,47 +160,22 @@ export function CommentaryBody({
 		setExpandedIds(new Set());
 	}, [bookEn, chapter, sourceMeta.id]);
 
-	const toggleExpanded = (id: string) => {
-		setExpandedIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
-
 	const trimmedQuery = query.trim().toLowerCase();
 	const entries = data?.entries ?? [];
 	const chapterIntro = data?.introduction ?? [];
 	const bookIntro = data?.bookIntroduction ?? [];
+	const isEmpty =
+		!data || (entries.length === 0 && chapterIntro.length === 0 && bookIntro.length === 0);
 
-	if (loading) {
+	if (loading || error || isEmpty) {
 		return (
-			<div className="commentary-status" role="status">
-				<Loader2 size={16} className="spin" />
-				<span>Loading {sourceMeta.shortName} notes...</span>
-			</div>
-		);
-	}
-
-	if (error) {
-		return (
-			<div className="commentary-status commentary-error">
-				<p className="commentary-status-text">{error}</p>
-				<button type="button" className="quick-inline-chip active" onClick={onRetry}>
-					Try again
-				</button>
-			</div>
-		);
-	}
-
-	if (!data || (entries.length === 0 && chapterIntro.length === 0 && bookIntro.length === 0)) {
-		return (
-			<div className="commentary-status">
-				<p className="commentary-status-text">
-					No notes available in {sourceMeta.name} for {bookEn} {chapter}.
-				</p>
-			</div>
+			<PanelStatus
+				loading={loading}
+				loadingText={`Loading ${sourceMeta.shortName} notes...`}
+				error={error}
+				onRetry={onRetry}
+				emptyText={`No notes available in ${sourceMeta.name} for ${bookEn} ${chapter}.`}
+			/>
 		);
 	}
 
@@ -240,11 +214,9 @@ export function CommentaryBody({
 			)}
 
 			{visibleEntries.length === 0 ? (
-				<div className="commentary-status">
-					<p className="commentary-status-text">
-						No matching commentary notes for "{query.trim()}" in {bookEn} {chapter}.
-					</p>
-				</div>
+				<PanelStatus
+					emptyText={`No matching commentary notes for "${query.trim()}" in ${bookEn} ${chapter}.`}
+				/>
 			) : (
 				<div className="commentary-list">
 					{visibleEntries.map(({ entry, verseLabel }) => {
@@ -290,7 +262,7 @@ export function CommentaryBody({
 										type="button"
 										className="commentary-expand-btn"
 										aria-expanded={isExpanded}
-										onClick={() => toggleExpanded(entry.id)}
+										onClick={() => setExpandedIds((prev) => toggleSetItem(prev, entry.id))}
 									>
 										{isExpanded ? "Show less" : "Read full note"}
 									</button>

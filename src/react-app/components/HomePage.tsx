@@ -1,6 +1,6 @@
 import { Fragment, useId, useMemo, useState } from "react";
 
-import { BIBLE_BOOKS, filterBooks, getBookByNumber } from "../../shared/books";
+import { filterBooks, getBookOrDefault } from "../../shared/books";
 import { DEFAULT_COMMENTARY_ID } from "../../shared/commentaries";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { BookMeta, CommentaryId, RightRailTab } from "../../shared/types";
@@ -72,10 +72,7 @@ export function HomePage({
 	const activeCommentarySource = commentarySource ?? localCommentarySource;
 	const handleChangeCommentarySource = onChangeCommentarySource ?? setLocalCommentarySource;
 
-	const lastBook = useMemo(
-		() => getBookByNumber(lastBookNumber) ?? BIBLE_BOOKS[0],
-		[lastBookNumber],
-	);
+	const lastBook = useMemo(() => getBookOrDefault(lastBookNumber), [lastBookNumber]);
 
 	const { otBooks, ntBooks, matchedBookNumbers, totalMatches } = useMemo(() => {
 		const matches = filterBooks(query);

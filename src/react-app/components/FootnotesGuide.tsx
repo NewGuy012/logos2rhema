@@ -14,7 +14,13 @@ import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { scrollChildIntoContainer } from "../lib/scroll";
 import { ChevronDown } from "./Icons";
-import { GrammarRuleCard, PanelDisclosure, PanelSearchInput, VocabEntryBody } from "./RailShared";
+import {
+	filterVocabEntries,
+	GrammarRuleCard,
+	PanelDisclosure,
+	PanelSearchInput,
+	VocabEntryBody,
+} from "./RailShared";
 
 interface VerseRefSelectProps {
 	lemma: string;
@@ -179,16 +185,7 @@ export function FootnotesGuide({
 		scrollChildIntoContainer(scrollContainerRef.current, "data-footnote-id", highlightedFootnoteId);
 	}, [highlightedFootnoteId, highlightSeq, query, wordsOpen, footnotes]);
 
-	const visibleEntries = useMemo(() => {
-		const trimmed = query.trim().toLowerCase();
-		if (!trimmed) return footnotes;
-		return footnotes.filter(
-			(entry) =>
-				entry.lemma.toLowerCase().includes(trimmed) ||
-				entry.gloss.toLowerCase().includes(trimmed) ||
-				entry.surfaceForms.some((form) => form.toLowerCase().includes(trimmed)),
-		);
-	}, [footnotes, query]);
+	const visibleEntries = useMemo(() => filterVocabEntries(footnotes, query), [footnotes, query]);
 
 	const hasGrammarSection = grammarNotes.length > 0 && !query.trim();
 

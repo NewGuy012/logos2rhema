@@ -8,8 +8,15 @@ import type { LexiconEntry, LexiconMap, RightRailTab, VerseEntry } from "../../s
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { loadLexicon, loadTranslationChapter } from "../lib/bible-loader";
 import { HomePassageBar, usePassageSelection } from "./HomeStudyShared";
-import { Loader2 } from "./Icons";
-import { GrammarRuleCard, PanelDisclosure, PanelSearchInput, VocabEntryBody } from "./RailShared";
+import {
+	filterVocabEntries,
+	GrammarRuleCard,
+	PanelDisclosure,
+	PanelSearchInput,
+	PanelStatus,
+	toggleSetItem,
+	VocabEntryBody,
+} from "./RailShared";
 
 type DictionaryMode = "glossary" | "chapter" | "grammar";
 type GlossaryFilter = "all" | "biblical" | "noun" | "verb" | "adj" | "adv" | "name";
@@ -228,31 +235,41 @@ export function HomeDictionaryBrowser({
 		return analyzeKoreanChapter(chapterVerses, lexicon);
 	}, [mode, chapterVerses, lexicon]);
 
-	const visibleChapterEntries = useMemo(() => {
-		const trimmed = chapterQuery.trim().toLowerCase();
-		if (!trimmed) return chapterAnalysis.footnotes;
-		return chapterAnalysis.footnotes.filter(
-			(entry) =>
-				entry.lemma.toLowerCase().includes(trimmed) ||
-				entry.gloss.toLowerCase().includes(trimmed) ||
-				Boolean(entry.hanja?.includes(chapterQuery.trim())) ||
-				entry.surfaceForms.some((form) => form.toLowerCase().includes(trimmed)),
-		);
-	}, [chapterAnalysis.footnotes, chapterQuery]);
+	const visibleChapterEntries = useMemo(
+		() => filterVocabEntries(chapterAnalysis.footnotes, chapterQuery),
+		[chapterAnalysis.footnotes, chapterQuery],
+	);
 
 	const shownChapterEntries = useMemo(
 		() => visibleChapterEntries.slice(0, chapterVisibleLimit),
 		[visibleChapterEntries, chapterVisibleLimit],
 	);
 
-	const toggleVerseList = (id: string) => {
-		setExpandedVerseLists((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
+	const renderMoreButton = (remaining: number, onClick: () => void) =>
+		remaining > 0 && (
+			<div className="home-dict-more">
+				<button type="button" className="home-search-submit" onClick={onClick}>
+					Show more ({remaining} remaining)
+				</button>
+			</div>
+		);
+
+	const renderVerseRefChips = (verses: readonly number[]) =>
+		verses.map((v) => (
+			<button
+				key={v}
+				type="button"
+				className="verse-ref-chip"
+				onClick={() =>
+					onOpenPassage(currentBook.number, chapter, v, {
+						rightRailTab: "dictionary",
+					})
+				}
+				title={`Open ${currentBook.en} ${chapter}:${v}`}
+			>
+				v.{v}
+			</button>
+		));
 
 	return (
 		<div className="home-study-browser">
@@ -348,11 +365,7 @@ export function HomeDictionaryBrowser({
 					</div>
 
 					{shownGlossary.length === 0 ? (
-						<div className="commentary-status">
-							<p className="commentary-status-text">
-								No dictionary entries matched "{glossaryQuery.trim()}".
-							</p>
-						</div>
+						<PanelStatus emptyText={`No dictionary entries matched "${glossaryQuery.trim()}".`} />
 					) : (
 						<div className="home-dict-grid">
 							{shownGlossary.map((entry) => {
@@ -378,40 +391,21 @@ export function HomeDictionaryBrowser({
 						</div>
 					)}
 
-					{filteredGlossary.length > shownGlossary.length && (
-						<div className="home-dict-more">
-							<button
-								type="button"
-								className="home-search-submit"
-								onClick={() => setVisibleLimit((limit) => limit + PAGE_SIZE)}
-							>
-								Show more ({filteredGlossary.length - shownGlossary.length} remaining)
-							</button>
-						</div>
+					{renderMoreButton(filteredGlossary.length - shownGlossary.length, () =>
+						setVisibleLimit((limit) => limit + PAGE_SIZE),
 					)}
 				</div>
 			)}
 
 			{mode === "chapter" && (
 				<div className="home-study-card home-dict-results-card">
-					{chapterLoading ? (
-						<div className="commentary-status" role="status">
-							<Loader2 size={16} className="spin" />
-							<span>
-								Analyzing vocabulary for {currentBook.en} {chapter}...
-							</span>
-						</div>
-					) : chapterError ? (
-						<div className="commentary-status commentary-error">
-							<p className="commentary-status-text">{chapterError}</p>
-							<button
-								type="button"
-								className="quick-inline-chip active"
-								onClick={() => setChapterRetrySeq((seq) => seq + 1)}
-							>
-								Try again
-							</button>
-						</div>
+					{chapterLoading || chapterError ? (
+						<PanelStatus
+							loading={chapterLoading}
+							loadingText={`Analyzing vocabulary for ${currentBook.en} ${chapter}...`}
+							error={chapterError}
+							onRetry={() => setChapterRetrySeq((seq) => seq + 1)}
+						/>
 					) : (
 						<>
 							{!chapterQuery.trim() && chapterAnalysis.grammarNotes.length > 0 && (
@@ -430,21 +424,7 @@ export function HomeDictionaryBrowser({
 											>
 												{note.verses.length > 0 && (
 													<div className="home-dict-verses">
-														{note.verses.slice(0, 6).map((v) => (
-															<button
-																key={v}
-																type="button"
-																className="verse-ref-chip"
-																onClick={() =>
-																	onOpenPassage(currentBook.number, chapter, v, {
-																		rightRailTab: "dictionary",
-																	})
-																}
-																title={`Open ${currentBook.en} ${chapter}:${v}`}
-															>
-																v.{v}
-															</button>
-														))}
+														{renderVerseRefChips(note.verses.slice(0, 6))}
 													</div>
 												)}
 											</GrammarRuleCard>
@@ -460,11 +440,9 @@ export function HomeDictionaryBrowser({
 							</div>
 
 							{shownChapterEntries.length === 0 ? (
-								<div className="commentary-status">
-									<p className="commentary-status-text">
-										No matching vocabulary entries in {currentBook.en} {chapter}.
-									</p>
-								</div>
+								<PanelStatus
+									emptyText={`No matching vocabulary entries in ${currentBook.en} ${chapter}.`}
+								/>
 							) : (
 								<div className="home-dict-grid">
 									{shownChapterEntries.map((entry) => {
@@ -490,26 +468,14 @@ export function HomeDictionaryBrowser({
 												>
 													{entry.verses.length > 0 && (
 														<div className="home-dict-verses">
-															{displayedVerses.map((v) => (
-																<button
-																	key={v}
-																	type="button"
-																	className="verse-ref-chip"
-																	onClick={() =>
-																		onOpenPassage(currentBook.number, chapter, v, {
-																			rightRailTab: "dictionary",
-																		})
-																	}
-																	title={`Open ${currentBook.en} ${chapter}:${v}`}
-																>
-																	v.{v}
-																</button>
-															))}
+															{renderVerseRefChips(displayedVerses)}
 															{hiddenCount > 0 && (
 																<button
 																	type="button"
 																	className="verse-ref-chip"
-																	onClick={() => toggleVerseList(entry.id)}
+																	onClick={() =>
+																		setExpandedVerseLists((prev) => toggleSetItem(prev, entry.id))
+																	}
 																>
 																	+{hiddenCount}
 																</button>
@@ -523,17 +489,8 @@ export function HomeDictionaryBrowser({
 								</div>
 							)}
 
-							{visibleChapterEntries.length > shownChapterEntries.length && (
-								<div className="home-dict-more">
-									<button
-										type="button"
-										className="home-search-submit"
-										onClick={() => setChapterVisibleLimit((limit) => limit + PAGE_SIZE)}
-									>
-										Show more ({visibleChapterEntries.length - shownChapterEntries.length}{" "}
-										remaining)
-									</button>
-								</div>
+							{renderMoreButton(visibleChapterEntries.length - shownChapterEntries.length, () =>
+								setChapterVisibleLimit((limit) => limit + PAGE_SIZE),
 							)}
 						</>
 					)}

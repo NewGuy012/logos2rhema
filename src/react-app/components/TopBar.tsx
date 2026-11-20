@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
+import { getBookOrDefault } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import { useDismissListeners } from "../hooks/usePopover";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
@@ -11,27 +11,26 @@ export type ReaderTheme = "paper" | "sepia" | "dark";
 export type EnglishFontStyle = "newsreader" | "lora" | "inter";
 export type KoreanFontStyle = "serif" | "sans";
 
-interface TopBarProps extends SavedItemsProps {
-	isHome?: boolean;
-	lastBookNumber?: number;
-	lastChapter?: number;
-	lastVerse?: number;
+export interface TopBarDisplayPrefs {
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
 	enFontStyle: EnglishFontStyle;
 	koFontStyle: KoreanFontStyle;
 	studyMask: StudyMaskMode;
+}
+
+interface TopBarProps extends SavedItemsProps {
+	isHome?: boolean;
+	lastBookNumber?: number;
+	lastChapter?: number;
+	lastVerse?: number;
+	prefs: TopBarDisplayPrefs;
 	onGoHome: () => void;
 	onContinueReading?: () => void;
 	onOpenPassage?: (bookNumber: number, chapter: number, verse?: number) => void;
-	onChangeStackOrder: (order: StackOrder) => void;
+	onChangePref: (patch: Partial<TopBarDisplayPrefs>) => void;
 	onOpenSearch: () => void;
-	onChangeTheme: (theme: ReaderTheme) => void;
-	onChangeFontScale: (scale: number) => void;
-	onChangeEnFontStyle: (style: EnglishFontStyle) => void;
-	onChangeKoFontStyle: (style: KoreanFontStyle) => void;
-	onChangeStudyMask: (mode: StudyMaskMode) => void;
 }
 
 type OpenPopover = "favorites" | "display" | null;
@@ -85,12 +84,7 @@ export function TopBar({
 	lastVerse = 1,
 	favorites = [],
 	highlights = [],
-	stackOrder,
-	theme,
-	fontScale,
-	enFontStyle,
-	koFontStyle,
-	studyMask,
+	prefs,
 	onGoHome,
 	onContinueReading,
 	onOpenPassage,
@@ -98,21 +92,13 @@ export function TopBar({
 	onRemoveHighlight,
 	onClearFavorites,
 	onClearHighlights,
-	onChangeStackOrder,
+	onChangePref,
 	onOpenSearch,
-	onChangeTheme,
-	onChangeFontScale,
-	onChangeEnFontStyle,
-	onChangeKoFontStyle,
-	onChangeStudyMask,
 }: TopBarProps) {
 	const [openPopover, setOpenPopover] = useState<OpenPopover>(null);
 	const navRef = useRef<HTMLElement | null>(null);
 
-	const lastBook = useMemo(
-		() => getBookByNumber(lastBookNumber) ?? BIBLE_BOOKS[0],
-		[lastBookNumber],
-	);
+	const lastBook = useMemo(() => getBookOrDefault(lastBookNumber), [lastBookNumber]);
 
 	const closePopovers = useCallback(() => {
 		setOpenPopover(null);
@@ -265,8 +251,8 @@ export function TopBar({
 								<div className="popover-card settings-popover">
 									<SegmentedSetting
 										title="Theme"
-										value={theme}
-										onChange={onChangeTheme}
+										value={prefs.theme}
+										onChange={(theme) => onChangePref({ theme })}
 										options={[
 											{ label: "Paper", val: "paper" },
 											{ label: "Sepia", val: "sepia" },
@@ -275,8 +261,8 @@ export function TopBar({
 									/>
 									<SegmentedSetting
 										title="Text Size"
-										value={fontScale}
-										onChange={onChangeFontScale}
+										value={prefs.fontScale}
+										onChange={(fontScale) => onChangePref({ fontScale })}
 										options={[
 											{ label: "S", val: 0.9 },
 											{ label: "M", val: 1 },
@@ -286,8 +272,8 @@ export function TopBar({
 									/>
 									<SegmentedSetting
 										title="English Font"
-										value={enFontStyle}
-										onChange={onChangeEnFontStyle}
+										value={prefs.enFontStyle}
+										onChange={(enFontStyle) => onChangePref({ enFontStyle })}
 										options={[
 											{ label: "Newsreader", val: "newsreader" },
 											{ label: "Lora", val: "lora" },
@@ -296,8 +282,8 @@ export function TopBar({
 									/>
 									<SegmentedSetting
 										title="Korean Font"
-										value={koFontStyle}
-										onChange={onChangeKoFontStyle}
+										value={prefs.koFontStyle}
+										onChange={(koFontStyle) => onChangePref({ koFontStyle })}
 										options={[
 											{ label: "Serif (명조)", val: "serif" },
 											{ label: "Sans (고딕)", val: "sans" },
@@ -305,8 +291,8 @@ export function TopBar({
 									/>
 									<SegmentedSetting
 										title="Stack Order"
-										value={stackOrder}
-										onChange={onChangeStackOrder}
+										value={prefs.stackOrder}
+										onChange={(stackOrder) => onChangePref({ stackOrder })}
 										groupAriaLabel="Flip language stack order"
 										options={[
 											{ label: "EN / 한", val: "en-first" },
@@ -315,8 +301,8 @@ export function TopBar({
 									/>
 									<SegmentedSetting
 										title="Study Mode (Hover to Reveal)"
-										value={studyMask}
-										onChange={onChangeStudyMask}
+										value={prefs.studyMask}
+										onChange={(studyMask) => onChangePref({ studyMask })}
 										options={[
 											{ label: "Both", val: "none" },
 											{ label: "Blur EN", val: "mask-en" },

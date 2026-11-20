@@ -2,11 +2,11 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 
 import { hasVerseTimings } from "../shared/audio-timings";
 import {
-	BIBLE_BOOKS,
 	clampChapter,
 	getAdjacentChapter,
 	getBookByNumber,
 	getBookByUsfm,
+	getBookOrDefault,
 	resolveBookChapter,
 } from "../shared/books";
 import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
@@ -37,13 +37,8 @@ import {
 import { LegalFooter } from "./components/LegalFooter";
 import { PassagePicker } from "./components/PassagePicker";
 import { StudyRightRail } from "./components/StudyRightRail";
-import {
-	type EnglishFontStyle,
-	type KoreanFontStyle,
-	type ReaderTheme,
-	TopBar,
-} from "./components/TopBar";
-import { type StackOrder, type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
+import { TopBar, type TopBarDisplayPrefs } from "./components/TopBar";
+import { VerseBlock } from "./components/VerseBlock";
 import type { PanelPosition } from "./hooks/useDraggablePanel";
 import { useHumanAudio } from "./hooks/useHumanAudio";
 import { useIsDesktopLayout } from "./hooks/useMediaQuery";
@@ -73,13 +68,7 @@ import { readJsonStorage, writeJsonStorage } from "./lib/storage";
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
 
-interface DisplayPrefs {
-	stackOrder: StackOrder;
-	theme: ReaderTheme;
-	fontScale: number;
-	enFontStyle: EnglishFontStyle;
-	koFontStyle: KoreanFontStyle;
-	studyMask: StudyMaskMode;
+interface DisplayPrefs extends TopBarDisplayPrefs {
 	autoSync: boolean;
 	rightRailTab: RightRailTab;
 	commentarySource: CommentaryId;
@@ -103,7 +92,7 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	commentarySource: DEFAULT_COMMENTARY_ID,
 };
 
-const EN_FONT_VARS: Record<EnglishFontStyle, string> = {
+const EN_FONT_VARS: Record<TopBarDisplayPrefs["enFontStyle"], string> = {
 	newsreader: "var(--font-en)",
 	lora: "var(--font-en-lora)",
 	inter: "var(--font-ui)",
@@ -133,12 +122,12 @@ function parseLocationHash(): AppRoute {
 	const book = getBookByUsfm(match[1]);
 	const chapter = Number.parseInt(match[2], 10);
 	const verse = match[3] ? Number.parseInt(match[3], 10) : undefined;
-	if (!book || Number.isNaN(chapter)) return { view: "home" };
+	if (!book || !Number.isSafeInteger(chapter)) return { view: "home" };
 	return {
 		view: "reader",
 		bookNumber: book.number,
 		chapter: clampChapter(book, chapter),
-		verse: verse && !Number.isNaN(verse) ? verse : undefined,
+		verse: verse !== undefined && Number.isSafeInteger(verse) && verse >= 1 ? verse : undefined,
 	};
 }
 
@@ -265,8 +254,15 @@ export default function App() {
 	);
 	const [prefs, setPrefs] = useState<DisplayPrefs>(initialDisplayPrefs);
 
-	const updatePref = useCallback(<K extends keyof DisplayPrefs>(key: K, value: DisplayPrefs[K]) => {
-		setPrefs((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+	const patchPrefs = useCallback((patch: Partial<DisplayPrefs>) => {
+		setPrefs((prev) => {
+			for (const key of Object.keys(patch) as Array<keyof DisplayPrefs>) {
+				if (patch[key] !== undefined && prev[key] !== patch[key]) {
+					return { ...prev, ...patch };
+				}
+			}
+			return prev;
+		});
 	}, []);
 
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
@@ -308,7 +304,7 @@ export default function App() {
 		initialRoute.view === "reader" ? (initialRoute.verse ?? null) : null,
 	);
 
-	const currentBook = useMemo(() => getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0], [bookNumber]);
+	const currentBook = useMemo(() => getBookOrDefault(bookNumber), [bookNumber]);
 	const prevChapterTarget = useMemo(
 		() => getAdjacentChapter(bookNumber, chapter, -1),
 		[bookNumber, chapter],
@@ -461,7 +457,7 @@ export default function App() {
 			return;
 		}
 		const handlePointerStart = (e: MouseEvent) => {
-			if (!(e.target as HTMLElement | null)?.closest(".selection-highlight-bar")) {
+			if (!(e.target instanceof Element) || !e.target.closest(".selection-highlight-bar")) {
 				setSelectionToolbar(null);
 			}
 		};
@@ -665,7 +661,7 @@ export default function App() {
 		let touchStartY: number | null = null;
 		let touchIgnored = false;
 		const isIgnoredTarget = (target: EventTarget | null) =>
-			Boolean((target as HTMLElement | null)?.closest?.(SCROLL_FOLLOW_IGNORED_SELECTOR));
+			Boolean(target instanceof Element && target.closest(SCROLL_FOLLOW_IGNORED_SELECTOR));
 
 		const handleWheel = (e: WheelEvent) => {
 			if (Math.abs(e.deltaY) < 4 || isIgnoredTarget(e.target)) return;
@@ -808,7 +804,7 @@ export default function App() {
 		(footnoteId: string) => {
 			setHighlightedFootnoteId(footnoteId);
 			setHighlightSeq((seq) => seq + 1);
-			updatePref("rightRailTab", "dictionary");
+			patchPrefs({ rightRailTab: "dictionary" });
 			if (isDesktop) setSidebarOpen(true);
 			else setSheetOpen(true);
 			if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
@@ -817,7 +813,7 @@ export default function App() {
 				setHighlightedFootnoteId((cur) => (cur === footnoteId ? null : cur));
 			}, 3200);
 		},
-		[isDesktop, updatePref],
+		[isDesktop, patchPrefs],
 	);
 
 	const handleJumpFromFootnote = useCallback((verseNum: number) => {
@@ -913,12 +909,12 @@ export default function App() {
 			options?: { rightRailTab?: RightRailTab },
 		) => {
 			if (options?.rightRailTab) {
-				updatePref("rightRailTab", options.rightRailTab);
+				patchPrefs({ rightRailTab: options.rightRailTab });
 				if (isDesktop) setSidebarOpen(true);
 			}
 			navigateTo(targetBook, targetChapter, verse);
 		},
-		[isDesktop, navigateTo, updatePref],
+		[isDesktop, navigateTo, patchPrefs],
 	);
 
 	const savedItemsProps = {
@@ -934,7 +930,7 @@ export default function App() {
 	const renderRightRail = (variant: "sidebar" | "sheet", onMinimize: () => void) => (
 		<StudyRightRail
 			activeTab={prefs.rightRailTab}
-			onChangeTab={(tab) => updatePref("rightRailTab", tab)}
+			onChangeTab={(rightRailTab) => patchPrefs({ rightRailTab })}
 			variant={variant}
 			onMinimize={onMinimize}
 			floatingPosition={variant === "sidebar" ? dictFloatingPos : undefined}
@@ -956,7 +952,7 @@ export default function App() {
 			commentaryError={commentaryError}
 			maxVerseInChapter={maxVerseInChapter}
 			selectedVerse={selectedVerse}
-			onChangeCommentarySource={(source) => updatePref("commentarySource", source)}
+			onChangeCommentarySource={(commentarySource) => patchPrefs({ commentarySource })}
 			onRetryCommentary={retryCommentary}
 			onJumpToVerse={handleJumpFromFootnote}
 		/>
@@ -970,21 +966,11 @@ export default function App() {
 				lastChapter={chapter}
 				lastVerse={lastVerse}
 				{...savedItemsProps}
-				stackOrder={prefs.stackOrder}
-				theme={prefs.theme}
-				fontScale={prefs.fontScale}
-				enFontStyle={prefs.enFontStyle}
-				koFontStyle={prefs.koFontStyle}
-				studyMask={prefs.studyMask}
+				prefs={prefs}
 				onGoHome={goHome}
 				onContinueReading={handleContinueReading}
-				onChangeStackOrder={(v) => updatePref("stackOrder", v)}
+				onChangePref={patchPrefs}
 				onOpenSearch={() => setPickerOpen(true)}
-				onChangeTheme={(v) => updatePref("theme", v)}
-				onChangeFontScale={(v) => updatePref("fontScale", v)}
-				onChangeEnFontStyle={(v) => updatePref("enFontStyle", v)}
-				onChangeKoFontStyle={(v) => updatePref("koFontStyle", v)}
-				onChangeStudyMask={(v) => updatePref("studyMask", v)}
 			/>
 
 			{view === "home" ? (
@@ -993,7 +979,7 @@ export default function App() {
 					lastChapter={chapter}
 					lastVerse={lastVerse}
 					commentarySource={prefs.commentarySource}
-					onChangeCommentarySource={(source) => updatePref("commentarySource", source)}
+					onChangeCommentarySource={(commentarySource) => patchPrefs({ commentarySource })}
 					{...savedItemsProps}
 					onOpenPassage={handleOpenFromHome}
 				/>
@@ -1015,7 +1001,7 @@ export default function App() {
 										onFloatingPositionChange={handleAudioFloatingPosChange}
 										isActiveFloating={activeFloatingPanel === "audio"}
 										onActivateFloating={() => setActiveFloatingPanel("audio")}
-										onToggleAutoSync={() => updatePref("autoSync", !prefs.autoSync)}
+										onToggleAutoSync={() => patchPrefs({ autoSync: !prefs.autoSync })}
 										onSyncToVisibleVerse={() => jumpToVerse(visibleVerse)}
 										onFollowActiveVerse={handleFollowActiveVerse}
 										onMinimize={handleToggleAudioRail}
@@ -1085,7 +1071,7 @@ export default function App() {
 											type="button"
 											className="footnote-jump-link"
 											onClick={() => {
-												updatePref("rightRailTab", "dictionary");
+												patchPrefs({ rightRailTab: "dictionary" });
 												setSheetOpen(true);
 											}}
 										>
@@ -1096,7 +1082,7 @@ export default function App() {
 											type="button"
 											className="footnote-jump-link"
 											onClick={() => {
-												updatePref("rightRailTab", "commentary");
+												patchPrefs({ rightRailTab: "commentary" });
 												setSheetOpen(true);
 											}}
 										>
@@ -1216,7 +1202,7 @@ export default function App() {
 							activeVerse={activeVerse}
 							autoSync={prefs.autoSync}
 							isFollowingAudio={isFollowingAudio}
-							onToggleAutoSync={() => updatePref("autoSync", !prefs.autoSync)}
+							onToggleAutoSync={() => patchPrefs({ autoSync: !prefs.autoSync })}
 							onFollowActiveVerse={handleFollowActiveVerse}
 							hasPrev={Boolean(prevChapterTarget)}
 							hasNext={Boolean(nextChapterTarget)}

@@ -66,15 +66,7 @@ export function StudyRightRail({
 }: StudyRightRailProps) {
 	const isDictionary = activeTab === "dictionary";
 	const canDrag = variant === "sidebar";
-	const {
-		panelRef,
-		isFloating,
-		isDragging,
-		onMouseDown,
-		onMouseDownCapture,
-		resetPosition,
-		floatingStyle,
-	} = useDraggablePanel<HTMLElement>({
+	const { panelProps, isFloating, isDragging, resetPosition } = useDraggablePanel<HTMLElement>({
 		enabled: canDrag,
 		position: floatingPosition,
 		onPositionChange: onFloatingPositionChange,
@@ -85,12 +77,9 @@ export function StudyRightRail({
 
 	return (
 		<aside
-			ref={panelRef}
+			{...panelProps}
 			id="footnotes"
 			className={`dict-panel dict-panel-${variant} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
-			style={floatingStyle}
-			onMouseDown={canDrag ? onMouseDown : undefined}
-			onMouseDownCapture={canDrag ? onMouseDownCapture : undefined}
 			aria-label={isDictionary ? "Korean Dictionary & Grammar Guide" : "Bible Commentary"}
 		>
 			<div className={`dict-panel-header ${canDrag ? "panel-drag-handle" : ""}`.trim()}>
