@@ -1,5 +1,5 @@
 import type { ChapterCommentaryResponse, CommentaryEntry, CommentaryId } from "../shared/types";
-import { cancelBody, type FetchLike, fetchWithTimeout, readJsonWithLimit } from "./http";
+import { fetchJsonObject, type FetchLike } from "./http";
 
 const HELLOAO_BASE = "https://bible.helloao.org/api";
 const MAX_TEXT_DEPTH = 20;
@@ -167,35 +167,23 @@ export async function fetchHelloAoCommentaryChapter(
 	fetcher: FetchLike = fetch,
 ): Promise<{ status: "ok" | "empty"; data: ChapterCommentaryResponse } | { status: "error" }> {
 	const url = `${HELLOAO_BASE}/c/${encodeURIComponent(commentaryId)}/${encodeURIComponent(usfm)}/${chapter}.json`;
-
-	try {
-		const response = await fetchWithTimeout(fetcher, url, {
-			headers: { Accept: "application/json" },
-			// Cloudflare Workers rejects redirect: "error" with a TypeError; manual + !response.ok rejects 3xx safely.
-			redirect: "manual",
-		});
-		if (response.status === 404) {
-			cancelBody(response);
-			return { status: "empty", data: { entries: [] } };
-		}
-		if (!response.ok) {
-			cancelBody(response);
-			return { status: "error" };
-		}
-		const payload = await readJsonWithLimit(response, MAX_COMMENTARY_BYTES);
-		if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-			return { status: "error" };
-		}
-		return {
-			status: "ok",
-			data: normalizeHelloAoCommentary(
-				payload as HelloAoCommentaryPayload,
-				commentaryId,
-				usfm,
-				chapter,
-			),
-		};
-	} catch {
+	const res = await fetchJsonObject(fetcher, url, {
+		headers: { Accept: "application/json" },
+		maxBytes: MAX_COMMENTARY_BYTES,
+	});
+	if (res.status === "not_found") {
+		return { status: "empty", data: { entries: [] } };
+	}
+	if (res.status !== "ok") {
 		return { status: "error" };
 	}
+	return {
+		status: "ok",
+		data: normalizeHelloAoCommentary(
+			res.data as HelloAoCommentaryPayload,
+			commentaryId,
+			usfm,
+			chapter,
+		),
+	};
 }

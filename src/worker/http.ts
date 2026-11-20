@@ -57,3 +57,51 @@ export async function readJsonWithLimit(response: Response, maxBytes: number): P
 	}
 	return JSON.parse(new TextDecoder().decode(merged)) as unknown;
 }
+
+export type FetchJsonResult =
+	| { status: "ok"; data: Record<string, unknown> }
+	| { status: "not_found" }
+	| { status: "rate_limited" }
+	| { status: "error" };
+
+export async function fetchJsonObject(
+	fetcher: FetchLike,
+	url: string,
+	options: {
+		headers?: HeadersInit;
+		maxBytes: number;
+		timeoutMs?: number;
+	},
+): Promise<FetchJsonResult> {
+	try {
+		const response = await fetchWithTimeout(
+			fetcher,
+			url,
+			{
+				headers: options.headers,
+				// Workers rejects redirect: "error" with TypeError; manual + !response.ok rejects 3xx safely.
+				redirect: "manual",
+			},
+			options.timeoutMs,
+		);
+		if (response.status === 404) {
+			cancelBody(response);
+			return { status: "not_found" };
+		}
+		if (response.status === 429) {
+			cancelBody(response);
+			return { status: "rate_limited" };
+		}
+		if (!response.ok) {
+			cancelBody(response);
+			return { status: "error" };
+		}
+		const payload = await readJsonWithLimit(response, options.maxBytes);
+		if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+			return { status: "error" };
+		}
+		return { status: "ok", data: payload as Record<string, unknown> };
+	} catch {
+		return { status: "error" };
+	}
+}

@@ -56,7 +56,7 @@ export interface WorkerBindings {
 	AUDIO_BUCKET?: R2BucketLike;
 }
 
-export interface WorkerDeps {
+interface WorkerDeps {
 	fetcher?: FetchLike;
 	localEsvLoader?: (usfm: string, chapter: number) => Promise<VerseEntry[] | null>;
 }
@@ -116,12 +116,12 @@ function isR2InvalidRangeError(err: unknown): boolean {
 }
 
 function matchesIfNoneMatch(header: string | undefined, httpEtag: string | undefined): boolean {
-	if (!header || !httpEtag) return false;
+	if (!header || header.length > 2048 || !httpEtag) return false;
 	const trimmed = header.trim();
 	if (trimmed === "*") return true;
 	const normalize = (tag: string) => tag.trim().replace(/^W\//, "");
 	const target = normalize(httpEtag);
-	const tokens = trimmed.match(/(?:W\/)?"(?:\\.|[^"])*"|[^,\s]+/g);
+	const tokens = trimmed.match(/(?:W\/)?"(?:\\.|[^"\\])*"|[^,\s]+/g);
 	return tokens?.some((token) => normalize(token) === target) ?? false;
 }
 
@@ -154,9 +154,15 @@ function rangeNotSatisfiableResponse(size?: number): Response {
 
 function hasConfiguredAudioBase(env: WorkerBindings | undefined): string | null {
 	const customAudioBase = env?.AUDIO_BASE_URL?.trim();
-	return customAudioBase && isSafeHttpsUrl(customAudioBase)
-		? customAudioBase.replace(/\/+$/, "")
-		: null;
+	if (
+		!customAudioBase ||
+		customAudioBase.includes("?") ||
+		customAudioBase.includes("#") ||
+		!isSafeHttpsUrl(customAudioBase)
+	) {
+		return null;
+	}
+	return customAudioBase.replace(/\/+$/, "");
 }
 
 function applySecurityHeaders(headers: Headers): void {
@@ -164,6 +170,7 @@ function applySecurityHeaders(headers: Headers): void {
 	headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 	headers.set("X-Frame-Options", "DENY");
 	headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+	headers.set("Cross-Origin-Opener-Policy", "same-origin");
 	headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 	headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 }
@@ -233,53 +240,42 @@ export function createApp(deps: WorkerDeps = {}) {
 		}
 		const { book, usfm, chapter } = parsed;
 
-		if (deps.localEsvLoader) {
-			const localVerses = await deps.localEsvLoader(usfm, chapter).catch(() => null);
-			if (localVerses && localVerses.length > 0) {
-				const responseBody: ChapterTextResponse = {
-					translationId: CANONICAL_BIBLES.en.id,
-					bookNumber: book.number,
-					usfm,
-					chapter,
-					verses: localVerses,
-				};
-				c.header("Cache-Control", "private, no-store");
-				return c.json(responseBody);
+		let verses = deps.localEsvLoader
+			? await deps.localEsvLoader(usfm, chapter).catch(() => null)
+			: null;
+
+		if (!verses || verses.length === 0) {
+			const esvApiKey = c.env?.ESV_API_KEY?.trim();
+			if (!esvApiKey) {
+				return jsonError(c, 503, "ESV text is not configured", "private, no-store");
 			}
-		}
-
-		const esvApiKey = c.env?.ESV_API_KEY?.trim();
-		if (!esvApiKey) {
-			return jsonError(c, 503, "ESV text is not configured", "private, no-store");
-		}
-
-		const result = await fetchEsvChapterVerses(
-			esvApiKey,
-			{ bookEn: book.en, chapter, chaptersInBook: book.chapters },
-			fetcher,
-		).catch(() => ({ status: "error" as const }));
-
-		if (result.status === "rate_limited") {
-			return jsonError(
-				c,
-				429,
-				"ESV API rate limit reached. Please try again shortly.",
-				"private, no-store",
+			const result = await fetchEsvChapterVerses(
+				esvApiKey,
+				{ bookEn: book.en, chapter, chaptersInBook: book.chapters },
+				fetcher,
 			);
-		}
-		if (result.status !== "ok") {
-			return jsonError(c, 502, "ESV passage unavailable", "private, no-store");
+			if (result.status === "rate_limited") {
+				return jsonError(
+					c,
+					429,
+					"ESV API rate limit reached. Please try again shortly.",
+					"private, no-store",
+				);
+			}
+			if (result.status !== "ok") {
+				return jsonError(c, 502, "ESV passage unavailable", "private, no-store");
+			}
+			verses = result.verses;
 		}
 
-		const responseBody: ChapterTextResponse = {
+		c.header("Cache-Control", "private, no-store");
+		return c.json({
 			translationId: CANONICAL_BIBLES.en.id,
 			bookNumber: book.number,
 			usfm,
 			chapter,
-			verses: result.verses,
-		};
-		c.header("Cache-Control", "private, no-store");
-		return c.json(responseBody);
+			verses,
+		} satisfies ChapterTextResponse);
 	});
 
 	app.get("/api/audio/:usfm/:chapter", async (c) => {
@@ -318,9 +314,8 @@ export function createApp(deps: WorkerDeps = {}) {
 			if (esvTrack) tracks.push(esvTrack);
 		}
 
-		const responseBody: ChapterAudioResponse = { tracks };
 		c.header("Cache-Control", "private, max-age=1800");
-		return c.json(responseBody);
+		return c.json({ tracks } satisfies ChapterAudioResponse);
 	});
 
 	app.get("/api/audio/krv/:usfm/:chapter", async (c) => {

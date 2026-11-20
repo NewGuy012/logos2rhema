@@ -1,6 +1,6 @@
 import type { VerseEntry } from "../shared/types";
 import { formatEsvPassageQuery } from "./esv-audio";
-import { cancelBody, type FetchLike, fetchWithTimeout, readJsonWithLimit } from "./http";
+import { fetchJsonObject, type FetchLike } from "./http";
 
 const ESV_HTML_API_BASE = "https://api.esv.org/v3/passage/html/";
 const MAX_ESV_HTML_BYTES = 512 * 1024;
@@ -53,30 +53,23 @@ const BLOCK_BOUNDARY_TAGS = new Set(["p", "div", "br", "li", "blockquote", "h1",
 type TagRole =
 	"skip" | "heading" | "speaker" | "verse-num" | "small-caps" | "selah" | "block" | "inline";
 
-export type FetchEsvChapterResult =
+type FetchEsvChapterResult =
 	{ status: "ok"; verses: VerseEntry[] } | { status: "rate_limited" } | { status: "error" };
 
-export function decodeHtmlEntities(input: string): string {
+function decodeHtmlEntities(input: string): string {
 	return input.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
-		if (entity.startsWith("#x") || entity.startsWith("#X")) {
-			const codePoint = Number.parseInt(entity.slice(2), 16);
-			if (
-				Number.isInteger(codePoint) &&
-				codePoint >= 0 &&
-				codePoint <= 0x10ffff &&
-				!(codePoint >= 0xd800 && codePoint <= 0xdfff)
-			) {
-				return String.fromCodePoint(codePoint);
-			}
-			return match;
-		}
 		if (entity.startsWith("#")) {
-			const codePoint = Number.parseInt(entity.slice(1), 10);
+			const isHex = entity[1] === "x" || entity[1] === "X";
+			const codePoint = Number.parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+			const isControl =
+				(codePoint < 0x20 && codePoint !== 0x09 && codePoint !== 0x0a && codePoint !== 0x0d) ||
+				(codePoint >= 0x7f && codePoint <= 0x9f);
 			if (
 				Number.isInteger(codePoint) &&
 				codePoint >= 0 &&
 				codePoint <= 0x10ffff &&
-				!(codePoint >= 0xd800 && codePoint <= 0xdfff)
+				!(codePoint >= 0xd800 && codePoint <= 0xdfff) &&
+				!isControl
 			) {
 				return String.fromCodePoint(codePoint);
 			}
@@ -316,44 +309,20 @@ export async function fetchEsvChapterVerses(
 		"include-selahs": "true",
 	});
 	const endpoint = `${ESV_HTML_API_BASE}?${params.toString()}`;
+	const res = await fetchJsonObject(fetcher, endpoint, {
+		headers: {
+			Authorization: `Token ${apiKey}`,
+			Accept: "application/json",
+		},
+		maxBytes: MAX_ESV_HTML_BYTES,
+	});
+	if (res.status === "rate_limited") return { status: "rate_limited" };
+	if (res.status !== "ok") return { status: "error" };
 
-	try {
-		const response = await fetchWithTimeout(fetcher, endpoint, {
-			headers: {
-				Authorization: `Token ${apiKey}`,
-				Accept: "application/json",
-			},
-			// Cloudflare Workers rejects redirect: "error" with a TypeError; manual + !response.ok rejects 3xx safely.
-			redirect: "manual",
-		});
+	const rawPassages = res.data.passages;
+	if (!Array.isArray(rawPassages)) return { status: "error" };
 
-		if (response.status === 429) {
-			cancelBody(response);
-			return { status: "rate_limited" };
-		}
-		if (!response.ok) {
-			cancelBody(response);
-			return { status: "error" };
-		}
-
-		const payload = await readJsonWithLimit(response, MAX_ESV_HTML_BYTES);
-		if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-			return { status: "error" };
-		}
-
-		const rawPassages = (payload as { passages?: unknown }).passages;
-		if (!Array.isArray(rawPassages)) {
-			return { status: "error" };
-		}
-
-		const html = rawPassages.filter((p): p is string => typeof p === "string").join("\n");
-		const verses = parseEsvPassageHtml(html);
-		if (verses.length === 0) {
-			return { status: "error" };
-		}
-
-		return { status: "ok", verses };
-	} catch {
-		return { status: "error" };
-	}
+	const html = rawPassages.filter((p): p is string => typeof p === "string").join("\n");
+	const verses = parseEsvPassageHtml(html);
+	return verses.length > 0 ? { status: "ok", verses } : { status: "error" };
 }
