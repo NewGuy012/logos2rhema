@@ -892,7 +892,8 @@ def main() -> int:
     if args.workers > 0:
         worker_count = args.workers
     elif active_device == "cuda":
-        worker_count = min(2, len(jobs))
+        cpu_count = os.cpu_count() or 4
+        worker_count = min(4, max(2, cpu_count // 2), len(jobs))
     else:
         cpu_count = os.cpu_count() or 6
         worker_count = 1 if len(jobs) <= 2 else min(6, max(1, cpu_count // max(1, args.threads)))
