@@ -14,6 +14,7 @@ type WordPos = NonNullable<LexiconEntry["pos"]>;
 const ROOT_DIR = join(import.meta.dir, "..");
 const DATA_SOURCES_DIR = join(ROOT_DIR, "data-sources");
 const PUBLIC_DATA_DIR = join(ROOT_DIR, "public", "data");
+const LOCAL_ESV_CACHE_DIR = join(ROOT_DIR, ".cache", "esv-local");
 
 const KRV_SOURCE_URL =
 	"https://raw.githubusercontent.com/bluesaurel/Korean-Bible-1961-KRV/2fdb91e77d323b99bacaa9b61fc18f318b703240/bible_1961_krv.json";
@@ -966,10 +967,17 @@ function buildCompactBibleLexicon(
 }
 
 async function main() {
-	console.log("Building Logos bilingual Bible data (multi-source lexicon)...");
+	console.log("Building Logos Bible data (multi-source lexicon)...");
 
-	const [esvPath, krvPath, krdictPath, kaikkiPath, kengdicPath] = await Promise.all([
-		ensureSourceFile("esv.spb"),
+	const esvSourcePath = join(DATA_SOURCES_DIR, "esv.spb");
+	const hasEsvSource = await Bun.file(esvSourcePath).exists();
+	if (!hasEsvSource) {
+		console.log(
+			"Optional data-sources/esv.spb not found; skipping .cache/esv-local generation and ESV lexicon context.",
+		);
+	}
+
+	const [krvPath, krdictPath, kaikkiPath, kengdicPath] = await Promise.all([
 		ensureSourceFile("krv_1961.json", KRV_SOURCE_URL),
 		ensureSourceFile("krdict-en.zip", KRDICT_SOURCE_URL),
 		ensureSourceFile("kaikki-ko.jsonl.gz", KAIKKI_SOURCE_URL),
@@ -977,7 +985,7 @@ async function main() {
 	]);
 
 	const [esvText, krvRaw, krdictCandidates, kaikkiCandidates] = await Promise.all([
-		Bun.file(esvPath).text(),
+		hasEsvSource ? Bun.file(esvSourcePath).text() : Promise.resolve(null),
 		Bun.file(krvPath).json() as Promise<RawKrvBook[]>,
 		loadKrdictCandidates(krdictPath),
 		loadKaikkiCandidates(kaikkiPath),
@@ -994,35 +1002,48 @@ async function main() {
 		kengdicCandidates,
 	);
 
-	const esvParsed = parseSpbContent(esvText, "esv");
+	const esvParsed = esvText !== null ? parseSpbContent(esvText, "esv") : null;
 	const krvBooks = parseKrvBooks(krvRaw);
-	const esvContextIndex = buildEsvContextIndex(esvParsed.books, krvBooks, mergedCandidates);
+	const esvContextIndex = esvParsed
+		? buildEsvContextIndex(esvParsed.books, krvBooks, mergedCandidates)
+		: new Map<string, EsvLemmaContext>();
 	const { map: fullLexicon, sourceByKey } = selectBestMultiSourceLexicon(
 		mergedCandidates,
 		esvContextIndex,
 	);
 
-	console.log(`Parsed ESV: ${esvParsed.books.size} books`);
+	if (esvParsed) {
+		console.log(`Parsed ESV (local cache only): ${esvParsed.books.size} books`);
+	}
 	console.log(`Parsed KRV: ${krvBooks.size} books`);
 	console.log(
 		`Sources loaded: KRDICT=${krdictCandidates.size}, Wiktionary=${kaikkiCandidates.size}, Kengdic=${kengdicCandidates.size}, Merged=${Object.keys(fullLexicon).length}`,
 	);
 
-	const esvOutDir = join(PUBLIC_DATA_DIR, "bibles", "esv");
 	const krvOutDir = join(PUBLIC_DATA_DIR, "bibles", "krv");
-	await mkdir(esvOutDir, { recursive: true });
 	await mkdir(krvOutDir, { recursive: true });
+	if (esvParsed) {
+		await mkdir(LOCAL_ESV_CACHE_DIR, { recursive: true });
+	}
 
 	for (const book of BIBLE_BOOKS) {
-		const esvBook = esvParsed.books.get(book.number);
 		const krvBook = krvBooks.get(book.number);
-		if (!esvBook || !krvBook) {
-			throw new Error(`Missing book ${book.usfm} (${book.number})`);
+		if (!krvBook) {
+			throw new Error(`Missing KRV book ${book.usfm} (${book.number})`);
 		}
-		await Promise.all([
-			Bun.write(join(esvOutDir, `${book.usfm}.json`), JSON.stringify(esvBook)),
+		const writes: Array<Promise<number>> = [
 			Bun.write(join(krvOutDir, `${book.usfm}.json`), JSON.stringify(krvBook)),
-		]);
+		];
+		if (esvParsed) {
+			const esvBook = esvParsed.books.get(book.number);
+			if (!esvBook) {
+				throw new Error(`Missing ESV book ${book.usfm} (${book.number})`);
+			}
+			writes.push(
+				Bun.write(join(LOCAL_ESV_CACHE_DIR, `${book.usfm}.json`), JSON.stringify(esvBook)),
+			);
+		}
+		await Promise.all(writes);
 	}
 
 	const { lexicon, totalHangulWords, matchedWords, sourceCounts } = buildCompactBibleLexicon(

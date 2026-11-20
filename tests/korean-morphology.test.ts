@@ -316,19 +316,29 @@ describe("korean-morphology", () => {
 			expect(entry.gloss.match(/\(/g)?.length ?? 0).toBe(entry.gloss.match(/\)/g)?.length ?? 0);
 		}
 
+		const localEsvDir = join(rootDir, ".cache/esv-local");
+		const hasLocalEsv = await Bun.file(join(localEsvDir, "GEN.json")).exists();
+
 		for (const book of BIBLE_BOOKS) {
-			const [esv, krv] = (await Promise.all([
-				Bun.file(join(rootDir, "public/data/bibles/esv", `${book.usfm}.json`)).json(),
-				Bun.file(join(rootDir, "public/data/bibles/krv", `${book.usfm}.json`)).json(),
-			])) as [BookBibleData, BookBibleData];
+			const krv = (await Bun.file(
+				join(rootDir, "public/data/bibles/krv", `${book.usfm}.json`),
+			).json()) as BookBibleData;
 
 			for (let ch = 1; ch <= book.chapters; ch++) {
-				const esvVerses = esv.chapters[String(ch)];
 				const krvVerses = krv.chapters[String(ch)];
-				expect(esvVerses?.length ?? 0).toBeGreaterThan(0);
 				expect(krvVerses?.length ?? 0).toBeGreaterThan(0);
-				for (const v of esvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
 				for (const v of krvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
+			}
+
+			if (hasLocalEsv) {
+				const esv = (await Bun.file(
+					join(localEsvDir, `${book.usfm}.json`),
+				).json()) as BookBibleData;
+				for (let ch = 1; ch <= book.chapters; ch++) {
+					const esvVerses = esv.chapters[String(ch)];
+					expect(esvVerses?.length ?? 0).toBeGreaterThan(0);
+					for (const v of esvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
+				}
 			}
 		}
 	});

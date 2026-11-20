@@ -16,3 +16,7 @@ data-sources/krv_1961.json
 data-sources/kengdic.tsv
 data-sources/krdict-en.zip
 data-sources/kaikki-ko.jsonl.gz
+
+# Local-only copyrighted ESV source & generated cache (never commit or ship)
+data-sources/esv.spb
+public/data/bibles/esv/
