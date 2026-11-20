@@ -1684,6 +1684,7 @@ async function downloadDirectory(
 	instance: ThunderInstanceInfo | undefined,
 	remoteSubdir: string,
 	localDestDir: string,
+	compress = true,
 ): Promise<void> {
 	await mkdir(localDestDir, { recursive: true });
 	const remoteExpr = remoteDirBashExpr(remoteSubdir);
@@ -1700,10 +1701,13 @@ async function downloadDirectory(
 	if (method === "rsync") {
 		const src = `${endpoint.target}:${remoteDirTransferPath(remoteSubdir)}/`;
 		const rsh = buildRsyncRshCommand(endpoint, controlPath);
+		const flags = compress ? "-az" : "-a";
 		const res = await runner.run(
 			"rsync",
-			["-az", "--skip-compress=mp3", "--partial", "-e", rsh, src, `${localDestDir}/`],
-			{ stdin: "ignore" },
+			[flags, "--partial", "-e", rsh, src, `${localDestDir}/`],
+			{
+				stdin: "ignore",
+			},
 		);
 		if (res.exitCode !== 0) {
 			throw new Error(
@@ -1952,6 +1956,7 @@ async function pullAndMergeOutputs(
 			instance,
 			paths.remoteAudioDir,
 			join(pullTmp, "audio"),
+			false,
 		);
 		await downloadDirectory(
 			runner,
