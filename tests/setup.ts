@@ -306,9 +306,14 @@ export function makeSupertonicTrack(url: string, verseTimings?: Record<number, n
 export function assertLegalFooter(container: ParentNode): void {
 	const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
 	expect(footer).not.toBeNull();
-	expect(footer.textContent).toContain("대한성서공회");
-	expect(footer.textContent).toContain("AI 낭독");
-	expect(footer.textContent).toContain("Supertonic 3");
+	const lines = Array.from(footer.querySelectorAll(".copyright-footer-line")).map((el) =>
+		(el.textContent ?? "").trim(),
+	);
+	expect(lines).toHaveLength(3);
+	expect(lines[0]).toContain("대한성서공회");
+	expect(lines[1]).toContain("AI 낭독");
+	expect(lines[1]).toContain("Supertonic 3");
+	expect(lines[2]).toContain("ESV® Bible");
 	expect(footer.textContent).not.toContain("Public Domain");
 	expect(footer.textContent).not.toContain("KRDICT");
 	expect(footer.querySelector(`a[href="${SUPERTONIC_LICENSE_URL}"]`)?.textContent).toBe(

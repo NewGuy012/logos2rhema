@@ -107,6 +107,25 @@ export function HomePage({
 						<span>Audio Available</span>
 					</span>
 				</div>
+				<figure className="home-featured-verse" aria-label="Psalm 1:2">
+					<blockquote className="home-featured-verse-quote">
+						“but his delight is in the law of the Lord, and on his law he meditates day and night.”
+					</blockquote>
+					<figcaption className="home-featured-verse-meta">
+						<button
+							type="button"
+							className="home-featured-verse-ref"
+							onClick={() => onOpenPassage(19, 1, 2)}
+							title="Open Psalm 1:2 in reader"
+						>
+							<span>Psalm 1:2</span>
+							<span className="home-featured-verse-ko" lang="ko">
+								· 시편 1:2
+							</span>
+							<ArrowRight size={13} aria-hidden="true" />
+						</button>
+					</figcaption>
+				</figure>
 				<div className="home-features">
 					<h2 className="home-section-title">Features</h2>
 					<ul className="home-subtitle">

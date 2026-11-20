@@ -76,6 +76,14 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
 					);
 
+					const featuredVerse = container.querySelector(".home-hero .home-featured-verse");
+					expect(featuredVerse?.textContent).toContain(
+						"but his delight is in the law of the Lord, and on his law he meditates day and night.",
+					);
+					fireClick(getButton(featuredVerse as ParentNode, "Psalm 1:2"));
+					expect(onOpenPassage).toHaveBeenCalledWith(19, 1, 2);
+					onOpenPassage.mockClear();
+
 					expect(container.querySelector(".home-features .home-section-title")?.textContent).toBe(
 						"Features",
 					);
