@@ -112,18 +112,12 @@ export function HomePage({
 						“but his delight is in the law of the Lord, and on his law he meditates day and night.”
 					</blockquote>
 					<figcaption className="home-featured-verse-meta">
-						<button
-							type="button"
-							className="home-featured-verse-ref"
-							onClick={() => onOpenPassage(19, 1, 2)}
-							title="Open Psalm 1:2 in reader"
-						>
+						<span className="home-featured-verse-ref">
 							<span>Psalm 1:2</span>
 							<span className="home-featured-verse-ko" lang="ko">
 								· 시편 1:2
 							</span>
-							<ArrowRight size={13} aria-hidden="true" />
-						</button>
+						</span>
 					</figcaption>
 				</figure>
 				<div className="home-features">

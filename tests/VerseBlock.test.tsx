@@ -471,6 +471,7 @@ describe("Reader UI & audio hooks", () => {
 
 		fireClick(wordsToggle);
 		const dictSearch = container.querySelector("input[type='search']") as HTMLInputElement;
+		expect(dictSearch.placeholder).toBe("Search");
 		setInputValue(dictSearch, "태초");
 		expect(container.querySelector('[data-footnote-id="vocab-창조하다"]')).toBeNull();
 		fireClick(wordsToggle);

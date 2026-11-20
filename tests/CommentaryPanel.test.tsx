@@ -143,6 +143,7 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 		expect(getByText(container, "An Exposition of the Gospel of John.")).toBeDefined();
 
 		const searchInput = container.querySelector("input[type='search']") as HTMLInputElement;
+		expect(searchInput.placeholder).toBe("Search");
 		setInputValue(searchInput, "salvation");
 		expect(container.textContent).toContain("keyword salvation");
 		expect(container.querySelector('[data-commentary-id="matthew-henry:JHN:3:22"]')).toBeNull();

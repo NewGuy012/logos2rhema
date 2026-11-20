@@ -198,7 +198,7 @@ export function FootnotesGuide({
 						setQuery(next);
 						if (next.trim()) setWordsOpen(true);
 					}}
-					placeholder="Search Korean or English..."
+					placeholder="Search"
 					ariaLabel="Filter vocabulary footnotes"
 					clearAriaLabel="Clear search"
 				/>

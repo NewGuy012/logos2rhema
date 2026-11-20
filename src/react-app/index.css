@@ -2797,28 +2797,14 @@ button:focus-visible {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.32rem;
-	padding: 0;
-	border-radius: 4px;
 	font-size: 0.78rem;
 	font-weight: 600;
 	color: var(--accent);
-	transition: opacity 140ms ease;
-}
-
-.home-featured-verse-ref:hover {
-	opacity: 0.8;
-	text-decoration: underline;
-	text-underline-offset: 2px;
-}
-
-.home-featured-verse-ref:focus-visible {
-	outline-offset: 3px;
 }
 
 .home-featured-verse-ko {
 	font-family: var(--font-ko-serif);
 	font-weight: 500;
-	color: var(--text-secondary);
 }
 
 .home-features {

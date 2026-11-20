@@ -342,7 +342,7 @@ export function CommentaryPanel({
 				<PanelSearchInput
 					value={query}
 					onChange={setQuery}
-					placeholder="Search notes or verse..."
+					placeholder="Search"
 					ariaLabel="Filter commentary notes"
 					clearAriaLabel="Clear commentary search"
 				/>

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { join } from "node:path";
 
 import { act } from "react";
 
@@ -80,9 +81,30 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					expect(featuredVerse?.textContent).toContain(
 						"but his delight is in the law of the Lord, and on his law he meditates day and night.",
 					);
-					fireClick(getButton(featuredVerse as ParentNode, "Psalm 1:2"));
-					expect(onOpenPassage).toHaveBeenCalledWith(19, 1, 2);
-					onOpenPassage.mockClear();
+					expect(featuredVerse?.querySelector("button, a")).toBeNull();
+					const featuredVerseRef = featuredVerse?.querySelector(
+						".home-featured-verse-ref",
+					) as HTMLElement;
+					const featuredVerseKo = featuredVerseRef.querySelector(
+						".home-featured-verse-ko",
+					) as HTMLElement;
+					expect(featuredVerseRef.textContent).toContain("Psalm 1:2");
+					expect(featuredVerseKo.textContent).toContain("· 시편 1:2");
+					fireClick(featuredVerseRef);
+					expect(onOpenPassage).not.toHaveBeenCalled();
+
+					const css = await Bun.file(join(import.meta.dir, "../src/react-app/index.css")).text();
+					const style = document.createElement("style");
+					style.textContent = css;
+					document.head.appendChild(style);
+					try {
+						const enSpan = featuredVerseRef.firstElementChild as HTMLElement;
+						const koColor = window.getComputedStyle(featuredVerseKo).color;
+						expect(koColor).toBeTruthy();
+						expect(koColor).toBe(window.getComputedStyle(enSpan).color);
+					} finally {
+						style.remove();
+					}
 
 					expect(container.querySelector(".home-features .home-section-title")?.textContent).toBe(
 						"Features",
