@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { normalizeVerseTimings, SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
+import {
+	normalizeVerseTimings,
+	SUPERTONIC_TRACK_ATTRIBUTION,
+	SUPERTONIC_TRACK_ID,
+	SUPERTONIC_TRACK_LABEL,
+} from "../src/shared/audio-timings";
 import type {
 	ChapterAudioResponse,
 	ChapterCommentaryResponse,
@@ -54,11 +59,14 @@ describe("Worker API & Security Boundaries", () => {
 
 		expect(koTrack).toEqual({
 			id: SUPERTONIC_TRACK_ID,
-			label: "개역한글",
+			label: SUPERTONIC_TRACK_LABEL,
 			language: "ko",
 			url: "https://cdn.example.com/krv/JHN/3.mp3",
+			isAiGenerated: true,
+			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 		});
 		expect(enTrack?.url).toBe("https://audio.esv.org/hw/43003001-43003036.mp3");
+		expect(enTrack?.isAiGenerated).toBeUndefined();
 	});
 
 	it("handles single-chapter ESV queries and proxies direct ESV audio streams safely", async () => {
@@ -312,9 +320,11 @@ describe("Worker API & Security Boundaries", () => {
 			tracks: [
 				{
 					id: SUPERTONIC_TRACK_ID,
-					label: "개역한글",
+					label: SUPERTONIC_TRACK_LABEL,
 					language: "ko",
 					url: "/api/audio/krv/JHN/3",
+					isAiGenerated: true,
+					attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 				},
 			],
 		});
@@ -330,9 +340,11 @@ describe("Worker API & Security Boundaries", () => {
 			tracks: [
 				{
 					id: SUPERTONIC_TRACK_ID,
-					label: "개역한글",
+					label: SUPERTONIC_TRACK_LABEL,
 					language: "ko",
 					url: "https://cdn.example.com/krv/JHN/3.mp3",
+					isAiGenerated: true,
+					attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 				},
 			],
 		});

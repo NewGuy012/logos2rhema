@@ -98,6 +98,8 @@ export interface AudioTrackOption {
 	label: string;
 	language: TranslationLanguage;
 	url: string;
+	isAiGenerated?: boolean;
+	attribution?: string;
 	verseTimings?: Record<number, number>;
 }
 

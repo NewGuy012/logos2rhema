@@ -1,6 +1,10 @@
 import { type Context, Hono } from "hono";
 
-import { SUPERTONIC_TRACK_ID } from "../shared/audio-timings";
+import {
+	SUPERTONIC_TRACK_ATTRIBUTION,
+	SUPERTONIC_TRACK_ID,
+	SUPERTONIC_TRACK_LABEL,
+} from "../shared/audio-timings";
 import { getBookByUsfm } from "../shared/books";
 import { isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
@@ -297,9 +301,11 @@ export function createApp(deps: WorkerDeps = {}) {
 		if (krvUrl) {
 			tracks.push({
 				id: SUPERTONIC_TRACK_ID,
-				label: CANONICAL_BIBLES.ko.code,
+				label: SUPERTONIC_TRACK_LABEL,
 				language: "ko",
 				url: krvUrl,
+				isAiGenerated: true,
+				attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 			});
 		}
 
