@@ -152,6 +152,10 @@ export function getBookByNumber(bookNumber: number): BookMeta | undefined {
 	return BOOKS_BY_NUMBER.get(bookNumber);
 }
 
+export function getBookOrDefault(bookNumber: number): BookMeta {
+	return BOOKS_BY_NUMBER.get(bookNumber) ?? BIBLE_BOOKS[0];
+}
+
 export function getBookByUsfm(usfm: string): BookMeta | undefined {
 	return BOOKS_BY_USFM.get(usfm.toUpperCase());
 }
@@ -165,7 +169,7 @@ export function resolveBookChapter(
 	bookNumber: number,
 	chapter: number,
 ): { book: BookMeta; chapter: number } {
-	const book = getBookByNumber(bookNumber) ?? BIBLE_BOOKS[0];
+	const book = getBookOrDefault(bookNumber);
 	return { book, chapter: clampChapter(book, chapter) };
 }
 
@@ -234,7 +238,7 @@ export function parsePassageReference(input: string): ParsedReference | null {
 	const trimmed = input.trim();
 	if (!trimmed) return null;
 
-	const match = trimmed.match(/^(.+?)\s*(\d+)(?:\s*[:장절.]\s*(\d+))?\s*장?$/);
+	const match = trimmed.match(/^(.+?)\s*(\d+)(?:\s*[:장절.]\s*(\d+))?\s*[장절]?$/);
 	if (!match) {
 		const bookOnly = findBookByQuery(trimmed);
 		return bookOnly ? { bookNumber: bookOnly.number, chapter: 1 } : null;

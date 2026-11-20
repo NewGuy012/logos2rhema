@@ -1,5 +1,5 @@
-import { getBookByNumber } from "./books";
-import type { BookBibleData, VerseEntry } from "./types";
+import { getBookByNumber } from "../src/shared/books";
+import type { BookBibleData, VerseEntry } from "../src/shared/types";
 
 interface SpbParseResult {
 	title: string;

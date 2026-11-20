@@ -1,17 +1,17 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+	extractPsalmSuperscription,
+	normalizeSpbText,
+	parseSpbContent,
+} from "../scripts/spb-parser";
+import {
 	BIBLE_BOOKS,
 	BIBLE_GENRES,
 	findBookByQuery,
 	getAdjacentChapter,
 	parsePassageReference,
 } from "../src/shared/books";
-import {
-	extractPsalmSuperscription,
-	normalizeSpbText,
-	parseSpbContent,
-} from "../src/shared/spb-parser";
 
 describe("spb-parser", () => {
 	it("normalizes SoftProjector trailing-hyphen em-dashes", () => {

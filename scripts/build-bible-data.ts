@@ -6,8 +6,8 @@ import { BIBLICAL_GLOSSARY } from "../src/shared/biblical-glossary";
 import { BIBLE_BOOKS, getBookByNumber } from "../src/shared/books";
 import { containsHangul, romanizeHangul } from "../src/shared/hangul";
 import { analyzeKoreanVerse } from "../src/shared/korean-morphology";
-import { parseSpbContent } from "../src/shared/spb-parser";
 import type { BookBibleData, LexiconEntry, LexiconMap, VerseEntry } from "../src/shared/types";
+import { parseSpbContent } from "./spb-parser";
 
 type WordPos = NonNullable<LexiconEntry["pos"]>;
 
