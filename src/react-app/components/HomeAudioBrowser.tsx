@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { hasVerseTimings } from "../../shared/audio-timings";
+import { hasVerseTimings, SUPERTONIC_COMPACT_BADGE } from "../../shared/audio-timings";
 import { getAdjacentChapter } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption } from "../../shared/types";
@@ -91,6 +91,11 @@ export function HomeAudioBrowser({
 					<div className="home-audio-eyebrow">
 						<Headphones size={13} />
 						<span>Chapter Audio</span>
+						{audio.activeTrack?.isAiGenerated && (
+							<span className="home-study-badge" lang="ko">
+								{SUPERTONIC_COMPACT_BADGE}
+							</span>
+						)}
 						{hasTimings && <span className="home-study-badge">Verse-synced</span>}
 					</div>
 					<h3 className="home-study-passage-title">

@@ -1,6 +1,7 @@
 import { type CSSProperties, type FormEvent, useCallback, useId, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { SUPERTONIC_COMPACT_BADGE } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import {
@@ -57,7 +58,7 @@ export function AudioLanguageToggle({
 				type="button"
 				className={`quick-lang-btn ${preferredLang === "ko" ? "active" : ""}`}
 				onClick={() => onSelectLanguage("ko")}
-				title={`Korean audio (${CANONICAL_BIBLES.ko.code})`}
+				title={`Korean AI audio (${CANONICAL_BIBLES.ko.code} · ${SUPERTONIC_COMPACT_BADGE})`}
 			>
 				한
 			</button>

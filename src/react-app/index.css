@@ -2071,6 +2071,19 @@ button:focus-visible {
 	transform: scale(0.95);
 }
 
+.quick-strip-ai-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.14rem 0.44rem;
+	border-radius: 999px;
+	border: 1px solid var(--border-hairline);
+	background: var(--glass-control);
+	font-size: 0.66rem;
+	font-weight: 600;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
 .audio-range {
 	-webkit-appearance: none;
 	appearance: none;
@@ -3807,6 +3820,14 @@ button:focus-visible {
 
 .rail-duration {
 	justify-self: end;
+}
+
+.rail-track-caption {
+	margin: 0;
+	font-size: 0.68rem;
+	line-height: 1.35;
+	text-align: center;
+	color: var(--text-muted);
 }
 
 .rail-unavailable {

@@ -5,7 +5,12 @@ import { act } from "react";
 import App from "../src/react-app/App";
 import { HomePage } from "../src/react-app/components/HomePage";
 import { clearLoaderCaches } from "../src/react-app/lib/bible-loader";
-import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
+import {
+	SUPERTONIC_COMPACT_BADGE,
+	SUPERTONIC_TRACK_ATTRIBUTION,
+	SUPERTONIC_TRACK_ID,
+	SUPERTONIC_TRACK_LABEL,
+} from "../src/shared/audio-timings";
 import { BIBLICAL_GLOSSARY, KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
 import {
 	createReaderFetchHandler,
@@ -51,9 +56,11 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 							tracks: [
 								{
 									id: SUPERTONIC_TRACK_ID,
-									label: "개역한글",
+									label: SUPERTONIC_TRACK_LABEL,
 									language: "ko",
 									url: `${url.replace("/api/audio/", "/api/audio/krv/")}.mp3`,
+									isAiGenerated: true,
+									attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 								},
 								{
 									id: "esv-audio",
@@ -105,11 +112,14 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					await flushAsync();
 					await waitUntil(() => {
 						expect(getByText(browseSection, "Genesis 1")).toBeDefined();
+						expect(getByText(browseSection, SUPERTONIC_COMPACT_BADGE)).toBeDefined();
 						expect(getByText(browseSection, "Verse-synced")).toBeDefined();
 						expect(browseSection.querySelector(".home-audio-track-label")?.textContent).toBe(
-							"개역한글",
+							SUPERTONIC_TRACK_LABEL,
 						);
-						expect(getButton(browseSection, "Play audio").getAttribute("title")).toBe("개역한글");
+						expect(getButton(browseSection, "Play audio").getAttribute("title")).toBe(
+							SUPERTONIC_TRACK_LABEL,
+						);
 					});
 					expect(fetchedUrls).toContain("/api/audio/GEN/1");
 
@@ -131,6 +141,9 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 
 					fireClick(getButton(browseSection, "EN"));
 					expect(getByText(browseSection, "ESV Audio")).toBeDefined();
+					expect(browseSection.querySelector(".home-audio-eyebrow")?.textContent).not.toContain(
+						SUPERTONIC_COMPACT_BADGE,
+					);
 
 					expect(browseSection.querySelector("input[type='search']")).toBeNull();
 					expect(browseSection.querySelector(".books-grid")).toBeNull();

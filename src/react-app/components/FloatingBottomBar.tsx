@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { hasVerseTimings } from "../../shared/audio-timings";
+import { hasVerseTimings, SUPERTONIC_MOBILE_BADGE } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { RightRailTab } from "../../shared/types";
 import {
@@ -109,6 +109,11 @@ export function FloatingBottomBar({
 								<span className="quick-time">{formatTime(currentTime)}</span>
 								<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
 								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>
+								{activeTrack?.isAiGenerated && (
+									<span className="quick-strip-ai-badge" lang="ko" title={activeTrack.label}>
+										{SUPERTONIC_MOBILE_BADGE}
+									</span>
+								)}
 								{showFollowChip && activeVerse && onFollowActiveVerse ? (
 									<button
 										type="button"

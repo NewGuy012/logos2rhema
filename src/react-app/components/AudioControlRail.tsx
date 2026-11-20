@@ -167,6 +167,13 @@ export function AudioControlRail({
 								</span>
 							</div>
 
+							<p
+								className="rail-track-caption"
+								lang={activeTrack.language === "ko" ? "ko" : undefined}
+							>
+								{activeTrack.attribution ?? activeTrack.label}
+							</p>
+
 							{showFollowButton && activeVerse && (
 								<button
 									type="button"

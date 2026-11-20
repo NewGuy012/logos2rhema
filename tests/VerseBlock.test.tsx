@@ -40,7 +40,12 @@ import {
 	splitTextByHighlights,
 	toggleHighlightSpans,
 } from "../src/react-app/lib/highlights";
-import { SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
+import {
+	SUPERTONIC_MOBILE_BADGE,
+	SUPERTONIC_TRACK_ATTRIBUTION,
+	SUPERTONIC_TRACK_ID,
+	SUPERTONIC_TRACK_LABEL,
+} from "../src/shared/audio-timings";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import {
 	createReaderFetchHandler,
@@ -902,9 +907,11 @@ describe("Reader UI & audio hooks", () => {
 		const onSkipBy = mock((_delta: number) => {});
 		const koTrack = {
 			id: SUPERTONIC_TRACK_ID,
-			label: "개역한글",
+			label: SUPERTONIC_TRACK_LABEL,
 			language: "ko" as const,
 			url: "https://cdn.example.com/krv/GEN/1.mp3",
+			isAiGenerated: true,
+			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 		};
 
 		const bar = render(
@@ -918,6 +925,9 @@ describe("Reader UI & audio hooks", () => {
 				onToggleDictionary={noop}
 				onSkipBy={onSkipBy}
 			/>,
+		);
+		expect(bar.container.querySelector(".quick-strip-ai-badge")?.textContent).toBe(
+			SUPERTONIC_MOBILE_BADGE,
 		);
 		fireClick(getButton(bar.container, "Rewind 10 seconds"));
 		fireClick(getButton(bar.container, "Forward 10 seconds"));
@@ -959,12 +969,28 @@ describe("Reader UI & audio hooks", () => {
 		);
 		fireClick(getButton(bar.container, /Use ESV/));
 		expect(onSelectLanguage).toHaveBeenCalledWith("en");
+		bar.rerender(
+			<FloatingBottomBar
+				{...baseBarProps()}
+				tracks={[enTrack]}
+				preferredLang="en"
+				activeTrack={enTrack}
+				isPlaying={true}
+				currentTime={10}
+				dictionaryOpen={false}
+				onToggleDictionary={noop}
+				onSelectLanguage={onSelectLanguage}
+			/>,
+		);
+		expect(bar.container.querySelector(".quick-strip-ai-badge")).toBeNull();
 
 		const supertonicTrack = {
 			id: SUPERTONIC_TRACK_ID,
-			label: "개역한글",
+			label: SUPERTONIC_TRACK_LABEL,
 			language: "ko" as const,
 			url: "https://cdn.example.com/JHN/3.mp3",
+			isAiGenerated: true,
+			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 			verseTimings: { 1: 2.3, 12: 34.5, 16: 48.2 },
 		};
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 1.5)).toBeNull();
@@ -996,7 +1022,10 @@ describe("Reader UI & audio hooks", () => {
 				onFollowActiveVerse={onFollowActive}
 			/>,
 		);
-		// Follow recovery button is surfaced even with Settings collapsed
+		// Track caption and Follow recovery button are visible even with Settings collapsed
+		expect(rail.container.querySelector(".rail-track-caption")?.textContent).toBe(
+			SUPERTONIC_TRACK_ATTRIBUTION,
+		);
 		fireClick(getButton(rail.container, "Follow Audio (v.12)"));
 		expect(onFollowActive).toHaveBeenCalledTimes(1);
 
@@ -1117,9 +1146,11 @@ describe("Reader UI & audio hooks", () => {
 					tracks: [
 						{
 							id: SUPERTONIC_TRACK_ID,
-							label: "개역한글",
+							label: SUPERTONIC_TRACK_LABEL,
 							language: "ko",
 							url: "/api/audio/krv/JHN/3",
+							isAiGenerated: true,
+							attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 							verseTimings: { 1: 2.3, 16: 48.2 },
 						},
 					],
@@ -1187,9 +1218,11 @@ describe("Reader UI & audio hooks", () => {
 						tracks: [
 							{
 								id: SUPERTONIC_TRACK_ID,
-								label: "개역한글",
+								label: SUPERTONIC_TRACK_LABEL,
 								language: "ko",
 								url: "https://cdn.example.com/krv.mp3",
+								isAiGenerated: true,
+								attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 								verseTimings: { 1: 1.2, 16: 48.2 },
 							},
 						],
@@ -1226,9 +1259,11 @@ describe("Reader UI & audio hooks", () => {
 							tracks: [
 								{
 									id: SUPERTONIC_TRACK_ID,
-									label: "개역한글",
+									label: SUPERTONIC_TRACK_LABEL,
 									language: "ko",
 									url: "https://cdn.example.com/JHN/3.mp3",
+									isAiGenerated: true,
+									attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 								},
 								{
 									id: "esv-api:JHN:3",
@@ -1312,9 +1347,11 @@ describe("Reader UI & audio hooks", () => {
 							tracks: [
 								{
 									id: SUPERTONIC_TRACK_ID,
-									label: "개역한글",
+									label: SUPERTONIC_TRACK_LABEL,
 									language: "ko",
 									url: "https://cdn.example.com/krv/RUT/1.mp3",
+									isAiGenerated: true,
+									attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 								},
 							],
 						}),
