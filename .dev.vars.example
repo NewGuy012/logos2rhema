@@ -2,6 +2,7 @@
 # Not needed when using the private R2 binding (`AUDIO_BUCKET` in wrangler.json) or local `.cache/krv-supertonic-audio/`.
 # AUDIO_BASE_URL=
 
-# Optional: Free non-commercial Crossway ESV API key (https://api.esv.org/)
-# Used for chapter-level English ESV audio playback (David Cochran Heath).
+# Required in production (`wrangler secret put ESV_API_KEY`) and for live local ESV testing (`USE_LIVE_ESV=1 bun run dev`):
+# Free non-commercial Crossway ESV API key (https://api.esv.org/)
+# Used for live ESV chapter text (/api/esv/:usfm/:chapter) and English audio playback (David Cochran Heath).
 # ESV_API_KEY=
