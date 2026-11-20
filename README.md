@@ -67,7 +67,7 @@ Bundled Korean Scripture (`public/data/bibles/krv/`), Korean lexicon, and HelloA
 
 ## API Endpoints
 
-All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security headers, HTTPS upstream validation, upstream redirect/size limits, and `no-store` error boundaries.
+All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, and strict CSP/security headers, HTTPS upstream validation, upstream redirect/size limits, and `no-store` error boundaries.
 
 | Endpoint                                           | Purpose                                                                                                                                                      |
 | :------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
