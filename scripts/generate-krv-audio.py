@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14,<3.15"
+# requires-python = ">=3.11,<3.15"
 # dependencies = [
 #   "lameenc>=1.7",
 #   "numpy>=1.26",
@@ -74,20 +74,34 @@ class SynthConfig:
     verse_pause_sec: float
     header_pause_sec: float
     bitrate_kbps: int
+    audio_dir: Path = AUDIO_CACHE_DIR
+
+
+def load_book_catalog() -> dict[str, tuple[int, str]]:
+    text = BOOKS_TS_PATH.read_text(encoding="utf-8")
+    matches = BOOK_ROW_RE.findall(text)
+    if len(matches) != 66:
+        raise RuntimeError(
+            f"Expected 66 books from {BOOKS_TS_PATH}, parsed {len(matches)}"
+        )
+    return {usfm: (idx + 1, ko) for idx, (usfm, ko, _) in enumerate(matches)}
 
 
 def load_korean_book_names() -> dict[str, str]:
-    text = BOOKS_TS_PATH.read_text(encoding="utf-8")
-    names = {usfm: ko for usfm, ko, _ in BOOK_ROW_RE.findall(text)}
-    if len(names) != 66:
-        raise RuntimeError(
-            f"Expected 66 books from {BOOKS_TS_PATH}, parsed {len(names)}"
-        )
-    return names
+    return {usfm: ko for usfm, (_, ko) in load_book_catalog().items()}
 
 
-def load_krv_books() -> list[dict[str, Any]]:
+def load_krv_books(wanted_usfms: list[str] | None = None) -> list[dict[str, Any]]:
     books: list[dict[str, Any]] = []
+    if wanted_usfms is not None:
+        for usfm in wanted_usfms:
+            path = KRV_BIBLE_DIR / f"{usfm}.json"
+            if not path.exists():
+                raise RuntimeError(f"Missing KRV book JSON for {usfm}: {path}")
+            with path.open("r", encoding="utf-8") as fh:
+                books.append(json.load(fh))
+        return books
+
     for path in KRV_BIBLE_DIR.glob("*.json"):
         with path.open("r", encoding="utf-8") as fh:
             books.append(json.load(fh))
@@ -479,19 +493,96 @@ def load_existing_book_timings(path: Path, usfm: str) -> dict[str, Any]:
     return empty_book_timings(usfm)
 
 
-def select_books(all_books: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
+def parse_book_codes(raw_values: list[str] | None) -> list[str]:
+    if not raw_values:
+        return []
+    seen: set[str] = set()
+    codes: list[str] = []
+    for raw in raw_values:
+        for part in str(raw).split(","):
+            code = part.strip().upper()
+            if code and code not in seen:
+                seen.add(code)
+                codes.append(code)
+    return codes
+
+
+def load_job_manifest(
+    path: Path, catalog: dict[str, tuple[int, str]]
+) -> tuple[list[str], dict[str, set[int]]]:
+    with path.open("r", encoding="utf-8") as fh:
+        raw = json.load(fh)
+    books_raw = raw.get("books") if isinstance(raw, dict) else None
+    if not isinstance(books_raw, dict) or not books_raw:
+        raise SystemExit(f"Invalid job manifest (expected non-empty 'books' map): {path}")
+
+    wanted_usfms: list[str] = []
+    chapter_map: dict[str, set[int]] = {}
+    for raw_usfm, raw_chapters in books_raw.items():
+        usfm = str(raw_usfm).strip().upper()
+        if usfm not in catalog:
+            raise SystemExit(f"Unknown USFM book code in manifest {path}: {raw_usfm}")
+        if not isinstance(raw_chapters, list):
+            raise SystemExit(f"Invalid chapter list for {usfm} in manifest {path}")
+        chapters = {int(ch) for ch in raw_chapters}
+        if not chapters:
+            continue
+        wanted_usfms.append(usfm)
+        chapter_map[usfm] = chapters
+    return wanted_usfms, chapter_map
+
+
+def resolve_requested_usfms(
+    args: argparse.Namespace, catalog: dict[str, tuple[int, str]]
+) -> list[str] | None:
     if args.testament == "OT":
-        return [b for b in all_books if int(b["bookNumber"]) <= 39]
+        return [usfm for usfm, (num, _) in catalog.items() if num <= 39]
     if args.testament == "NT":
-        return [b for b in all_books if int(b["bookNumber"]) >= 40]
-    if args.books:
-        wanted = [code.strip().upper() for code in str(args.books).split(",") if code.strip()]
-        by_usfm = {b["usfm"]: b for b in all_books}
-        missing = [code for code in wanted if code not in by_usfm]
+        return [usfm for usfm, (num, _) in catalog.items() if num >= 40]
+    wanted = parse_book_codes(args.books)
+    if wanted:
+        missing = [code for code in wanted if code not in catalog]
         if missing:
             raise SystemExit(f"Unknown USFM book code(s): {', '.join(missing)}")
-        return [by_usfm[code] for code in wanted]
-    return all_books
+        return wanted
+    return None
+
+
+def configure_onnx_providers(requested_device: str) -> tuple[str, list[str]]:
+    import onnxruntime as ort
+    import supertonic.config as st_config
+    import supertonic.loader as st_loader
+
+    available = list(ort.get_available_providers())
+    has_cuda = "CUDAExecutionProvider" in available
+
+    if requested_device == "cuda":
+        if not has_cuda:
+            raise RuntimeError(
+                "CUDA requested (--device cuda), but CUDAExecutionProvider is not available. "
+                f"Installed ONNX providers: {available}"
+            )
+        desired = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        active_device = "cuda"
+    elif requested_device == "auto" and has_cuda:
+        desired = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        active_device = "cuda"
+    else:
+        desired = ["CPUExecutionProvider"]
+        active_device = "cpu"
+
+    st_config.DEFAULT_ONNX_PROVIDERS[:] = desired
+    st_loader.DEFAULT_ONNX_PROVIDERS = list(desired)
+    return active_device, available
+
+
+def get_active_tts_providers(tts: Any) -> list[str]:
+    model = getattr(tts, "model", None)
+    for attr in ("vocoder_ort", "vector_est_ort", "text_enc_ort", "dp_ort"):
+        session = getattr(model, attr, None)
+        if session is not None and hasattr(session, "get_providers"):
+            return list(session.get_providers())
+    return []
 
 
 def parse_args() -> argparse.Namespace:
@@ -501,7 +592,10 @@ def parse_args() -> argparse.Namespace:
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument(
         "--books",
-        help="Comma-separated USFM book codes (e.g. GEN,PSA,MAT,JHN). Defaults to all 66 books.",
+        "--book",
+        action="append",
+        dest="books",
+        help="USFM book code(s), repeatable or comma-separated (e.g. RUT or GEN,PSA,MAT). Defaults to all 66 books.",
     )
     scope.add_argument(
         "--testament",
@@ -512,6 +606,11 @@ def parse_args() -> argparse.Namespace:
         "--all",
         action="store_true",
         help="Generate all 66 books (default when no scope flag is passed)",
+    )
+    scope.add_argument(
+        "--job-manifest",
+        type=Path,
+        help="Optional JSON manifest mapping {'books': {'RUT': [1, 2, 3, 4]}} for incremental remote runs",
     )
     parser.add_argument(
         "--chapters",
@@ -555,16 +654,40 @@ def parse_args() -> argparse.Namespace:
         help="CBR MP3 bitrate in kbps (default: 96)",
     )
     parser.add_argument(
+        "--device",
+        choices=["auto", "cuda", "cpu"],
+        default="auto",
+        help="ONNX execution device preference (default: auto)",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=0,
-        help="Parallel worker processes (default: 0 = auto: 1 for <=2 chapters, else 6)",
+        help="Parallel worker processes (default: 0 = auto based on device and job count)",
     )
     parser.add_argument(
         "--threads",
         type=int,
         default=2,
         help="ONNX intra-op threads per worker process (default: 2)",
+    )
+    parser.add_argument(
+        "--audio-dir",
+        type=Path,
+        default=AUDIO_CACHE_DIR,
+        help=f"Output directory for chapter MP3s (default: {AUDIO_CACHE_DIR})",
+    )
+    parser.add_argument(
+        "--timings-dir",
+        type=Path,
+        default=TIMINGS_OUT_DIR,
+        help=f"Output directory for per-book timing JSONs (default: {TIMINGS_OUT_DIR})",
+    )
+    parser.add_argument(
+        "--report-path",
+        type=Path,
+        default=REPORT_PATH,
+        help=f"Output path for generation report JSON (default: {REPORT_PATH})",
     )
     parser.add_argument(
         "--force",
@@ -579,8 +702,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _init_worker(resolved_voice: str, intra_threads: int) -> None:
+def _init_worker(resolved_voice: str, intra_threads: int, active_device: str) -> None:
     global _WORKER_TTS, _WORKER_STYLE
+    configure_onnx_providers(active_device)
     from supertonic import TTS
 
     _WORKER_TTS = TTS(
@@ -599,7 +723,7 @@ def _synthesize_job(
     cfg: SynthConfig,
 ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
     usfm, book_ko, ch_num, verses, total_verses = job
-    mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
+    mp3_path = cfg.audio_dir / usfm / f"{ch_num}.mp3"
     t0 = time.time()
     try:
         timings, metrics = synthesize_chapter(
@@ -626,9 +750,21 @@ def _process_chapter_job(
 
 def main() -> int:
     args = parse_args()
-    book_names_ko = load_korean_book_names()
-    all_books = load_krv_books()
-    selected_books = select_books(all_books, args)
+    audio_dir: Path = args.audio_dir
+    timings_dir: Path = args.timings_dir
+    report_path: Path = args.report_path
+
+    catalog = load_book_catalog()
+    book_names_ko = {usfm: ko for usfm, (_, ko) in catalog.items()}
+
+    manifest_chapters: dict[str, set[int]] | None = None
+    if args.job_manifest is not None:
+        wanted_usfms, manifest_chapters = load_job_manifest(args.job_manifest, catalog)
+        selected_books = load_krv_books(wanted_usfms) if wanted_usfms else []
+    else:
+        wanted_usfms = resolve_requested_usfms(args, catalog)
+        selected_books = load_krv_books(wanted_usfms)
+
     chapter_filter = (
         {int(c.strip()) for c in str(args.chapters).split(",") if c.strip()}
         if args.chapters
@@ -643,12 +779,17 @@ def main() -> int:
     for book in selected_books:
         usfm = str(book["usfm"])
         book_ko = book_names_ko[usfm]
-        out_path = TIMINGS_OUT_DIR / f"{usfm}.json"
+        out_path = timings_dir / f"{usfm}.json"
         existing = load_existing_book_timings(out_path, usfm) if not args.force else None
         existing_chapters = existing["chapters"] if existing else {}
+        allowed_manifest_chapters = (
+            manifest_chapters.get(usfm) if manifest_chapters is not None else None
+        )
 
         for ch_key in sorted(book["chapters"].keys(), key=int):
             ch_num = int(ch_key)
+            if allowed_manifest_chapters is not None and ch_num not in allowed_manifest_chapters:
+                continue
             if chapter_filter is not None and ch_num not in chapter_filter:
                 continue
             raw_verses = book["chapters"][ch_key]
@@ -666,7 +807,7 @@ def main() -> int:
                         f"Unstripped parenthesis in {usfm} {ch_num}:{v.verse}: {v.spoken_text}"
                     )
 
-            mp3_path = AUDIO_CACHE_DIR / usfm / f"{ch_num}.mp3"
+            mp3_path = audio_dir / usfm / f"{ch_num}.mp3"
             has_mp3 = mp3_path.exists() and mp3_path.stat().st_size > 1024
             has_timings = ch_key in existing_chapters
             if not args.dry_run and not args.force and has_mp3 and has_timings:
@@ -687,14 +828,16 @@ def main() -> int:
         print(
             f"Dry-run validated {len(selected_books)} book(s), {len(jobs)} chapter(s), "
             f"{total_verses_checked} verse(s) ({total_chunks} chunks, max_chunk={max_chunk_len} chars). "
-            f"Sample headers: {sample_headers}"
+            f"Sample headers: {sample_headers}",
+            flush=True,
         )
         return 0
 
     if not jobs:
-        print("All selected chapters are already generated. Use --force to regenerate.")
+        print("All selected chapters are already generated. Use --force to regenerate.", flush=True)
         return 0
 
+    active_device, available_providers = configure_onnx_providers(args.device)
     from supertonic import TTS
 
     tts = TTS(
@@ -703,6 +846,17 @@ def main() -> int:
         intra_op_num_threads=args.threads,
         inter_op_num_threads=1,
     )
+    active_providers = get_active_tts_providers(tts)
+    if active_device == "cuda" and "CUDAExecutionProvider" not in active_providers:
+        msg = (
+            "CUDAExecutionProvider failed to initialize on ONNX session "
+            f"(available={available_providers}, active={active_providers})."
+        )
+        if args.device == "cuda":
+            raise RuntimeError(msg)
+        print(f"Warning: {msg} Falling back to CPU.", file=sys.stderr, flush=True)
+        active_device = "cpu"
+
     resolved_voice = resolve_voice_name(args.voice, tts.voice_style_names)
 
     # Validate entire selected corpus against Supertonic's character table up front.
@@ -718,20 +872,28 @@ def main() -> int:
                     f"Unsupported chars in {usfm} {ch_num}:{v.verse}: {bad}"
                 )
 
-    worker_count = args.workers if args.workers > 0 else (1 if len(jobs) <= 2 else 6)
+    if args.workers > 0:
+        worker_count = args.workers
+    elif active_device == "cuda":
+        worker_count = min(2, len(jobs))
+    else:
+        cpu_count = os.cpu_count() or 6
+        worker_count = 1 if len(jobs) <= 2 else min(6, max(1, cpu_count // max(1, args.threads)))
     worker_count = max(1, min(worker_count, len(jobs)))
 
     print(
         f"Generating {len(jobs)} chapter(s) across {len(selected_books)} book(s) "
         f"using Supertonic 3 voice '{args.voice}' ({resolved_voice}), "
+        f"device={active_device} ({','.join(active_providers) or 'unknown'}), "
         f"workers={worker_count}, threads={args.threads}, "
-        f"speed={args.speed}, steps={args.steps}, bitrate={args.bitrate}kbps..."
+        f"speed={args.speed}, steps={args.steps}, bitrate={args.bitrate}kbps...",
+        flush=True,
     )
 
     report: dict[str, Any] = {}
-    if REPORT_PATH.exists():
+    if report_path.exists():
         try:
-            with REPORT_PATH.open("r", encoding="utf-8") as fh:
+            with report_path.open("r", encoding="utf-8") as fh:
                 loaded = json.load(fh)
             if isinstance(loaded, dict):
                 report = loaded
@@ -751,8 +913,13 @@ def main() -> int:
 
     def get_book_payload(usfm: str) -> dict[str, Any]:
         if usfm not in book_cache:
-            out_path = TIMINGS_OUT_DIR / f"{usfm}.json"
-            if args.force and usfm not in dirty_books and chapter_filter is None:
+            out_path = timings_dir / f"{usfm}.json"
+            if (
+                args.force
+                and usfm not in dirty_books
+                and chapter_filter is None
+                and manifest_chapters is None
+            ):
                 book_cache[usfm] = empty_book_timings(usfm)
             else:
                 book_cache[usfm] = load_existing_book_timings(out_path, usfm)
@@ -766,7 +933,7 @@ def main() -> int:
         payload["chapters"] = {
             k: payload["chapters"][k] for k in sorted(payload["chapters"].keys(), key=int)
         }
-        atomic_write_json(TIMINGS_OUT_DIR / f"{usfm}.json", payload, compact=True)
+        atomic_write_json(timings_dir / f"{usfm}.json", payload, compact=True)
         dirty_books.discard(usfm)
 
     def record_success(
@@ -796,7 +963,8 @@ def main() -> int:
             f"[{idx_done}/{len(jobs)}] {ref} "
             f"({metrics['versesSynthesized']}/{total_verses} vv, "
             f"{metrics['duration']}s audio in {elapsed:.1f}s, "
-            f"v1={metrics['v1Start']}s, {metrics['mp3Bytes'] // 1024} KB)"
+            f"v1={metrics['v1Start']}s, {metrics['mp3Bytes'] // 1024} KB)",
+            flush=True,
         )
 
         if remaining_by_book[usfm] == 0:
@@ -805,14 +973,18 @@ def main() -> int:
             for dirty_usfm in list(dirty_books):
                 flush_book(dirty_usfm)
         if remaining_by_book[usfm] == 0 or completed % 10 == 0:
-            atomic_write_json(REPORT_PATH, report, compact=False)
+            atomic_write_json(report_path, report, compact=False)
 
     def record_error(idx_done: int, usfm: str, ch_num: int, err: Exception) -> None:
         nonlocal errors
         errors += 1
         remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
         chapters_report[f"{usfm}:{ch_num}"] = {"status": "error", "error": str(err)}
-        print(f"[{idx_done}/{len(jobs)}] {usfm}:{ch_num} — ERROR: {err}", file=sys.stderr)
+        print(
+            f"[{idx_done}/{len(jobs)}] {usfm}:{ch_num} — ERROR: {err}",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def run_job_step(
         idx_done: int,
@@ -834,6 +1006,7 @@ def main() -> int:
         verse_pause_sec=args.pause,
         header_pause_sec=args.header_pause,
         bitrate_kbps=args.bitrate,
+        audio_dir=audio_dir,
     )
 
     try:
@@ -853,7 +1026,7 @@ def main() -> int:
             with ProcessPoolExecutor(
                 max_workers=worker_count,
                 initializer=_init_worker,
-                initargs=(resolved_voice, args.threads),
+                initargs=(resolved_voice, args.threads, active_device),
             ) as executor:
                 future_to_ref = {
                     executor.submit(_process_chapter_job, job, cfg): (job[0], job[2])
@@ -869,6 +1042,8 @@ def main() -> int:
             "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "voice": args.voice,
             "resolvedVoice": resolved_voice,
+            "device": active_device,
+            "onnxProviders": active_providers,
             "workers": worker_count,
             "threads": args.threads,
             "speed": args.speed,
@@ -878,12 +1053,13 @@ def main() -> int:
             "errorsInRun": errors,
             "totalSeconds": round(time.time() - started_at, 1),
         }
-        atomic_write_json(REPORT_PATH, report, compact=False)
+        atomic_write_json(report_path, report, compact=False)
 
     print(
         f"Done in {time.time() - started_at:.1f}s: "
         f"{completed} generated, {errors} error(s). "
-        f"Report: {REPORT_PATH}"
+        f"Report: {report_path}",
+        flush=True,
     )
     return 1 if errors > 0 else 0
 
