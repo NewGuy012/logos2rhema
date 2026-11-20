@@ -14,3 +14,10 @@
 # THUNDER_SSH_KEY=~/.ssh/id_ed25519
 # THUNDER_REMOTE_DIR=~/logos2rhema-krv-tts
 # THUNDER_DEVICE=auto
+# Provisioning defaults when `--create` is used (already saved as code defaults in scripts/lib/remote-tts.ts):
+# THUNDER_MODE=prototyping
+# THUNDER_GPU=a6000
+# THUNDER_NUM_GPUS=1
+# THUNDER_VCPUS=8
+# THUNDER_TEMPLATE=cuda12-8
+# THUNDER_DISK_SIZE_GB=100

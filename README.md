@@ -100,8 +100,10 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, and strict CSP/s
    caffeinate -i bun run audio:generate-krv --testament NT --voice Daniel --speed 0.95 --steps 10
 
    # Remote Thunder Compute (`tnr` CLI) — isolated 4-chapter RUT test (does not touch production audio or R2)
+   # `--create` defaults to prototyping / 1x RTX A6000 / 8 vCPUs / cuda12-8 / 100 GB disk
    bun run audio:generate-krv --thunder 0 --book RUT --staging rut-test --force --dry-run
    bun run audio:generate-krv --thunder 0 --book RUT --staging rut-test --force
+   bun run audio:generate-krv --create --book RUT --staging rut-test --force
 
    # Direct SSH option & multi-book runs (also supports Korean/English names, e.g. "룻기", "Philemon")
    bun run audio:generate-krv --ssh tnr-0 --books RUT,PHM,JUD --staging multi-test --force

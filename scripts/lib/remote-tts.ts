@@ -60,7 +60,7 @@ export interface CliOptions {
 	vcpus?: number;
 	diskSizeGb?: number;
 	template?: string;
-	tnrsshKey?: string;
+	tnrSshKey?: string;
 	upload: boolean;
 	r2Bucket?: string;
 	help: boolean;
@@ -152,6 +152,14 @@ export interface CommandRunner {
 }
 
 const DEFAULT_REMOTE_DIR = "~/logos2rhema-krv-tts";
+export const DEFAULT_THUNDER_VM_SPEC = {
+	mode: "prototyping",
+	gpu: "a6000",
+	numGpus: 1,
+	vcpus: 8,
+	template: "cuda12-8",
+	diskSizeGb: 100,
+} as const;
 const STAGING_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 const SAFE_SSH_TARGET_RE = /^[^\s\x00-\x1f\x7f]+$/;
 const VALID_USFM_SET = new Set(BIBLE_BOOKS.map((b) => b.usfm));
@@ -279,12 +287,12 @@ Staging Isolation & Lifecycle:
   --shell                   Open interactive remote shell (tnr connect or ssh)
   --pull-only               Pull existing remote outputs into local staging/prod without synthesizing
   --create                  Provision a new Thunder instance via 'tnr create' if needed
-  --gpu <TYPE>              GPU type for --create (e.g. a6000, a100, h100)
-  --mode <MODE>             Instance mode for --create (prototyping | production)
-  --num-gpus <N>            GPU count for --create
-  --vcpus <N>               vCPU count for --create
-  --disk-size-gb <GB>       Disk size in GB for --create
-  --template <NAME>         Template for --create (e.g. base, cuda12-8, cuda12-9)
+  --gpu <TYPE>              GPU type for --create (default: ${DEFAULT_THUNDER_VM_SPEC.gpu})
+  --mode <MODE>             Instance mode for --create (default: ${DEFAULT_THUNDER_VM_SPEC.mode})
+  --num-gpus <N>            GPU count for --create (default: ${DEFAULT_THUNDER_VM_SPEC.numGpus})
+  --vcpus <N>               vCPU count for --create (default: ${DEFAULT_THUNDER_VM_SPEC.vcpus})
+  --disk-size-gb <GB>       Disk size in GB for --create (default: ${DEFAULT_THUNDER_VM_SPEC.diskSizeGb})
+  --template <NAME>         Template for --create (default: ${DEFAULT_THUNDER_VM_SPEC.template})
   --tnr-ssh-key <NAME>      Saved Thunder SSH key name for --create
   --delete-after            Delete the Thunder instance via 'tnr delete' after clean sync
 
@@ -549,22 +557,42 @@ export function parseCliOptions(
 		pullOnly: Boolean(values["pull-only"]),
 		create: Boolean(values.create),
 		deleteAfter: Boolean(values["delete-after"]),
-		gpu: values.gpu?.trim() || undefined,
-		mode: values.mode?.trim() || undefined,
+		gpu:
+			values.gpu?.trim() ||
+			(explicitRemote ? env.THUNDER_GPU?.trim() || DEFAULT_THUNDER_VM_SPEC.gpu : undefined),
+		mode:
+			values.mode?.trim() ||
+			(explicitRemote ? env.THUNDER_MODE?.trim() || DEFAULT_THUNDER_VM_SPEC.mode : undefined),
 		numGpus:
 			values["num-gpus"] !== undefined
 				? parseNumberInRange(values["num-gpus"], "--num-gpus", 1, 8, true)
-				: undefined,
+				: explicitRemote
+					? env.THUNDER_NUM_GPUS?.trim()
+						? parseNumberInRange(env.THUNDER_NUM_GPUS, "THUNDER_NUM_GPUS", 1, 8, true)
+						: DEFAULT_THUNDER_VM_SPEC.numGpus
+					: undefined,
 		vcpus:
 			values.vcpus !== undefined
 				? parseNumberInRange(values.vcpus, "--vcpus", 1, 256, true)
-				: undefined,
+				: explicitRemote
+					? env.THUNDER_VCPUS?.trim()
+						? parseNumberInRange(env.THUNDER_VCPUS, "THUNDER_VCPUS", 1, 256, true)
+						: DEFAULT_THUNDER_VM_SPEC.vcpus
+					: undefined,
 		diskSizeGb:
 			values["disk-size-gb"] !== undefined
 				? parseNumberInRange(values["disk-size-gb"], "--disk-size-gb", 20, 4000, true)
-				: undefined,
-		template: values.template?.trim() || undefined,
-		tnrsshKey: values["tnr-ssh-key"]?.trim() || undefined,
+				: explicitRemote
+					? env.THUNDER_DISK_SIZE_GB?.trim()
+						? parseNumberInRange(env.THUNDER_DISK_SIZE_GB, "THUNDER_DISK_SIZE_GB", 20, 4000, true)
+						: DEFAULT_THUNDER_VM_SPEC.diskSizeGb
+					: undefined,
+		template:
+			values.template?.trim() ||
+			(explicitRemote
+				? env.THUNDER_TEMPLATE?.trim() || DEFAULT_THUNDER_VM_SPEC.template
+				: undefined),
+		tnrSshKey: values["tnr-ssh-key"]?.trim() || undefined,
 		upload,
 		r2Bucket: values["r2-bucket"]?.trim() || undefined,
 		help: false,
@@ -1147,19 +1175,31 @@ function findMatchingInstance(
 	);
 }
 
+export function buildTnrCreateArgs(options: CliOptions): string[] {
+	const args = ["--json", "-y", "create"];
+	if (options.mode) args.push("--mode", options.mode);
+	if (options.gpu) args.push("--gpu", options.gpu);
+	if (
+		options.numGpus !== undefined &&
+		(options.numGpus > 1 || options.mode === "production" || options.gpu !== "a6000")
+	) {
+		args.push("--num-gpus", String(options.numGpus));
+	}
+	if (options.vcpus !== undefined && options.mode !== "production") {
+		args.push("--vcpus", String(options.vcpus));
+	}
+	if (options.template) args.push("--template", options.template);
+	if (options.diskSizeGb !== undefined) args.push("--disk-size-gb", String(options.diskSizeGb));
+	if (options.tnrSshKey) args.push("--ssh-key", options.tnrSshKey);
+	return args;
+}
+
 async function createThunderInstance(
 	tnrBin: string,
 	options: CliOptions,
 	runner: CommandRunner,
 ): Promise<ThunderInstanceInfo[]> {
-	const args = ["--json", "-y", "create"];
-	if (options.mode) args.push("--mode", options.mode);
-	if (options.gpu) args.push("--gpu", options.gpu);
-	if (options.numGpus !== undefined) args.push("--num-gpus", String(options.numGpus));
-	if (options.vcpus !== undefined) args.push("--vcpus", String(options.vcpus));
-	if (options.template) args.push("--template", options.template);
-	if (options.diskSizeGb !== undefined) args.push("--disk-size-gb", String(options.diskSizeGb));
-	if (options.tnrsshKey) args.push("--ssh-key", options.tnrsshKey);
+	const args = buildTnrCreateArgs(options);
 
 	console.log(`Provisioning Thunder Compute instance: tnr ${args.join(" ")}`);
 	const created = await runner.run(tnrBin, args, { stdin: "ignore" });

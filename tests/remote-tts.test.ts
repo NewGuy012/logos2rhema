@@ -8,8 +8,10 @@ import { resolveBookList, resolveBookToken } from "../scripts/lib/book-selection
 import {
 	buildPendingJobPlan,
 	buildRsyncRshCommand,
+	buildTnrCreateArgs,
 	type CommandResult,
 	type CommandRunner,
+	DEFAULT_THUNDER_VM_SPEC,
 	findSshConfigMatch,
 	loadDevVarsRecord,
 	mergeBookTimingsPayload,
@@ -148,6 +150,47 @@ describe("remote-tts CLI parsing & isolation", () => {
 		expect(remoteOpts.device).toBe("cuda");
 		expect(remoteOpts.books).toEqual(["RUT", "PHM"]);
 		expect(remoteOpts.upload).toBe(false);
+		expect(remoteOpts.gpu).toBe(DEFAULT_THUNDER_VM_SPEC.gpu);
+		expect(remoteOpts.mode).toBe(DEFAULT_THUNDER_VM_SPEC.mode);
+		expect(remoteOpts.numGpus).toBe(DEFAULT_THUNDER_VM_SPEC.numGpus);
+		expect(remoteOpts.vcpus).toBe(DEFAULT_THUNDER_VM_SPEC.vcpus);
+		expect(remoteOpts.template).toBe(DEFAULT_THUNDER_VM_SPEC.template);
+		expect(remoteOpts.diskSizeGb).toBe(DEFAULT_THUNDER_VM_SPEC.diskSizeGb);
+
+		expect(buildTnrCreateArgs(parseCliOptions(["--create", "--book", "RUT"]))).toEqual([
+			"--json",
+			"-y",
+			"create",
+			"--mode",
+			"prototyping",
+			"--gpu",
+			"a6000",
+			"--vcpus",
+			"8",
+			"--template",
+			"cuda12-8",
+			"--disk-size-gb",
+			"100",
+		]);
+		expect(
+			buildTnrCreateArgs(
+				parseCliOptions(["--create", "--mode", "production", "--gpu", "a100", "--num-gpus", "2"]),
+			),
+		).toEqual([
+			"--json",
+			"-y",
+			"create",
+			"--mode",
+			"production",
+			"--gpu",
+			"a100",
+			"--num-gpus",
+			"2",
+			"--template",
+			"cuda12-8",
+			"--disk-size-gb",
+			"100",
+		]);
 	});
 
 	it("resolves isolated staging vs production output paths", () => {
