@@ -19,6 +19,7 @@ import {
 	Headphones,
 	Search,
 } from "./Icons";
+import { LegalFooter } from "./LegalFooter";
 
 interface HomePageProps extends SavedItemsProps {
 	lastBookNumber: number;
@@ -342,6 +343,8 @@ export function HomePage({
 					language literacy, and bring the Word from the head to the heart, hence Logos to Rhema.
 				</p>
 			</section>
+
+			<LegalFooter className="copyright-footer home-legal-footer" />
 		</main>
 	);
 }

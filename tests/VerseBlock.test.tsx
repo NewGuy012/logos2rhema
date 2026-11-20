@@ -41,6 +41,8 @@ import {
 	toggleHighlightSpans,
 } from "../src/react-app/lib/highlights";
 import {
+	SUPERTONIC_LICENSE_NAME,
+	SUPERTONIC_LICENSE_URL,
 	SUPERTONIC_MOBILE_BADGE,
 	SUPERTONIC_TRACK_ATTRIBUTION,
 	SUPERTONIC_TRACK_ID,
@@ -1367,9 +1369,17 @@ describe("Reader UI & audio hooks", () => {
 							getByText(container, "ESV API rate limit reached. Please try again shortly."),
 						).toBeDefined();
 						expect(container.querySelector(".verse-omitted")).toBeNull();
+						const readerFooter = container.querySelector("footer.copyright-footer") as HTMLElement;
+						expect(readerFooter).not.toBeNull();
+						expect(readerFooter.textContent).toContain("대한성서공회");
+						expect(readerFooter.textContent).toContain("AI 낭독");
+						expect(readerFooter.textContent).toContain("Supertonic 3");
+						expect(readerFooter.textContent).not.toContain("Public Domain");
+						expect(readerFooter.textContent).not.toContain("KRDICT");
 						expect(
-							container.querySelector('footer.copyright-footer a[href="https://www.esv.org"]'),
-						).not.toBeNull();
+							readerFooter.querySelector(`a[href="${SUPERTONIC_LICENSE_URL}"]`)?.textContent,
+						).toBe(SUPERTONIC_LICENSE_NAME);
+						expect(readerFooter.querySelector('a[href="https://www.esv.org"]')).not.toBeNull();
 					});
 					fireClick(getButton(container, "Retry"));
 
