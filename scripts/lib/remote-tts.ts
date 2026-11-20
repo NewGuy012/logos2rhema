@@ -37,6 +37,8 @@ export interface CliOptions {
 	device: DevicePreference;
 	workers: number;
 	threads: number;
+	batchSize: number;
+	verbose: boolean;
 	force: boolean;
 	dryRun: boolean;
 	remote: boolean;
@@ -306,6 +308,8 @@ Synthesis & Upload Options:
   --bitrate <INT>           CBR MP3 bitrate in kbps (default: 96)
   --workers <INT>           Worker processes (0 = auto)
   --threads <INT>           ONNX intra-op threads per worker (default: 2)
+  --batch-size <INT>        Chunks per ONNX call (0 = auto: 24 on CUDA, 1 on CPU)
+  --verbose                 Show ONNX Runtime startup warnings
   --force                   Regenerate chapters even if outputs already exist
   --dry-run                 Validate scope and probe remote VM without synthesizing
   --upload                  Opt-in R2 upload after generation (OFF by default; blocked in staging)
@@ -337,6 +341,8 @@ export function parseCliOptions(
 			device: { type: "string" },
 			workers: { type: "string" },
 			threads: { type: "string" },
+			"batch-size": { type: "string" },
+			verbose: { type: "boolean" },
 			force: { type: "boolean" },
 			"dry-run": { type: "boolean" },
 			remote: { type: "boolean" },
@@ -380,6 +386,8 @@ export function parseCliOptions(
 			device: "auto",
 			workers: 0,
 			threads: 2,
+			batchSize: 0,
+			verbose: false,
 			force: false,
 			dryRun: false,
 			remote: false,
@@ -540,6 +548,11 @@ export function parseCliOptions(
 			values.threads !== undefined
 				? parseNumberInRange(values.threads, "--threads", 1, 32, true)
 				: 2,
+		batchSize:
+			values["batch-size"] !== undefined
+				? parseNumberInRange(values["batch-size"], "--batch-size", 0, 128, true)
+				: 0,
+		verbose: Boolean(values.verbose),
 		force: Boolean(values.force),
 		dryRun: Boolean(values["dry-run"]),
 		remote: explicitRemote,
@@ -1445,6 +1458,8 @@ async function bootstrapRemoteEnv(
 	paths: OutputPaths,
 	probe: RemoteHardwareProbe,
 	requestedDevice: DevicePreference,
+	forceVerify = false,
+	verbose = false,
 ): Promise<{ activeDevice: "cuda" | "cpu" }> {
 	const wantCuda = requestedDevice === "cuda" || (requestedDevice === "auto" && probe.hasNvidiaGpu);
 	if (requestedDevice === "cuda" && !probe.hasNvidiaGpu) {
@@ -1481,7 +1496,9 @@ fi
 
 if [ -x "$VENV_DIR/bin/python" ] && [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$WANT_FINGERPRINT" ]; then
   echo "Remote Python environment cache hit ($VENV_DIR)."
+  CACHE_HIT=1
 else
+  CACHE_HIT=0
   echo "Provisioning remote Supertonic 3 Python environment..."
   uv venv --python 3.12 --allow-existing "$VENV_DIR" || uv venv --python 3.13 --allow-existing "$VENV_DIR" || uv venv --allow-existing "$VENV_DIR"
   if [ ${wantCuda ? "1" : "0"} -eq 1 ]; then
@@ -1496,10 +1513,14 @@ else
   printf '%s' "$WANT_FINGERPRINT" > "$STAMP_FILE"
 fi
 
-echo "Verifying remote ONNX Runtime & Supertonic 3 weights..."
-"$VENV_DIR/bin/python" - << 'PYEOF'
+MODEL_CACHE_DIR="\${SUPERTONIC_CACHE_DIR:-$HOME/.cache/supertonic3}"
+if [ "$CACHE_HIT" -eq 0 ] || [ ${forceVerify ? "1" : "0"} -eq 1 ] || [ ! -f "$MODEL_CACHE_DIR/onnx/vocoder.onnx" ]; then
+  echo "Verifying remote ONNX Runtime & Supertonic 3 weights..."
+  "$VENV_DIR/bin/python" - << 'PYEOF'
 import onnxruntime as ort
-from supertonic import TTS
+from supertonic.loader import download_model, get_cache_dir, has_all_onnx_modules, list_available_voice_style_names
+if ${verbose ? "False" : "True"} and hasattr(ort, "set_default_logger_severity"):
+    ort.set_default_logger_severity(3)
 want_cuda = ${wantCuda ? "True" : "False"}
 if want_cuda and hasattr(ort, "preload_dlls"):
     ort.preload_dlls()
@@ -1507,9 +1528,12 @@ providers = ort.get_available_providers()
 print("REMOTE_PROVIDERS=" + ",".join(providers))
 if want_cuda and "CUDAExecutionProvider" not in providers:
     raise SystemExit("CUDAExecutionProvider not available in remote onnxruntime-gpu")
-tts = TTS(model="supertonic-3", auto_download=True)
-print("REMOTE_VOICES=" + ",".join(tts.voice_style_names))
+model_dir = get_cache_dir("supertonic-3")
+if not has_all_onnx_modules(model_dir):
+    download_model(model_dir, "supertonic-3")
+print("REMOTE_VOICES=" + ",".join(list_available_voice_style_names(model_dir)))
 PYEOF
+fi
 `;
 
 	console.log(
@@ -2156,6 +2180,8 @@ export async function runRemoteWorkflow(
 			paths,
 			probe,
 			options.device,
+			options.setupOnly,
+			options.verbose,
 		);
 		if (options.setupOnly) {
 			console.log(`Remote environment ready (device=${activeDevice}).`);
@@ -2249,6 +2275,9 @@ export async function runRemoteWorkflow(
 			String(options.workers),
 			"--threads",
 			String(options.threads),
+			"--batch-size",
+			String(options.batchSize),
+			...(options.verbose ? ["--verbose"] : []),
 			...(options.force ? ["--force"] : []),
 		];
 

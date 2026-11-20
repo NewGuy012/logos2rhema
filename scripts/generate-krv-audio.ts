@@ -51,7 +51,11 @@ function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 		String(options.workers),
 		"--threads",
 		String(options.threads),
+		"--batch-size",
+		String(options.batchSize),
 	);
+
+	if (options.verbose) args.push("--verbose");
 
 	if (options.staging !== undefined || options.outDir !== undefined) {
 		const paths = resolveOutputPaths(options, rootDir);

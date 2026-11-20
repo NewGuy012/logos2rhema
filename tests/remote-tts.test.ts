@@ -100,11 +100,23 @@ describe("remote-tts CLI parsing & isolation", () => {
 			"--force",
 		]);
 
-		const stageOpts = parseCliOptions(["--thunder", "0", "--book", "RUT", "--staging", "rut-test"]);
+		const stageOpts = parseCliOptions([
+			"--thunder",
+			"0",
+			"--book",
+			"RUT",
+			"--staging",
+			"rut-test",
+			"--batch-size",
+			"32",
+			"--verbose",
+		]);
 		expect(stageOpts.remote).toBe(true);
 		expect(stageOpts.thunder).toBe("0");
 		expect(stageOpts.books).toEqual(["RUT"]);
 		expect(stageOpts.staging).toBe("rut-test");
+		expect(stageOpts.batchSize).toBe(32);
+		expect(stageOpts.verbose).toBe(true);
 		expect(stageOpts.upload).toBe(false);
 
 		expect(() =>

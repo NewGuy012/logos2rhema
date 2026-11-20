@@ -76,6 +76,8 @@ class SynthConfig:
     header_pause_sec: float
     bitrate_kbps: int
     audio_dir: Path = AUDIO_CACHE_DIR
+    batch_size: int = 1
+    verbose: bool = False
 
 
 def load_book_catalog() -> dict[str, tuple[int, str]]:
@@ -288,6 +290,90 @@ def trim_silence(
     return trimmed
 
 
+def assemble_chunk_pcms(
+    chunk_pcms: list[np.ndarray],
+    sample_rate: int,
+    *,
+    chunk_pause_sec: float = 0.12,
+) -> np.ndarray:
+    chunk_pause = np.zeros(int(round(chunk_pause_sec * sample_rate)), dtype=np.float32)
+    parts: list[np.ndarray] = []
+    for trimmed in chunk_pcms:
+        if trimmed.size > 0:
+            if parts and chunk_pause.size > 0:
+                parts.append(chunk_pause)
+            parts.append(trimmed)
+    if not parts:
+        return np.zeros(int(0.3 * sample_rate), dtype=np.float32)
+    return parts[0] if len(parts) == 1 else np.concatenate(parts)
+
+
+def synthesize_chunks_batched(
+    tts: Any,
+    voice_style: Any,
+    chunks: list[str],
+    *,
+    steps: int,
+    speed: float,
+    batch_size: int,
+) -> list[np.ndarray]:
+    if not chunks:
+        return []
+    sample_rate = int(tts.sample_rate)
+
+    if batch_size <= 1:
+        pcms: list[np.ndarray] = []
+        for chunk in chunks:
+            wav, _dur = tts.synthesize(
+                text=chunk,
+                voice_style=voice_style,
+                total_steps=steps,
+                speed=speed,
+                max_chunk_length=max(200, len(chunk) + 20),
+                silence_duration=0.0,
+                lang="ko",
+            )
+            pcms.append(trim_silence(wav, sample_rate))
+        return pcms
+
+    from supertonic.core import Style
+
+    # Bucket by character length so mini-batches have minimal padding overhead.
+    order = sorted(range(len(chunks)), key=lambda idx: len(chunks[idx]))
+    results: list[np.ndarray | None] = [None] * len(chunks)
+    style_cache: dict[int, Any] = {}
+
+    for start in range(0, len(order), batch_size):
+        batch_indices = order[start : start + batch_size]
+        bsz = len(batch_indices)
+        batch_style = style_cache.get(bsz)
+        if batch_style is None:
+            batch_style = (
+                voice_style
+                if bsz == 1
+                else Style(
+                    np.repeat(voice_style.ttl, bsz, axis=0),
+                    np.repeat(voice_style.dp, bsz, axis=0),
+                )
+            )
+            style_cache[bsz] = batch_style
+
+        batch_texts = [chunks[i] for i in batch_indices]
+        wav_batch, dur_batch = tts.model(
+            batch_texts,
+            batch_style,
+            total_step=steps,
+            speed=speed,
+            lang="ko",
+        )
+        for row_idx, orig_idx in enumerate(batch_indices):
+            n_samples = max(1, int(round(float(dur_batch[row_idx]) * sample_rate)))
+            raw_pcm = wav_batch[row_idx, :n_samples]
+            results[orig_idx] = trim_silence(raw_pcm, sample_rate)
+
+    return [pcm if pcm is not None else np.zeros(0, dtype=np.float32) for pcm in results]
+
+
 def synthesize_text_utterance(
     tts: Any,
     voice_style: Any,
@@ -298,26 +384,15 @@ def synthesize_text_utterance(
     chunk_pause_sec: float = 0.12,
 ) -> np.ndarray:
     sample_rate = int(tts.sample_rate)
-    chunk_pause = np.zeros(int(round(chunk_pause_sec * sample_rate)), dtype=np.float32)
-    parts: list[np.ndarray] = []
-    for chunk in chunks:
-        wav, _dur = tts.synthesize(
-            text=chunk,
-            voice_style=voice_style,
-            total_steps=steps,
-            speed=speed,
-            max_chunk_length=max(200, len(chunk) + 20),
-            silence_duration=0.0,
-            lang="ko",
-        )
-        trimmed = trim_silence(wav, sample_rate)
-        if trimmed.size > 0:
-            if parts and chunk_pause.size > 0:
-                parts.append(chunk_pause)
-            parts.append(trimmed)
-    if not parts:
-        return np.zeros(int(0.3 * sample_rate), dtype=np.float32)
-    return parts[0] if len(parts) == 1 else np.concatenate(parts)
+    chunk_pcms = synthesize_chunks_batched(
+        tts,
+        voice_style,
+        chunks,
+        steps=steps,
+        speed=speed,
+        batch_size=1,
+    )
+    return assemble_chunk_pcms(chunk_pcms, sample_rate, chunk_pause_sec=chunk_pause_sec)
 
 
 def master_chapter_audio(
@@ -397,13 +472,17 @@ def synthesize_chapter(
 ) -> tuple[dict[str, float], dict[str, Any]]:
     sr = int(tts.sample_rate)
     header_text = format_chapter_header(usfm, book_ko, chapter)
-    header_pcm = synthesize_text_utterance(
+    all_chunks = [header_text, *[chunk for v in verses for chunk in v.chunks]]
+    chunk_pcms = synthesize_chunks_batched(
         tts,
         voice_style,
-        [header_text],
+        all_chunks,
         steps=cfg.steps,
         speed=cfg.speed,
+        batch_size=cfg.batch_size,
     )
+    header_pcm = assemble_chunk_pcms(chunk_pcms[0:1], sr)
+    chunk_cursor = 1
     header_pause = np.zeros(int(round(cfg.header_pause_sec * sr)), dtype=np.float32)
     verse_pause = np.zeros(int(round(cfg.verse_pause_sec * sr)), dtype=np.float32)
 
@@ -413,13 +492,12 @@ def synthesize_chapter(
     prev_start = -1.0
 
     for idx, v in enumerate(verses):
-        verse_pcm = synthesize_text_utterance(
-            tts,
-            voice_style,
-            v.chunks,
-            steps=cfg.steps,
-            speed=cfg.speed,
+        num_chunks = len(v.chunks)
+        verse_pcm = assemble_chunk_pcms(
+            chunk_pcms[chunk_cursor : chunk_cursor + num_chunks],
+            sr,
         )
+        chunk_cursor += num_chunks
         verse_dur = float(verse_pcm.size) / float(sr)
         if verse_dur < MIN_VERSE_DURATION_SEC:
             raise RuntimeError(
@@ -549,10 +627,18 @@ def resolve_requested_usfms(
     return None
 
 
-def configure_onnx_providers(requested_device: str) -> tuple[str, list[str]]:
+def configure_onnx_providers(
+    requested_device: str,
+    *,
+    verbose: bool = False,
+) -> tuple[str, list[str]]:
     import onnxruntime as ort
     import supertonic.config as st_config
     import supertonic.loader as st_loader
+
+    if not verbose and hasattr(ort, "set_default_logger_severity"):
+        # Suppress non-fatal ONNX Runtime warnings (e.g. transformer_memcpy graph notices).
+        ort.set_default_logger_severity(3)
 
     available = list(ort.get_available_providers())
     has_cuda = "CUDAExecutionProvider" in available
@@ -683,6 +769,17 @@ def parse_args() -> argparse.Namespace:
         help="ONNX intra-op threads per worker process (default: 2)",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=0,
+        help="Chunks synthesized per ONNX call (default: 0 = auto: 24 on CUDA, 1 on CPU)",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show ONNX Runtime warning logs at startup",
+    )
+    parser.add_argument(
         "--audio-dir",
         type=Path,
         default=AUDIO_CACHE_DIR,
@@ -713,9 +810,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _init_worker(resolved_voice: str, intra_threads: int, active_device: str) -> None:
+def _init_worker(
+    resolved_voice: str,
+    intra_threads: int,
+    active_device: str,
+    requested_device: str,
+    verbose: bool,
+) -> None:
     global _WORKER_TTS, _WORKER_STYLE
-    configure_onnx_providers(active_device)
+    configure_onnx_providers(active_device, verbose=verbose)
     from supertonic import TTS
 
     _WORKER_TTS = TTS(
@@ -727,9 +830,10 @@ def _init_worker(resolved_voice: str, intra_threads: int, active_device: str) ->
     if active_device == "cuda":
         worker_providers = get_active_tts_providers(_WORKER_TTS)
         if "CUDAExecutionProvider" not in worker_providers:
-            raise RuntimeError(
-                f"Worker failed to bind CUDAExecutionProvider (active={worker_providers})"
-            )
+            msg = f"Worker failed to bind CUDAExecutionProvider (active={worker_providers})"
+            if requested_device == "cuda":
+                raise RuntimeError(msg)
+            print(f"Warning: {msg} Continuing on CPU.", file=sys.stderr, flush=True)
     _WORKER_STYLE = _WORKER_TTS.get_voice_style(resolved_voice)
 
 
@@ -854,41 +958,9 @@ def main() -> int:
         print("All selected chapters are already generated. Use --force to regenerate.", flush=True)
         return 0
 
-    active_device, available_providers = configure_onnx_providers(args.device)
-    from supertonic import TTS
-
-    tts = TTS(
-        model="supertonic-3",
-        auto_download=True,
-        intra_op_num_threads=args.threads,
-        inter_op_num_threads=1,
+    active_device, available_providers = configure_onnx_providers(
+        args.device, verbose=args.verbose
     )
-    active_providers = get_active_tts_providers(tts)
-    if active_device == "cuda" and "CUDAExecutionProvider" not in active_providers:
-        msg = (
-            "CUDAExecutionProvider failed to initialize on ONNX session "
-            f"(available={available_providers}, active={active_providers})."
-        )
-        if args.device == "cuda":
-            raise RuntimeError(msg)
-        print(f"Warning: {msg} Falling back to CPU.", file=sys.stderr, flush=True)
-        active_device = "cpu"
-
-    resolved_voice = resolve_voice_name(args.voice, tts.voice_style_names)
-
-    # Validate entire selected corpus against Supertonic's character table up front.
-    for usfm, book_ko, ch_num, verses, _ in jobs:
-        header = format_chapter_header(usfm, book_ko, ch_num)
-        ok, bad = tts.model.text_processor.validate_text(header)
-        if not ok:
-            raise RuntimeError(f"Unsupported chars in header {usfm} {ch_num}: {bad}")
-        for v in verses:
-            ok, bad = tts.model.text_processor.validate_text(v.spoken_text)
-            if not ok:
-                raise RuntimeError(
-                    f"Unsupported chars in {usfm} {ch_num}:{v.verse}: {bad}"
-                )
-
     if args.workers > 0:
         worker_count = args.workers
     elif active_device == "cuda":
@@ -899,11 +971,71 @@ def main() -> int:
         worker_count = 1 if len(jobs) <= 2 else min(6, max(1, cpu_count // max(1, args.threads)))
     worker_count = max(1, min(worker_count, len(jobs)))
 
+    tts: Any = None
+    active_providers: list[str]
+    if worker_count == 1:
+        from supertonic import TTS
+
+        tts = TTS(
+            model="supertonic-3",
+            auto_download=True,
+            intra_op_num_threads=args.threads,
+            inter_op_num_threads=1,
+        )
+        active_providers = get_active_tts_providers(tts)
+        if active_device == "cuda" and "CUDAExecutionProvider" not in active_providers:
+            msg = (
+                "CUDAExecutionProvider failed to initialize on ONNX session "
+                f"(available={available_providers}, active={active_providers})."
+            )
+            if args.device == "cuda":
+                raise RuntimeError(msg)
+            print(f"Warning: {msg} Falling back to CPU.", file=sys.stderr, flush=True)
+            active_device = "cpu"
+        voice_names = list(tts.voice_style_names)
+        text_processor = tts.model.text_processor
+    else:
+        # Avoid loading unused ONNX CUDA/CPU sessions in the parent before spawning workers.
+        from supertonic.loader import (
+            download_model,
+            get_cache_dir,
+            has_all_onnx_modules,
+            list_available_voice_style_names,
+            load_text_processor,
+        )
+
+        model_dir = get_cache_dir("supertonic-3")
+        if not has_all_onnx_modules(model_dir):
+            download_model(model_dir, "supertonic-3")
+        voice_names = list_available_voice_style_names(model_dir)
+        text_processor = load_text_processor(model_dir)
+        active_providers = (
+            ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            if active_device == "cuda"
+            else ["CPUExecutionProvider"]
+        )
+
+    resolved_voice = resolve_voice_name(args.voice, voice_names)
+    batch_size = args.batch_size if args.batch_size > 0 else (24 if active_device == "cuda" else 1)
+
+    # Validate entire selected corpus against Supertonic's character table up front.
+    for usfm, book_ko, ch_num, verses, _ in jobs:
+        header = format_chapter_header(usfm, book_ko, ch_num)
+        ok, bad = text_processor.validate_text(header)
+        if not ok:
+            raise RuntimeError(f"Unsupported chars in header {usfm} {ch_num}: {bad}")
+        for v in verses:
+            ok, bad = text_processor.validate_text(v.spoken_text)
+            if not ok:
+                raise RuntimeError(
+                    f"Unsupported chars in {usfm} {ch_num}:{v.verse}: {bad}"
+                )
+
     print(
         f"Generating {len(jobs)} chapter(s) across {len(selected_books)} book(s) "
         f"using Supertonic 3 voice '{args.voice}' ({resolved_voice}), "
         f"device={active_device} ({','.join(active_providers) or 'unknown'}), "
-        f"workers={worker_count}, threads={args.threads}, "
+        f"workers={worker_count}, batch_size={batch_size}, threads={args.threads}, "
         f"speed={args.speed}, steps={args.steps}, bitrate={args.bitrate}kbps...",
         flush=True,
     )
@@ -1025,6 +1157,8 @@ def main() -> int:
         header_pause_sec=args.header_pause,
         bitrate_kbps=args.bitrate,
         audio_dir=audio_dir,
+        batch_size=batch_size,
+        verbose=args.verbose,
     )
 
     try:
@@ -1038,14 +1172,17 @@ def main() -> int:
                     lambda j=job: _synthesize_job(tts, voice_style, j, cfg),
                 )
         else:
-            # Release main-process ONNX model memory before spawning worker processes.
-            del tts
-            gc.collect()
             with ProcessPoolExecutor(
                 max_workers=worker_count,
                 mp_context=multiprocessing.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(resolved_voice, args.threads, active_device),
+                initargs=(
+                    resolved_voice,
+                    args.threads,
+                    active_device,
+                    args.device,
+                    args.verbose,
+                ),
             ) as executor:
                 future_to_ref = {
                     executor.submit(_process_chapter_job, job, cfg): (job[0], job[2])
@@ -1064,6 +1201,7 @@ def main() -> int:
             "device": active_device,
             "onnxProviders": active_providers,
             "workers": worker_count,
+            "batchSize": batch_size,
             "threads": args.threads,
             "speed": args.speed,
             "steps": args.steps,
