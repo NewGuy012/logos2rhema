@@ -77,6 +77,14 @@ export interface BookBibleData {
 	chapters: Record<string, VerseEntry[]>;
 }
 
+export interface ChapterTextResponse {
+	translationId: string;
+	bookNumber: number;
+	usfm: string;
+	chapter: number;
+	verses: VerseEntry[];
+}
+
 export interface AlignedVerse {
 	verse: number;
 	heading?: string;

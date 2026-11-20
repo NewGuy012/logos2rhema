@@ -4,7 +4,11 @@ import { cancelBody, type FetchLike, fetchWithTimeout } from "./http";
 
 const ESV_AUDIO_API_BASE = "https://api.esv.org/v3/passage/audio/";
 
-function formatEsvPassageQuery(bookEn: string, chapter: number, chaptersInBook: number): string {
+export function formatEsvPassageQuery(
+	bookEn: string,
+	chapter: number,
+	chaptersInBook: number,
+): string {
 	// Single-chapter books need an explicit span so "Jude 1" isn't treated as verse 1 only.
 	return chaptersInBook === 1 ? `${bookEn} 1:1-99` : `${bookEn} ${chapter}`;
 }

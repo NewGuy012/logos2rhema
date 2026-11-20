@@ -1,8 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
 import { normalizeVerseTimings, SUPERTONIC_TRACK_ID } from "../src/shared/audio-timings";
-import type { ChapterAudioResponse, ChapterCommentaryResponse } from "../src/shared/types";
+import type {
+	ChapterAudioResponse,
+	ChapterCommentaryResponse,
+	ChapterTextResponse,
+} from "../src/shared/types";
 import { isSafeHttpsUrl } from "../src/shared/url";
+import { parseEsvPassageHtml } from "../src/worker/esv-text";
 import type { FetchLike } from "../src/worker/http";
 import { readJsonWithLimit } from "../src/worker/http";
 import { createApp, type R2BucketLike, type R2ObjectBodyLike } from "../src/worker/index";
@@ -491,6 +496,203 @@ describe("Worker API & Security Boundaries", () => {
 		);
 		expect(r2ThrowRes.status).toBe(416);
 		expect(throwingBucket.totalOps()).toBe(1);
+	});
+
+	it("parses Crossway ESV HTML passages across narrative, Psalms, omitted verses, and entities", () => {
+		const genHtml = `
+			<h2 class="extra_text">Genesis 1</h2>
+			<h3>The Creation of the World</h3>
+			<p id="p01001001_07-1"><b class="verse-num" id="v01001001-1">1&nbsp;</b>In the beginning, God created the heavens and the earth. <b class="verse-num" id="v01001003-1">3&nbsp;</b>And God said, &ldquo;Let there be light,&rdquo; and there was light.&mdash;Day&nbsp;1&#8217;s work.</p>
+			<div class="footnotes"><h3>Footnotes</h3><p>[1] Ignore footnote text</p></div>
+			<p class="copyright">(ESV)</p>
+		`;
+		expect(parseEsvPassageHtml(genHtml)).toEqual([
+			{
+				verse: 1,
+				heading: "The Creation of the World",
+				text: "In the beginning, God created the heavens and the earth.",
+			},
+			{
+				verse: 3,
+				text: "And God said, “Let there be light,” and there was light.—Day 1’s work.",
+			},
+		]);
+
+		const psa51Html = `
+			<h3>Create in Me a Clean Heart, O God</h3>
+			<h4 class="psalm-title">To the choirmaster. A Psalm of David, when Nathan the prophet went to him, after he had gone in to Bathsheba.</h4>
+			<p class="block-indent"><span class="line"><b class="verse-num">1&nbsp;</b>Have mercy on me, O God,<sup class="footnote"><a href="#f1">[1]</a></sup></span><br /><span class="line">according to your steadfast love;</span></p>
+			<p class="block-indent"><span class="line"><b class="verse-num">2&nbsp;</b>Wash me thoroughly from my iniquity,<span class="selah">Selah</span></span></p>
+		`;
+		expect(parseEsvPassageHtml(psa51Html)).toEqual([
+			{
+				verse: 1,
+				heading:
+					"Create in Me a Clean Heart, O God — To the choirmaster. A Psalm of David, when Nathan the prophet went to him, after he had gone in to Bathsheba.",
+				text: "Have mercy on me, O God, according to your steadfast love;",
+			},
+			{
+				verse: 2,
+				text: "Wash me thoroughly from my iniquity, Selah",
+			},
+		]);
+
+		const psa119Html = `
+			<h4 class="psalm-acrostic-title">Aleph</h4>
+			<p class="block-indent"><span class="line"><b class="verse-num">1&nbsp;</b>Blessed are those whose way is blameless,</span><br /><span class="line">who walk in the law of the <span class="small-caps">Lord</span>!</span></p>
+			<h4 class="psalm-acrostic-title">Beth</h4>
+			<p class="block-indent"><span class="line"><b class="verse-num">9&nbsp;</b>How can a young man keep his way pure?</span></p>
+		`;
+		expect(parseEsvPassageHtml(psa119Html)).toEqual([
+			{
+				verse: 1,
+				heading: "Aleph",
+				text: "Blessed are those whose way is blameless, who walk in the law of the LORD!",
+			},
+			{
+				verse: 9,
+				heading: "Beth",
+				text: "How can a young man keep his way pure?",
+			},
+		]);
+
+		const mat17Html = `
+			<p><b class="verse-num">20&nbsp;</b><span class="woc">He said to them, &ldquo;Because of your little faith.&rdquo;</span> <b class="verse-num">21&nbsp;</b><b class="verse-num">22&nbsp;</b>As they were gathering in Galilee&#x2026;</p>
+		`;
+		expect(parseEsvPassageHtml(mat17Html)).toEqual([
+			{ verse: 20, text: "He said to them, “Because of your little faith.”" },
+			{ verse: 22, text: "As they were gathering in Galilee…" },
+		]);
+	});
+
+	it("serves /api/esv/:usfm/:chapter via Crossway HTML API and localEsvLoader with strict compliance headers", async () => {
+		const secretKey = "esv-text-secret-key-999";
+		const capturedRequests: Array<{ url: string; auth: string | null }> = [];
+
+		const mockFetch: FetchLike = async (input, init) => {
+			const url = String(input);
+			capturedRequests.push({
+				url,
+				auth: new Headers(init?.headers).get("Authorization"),
+			});
+			const parsedUrl = new URL(url);
+			const q = parsedUrl.searchParams.get("q");
+			if (q === "Jude 1:1-99") {
+				return Response.json({
+					passages: [
+						'<p><b class="verse-num">1&nbsp;</b>Jude, a servant of Jesus Christ.</p><p><b class="verse-num">25&nbsp;</b>to the only God, our Savior.</p>',
+					],
+				});
+			}
+			if (q === "Genesis 2") {
+				return new Response("Too Many Requests", { status: 429 });
+			}
+			if (q === "Genesis 3") {
+				return new Response("Bad Gateway", { status: 502 });
+			}
+			if (q === "Genesis 4") {
+				return new Response("{}", {
+					status: 200,
+					headers: { "Content-Length": String(600 * 1024) },
+				});
+			}
+			if (q === "Genesis 5") {
+				return Response.json({ passages: ["<div>No verse numbers here</div>"] });
+			}
+			return new Response("Not Found", { status: 404 });
+		};
+
+		const app = createApp({ fetcher: mockFetch });
+
+		// Validation & missing key
+		const badRef = await app.request("/api/esv/GEN/999", undefined, { ESV_API_KEY: secretKey });
+		expect(badRef.status).toBe(400);
+		expect(badRef.headers.get("cache-control")).toBe("private, no-store");
+		assertSecurityHeaders(badRef);
+
+		const missingKey = await app.request("/api/esv/JUD/1");
+		expect(missingKey.status).toBe(503);
+		expect(missingKey.headers.get("cache-control")).toBe("private, no-store");
+		assertSecurityHeaders(missingKey);
+
+		// Single-chapter book query + required Crossway params + private no-store + no key leakage
+		const judeRes = await app.request("/api/esv/jud/1", undefined, { ESV_API_KEY: secretKey });
+		expect(judeRes.status).toBe(200);
+		expect(judeRes.headers.get("cache-control")).toBe("private, no-store");
+		assertSecurityHeaders(judeRes);
+		const judeText = await judeRes.text();
+		expect(judeText).not.toContain(secretKey);
+		const judeBody = JSON.parse(judeText) as ChapterTextResponse;
+		expect(judeBody).toEqual({
+			translationId: "esv",
+			bookNumber: 65,
+			usfm: "JUD",
+			chapter: 1,
+			verses: [
+				{ verse: 1, text: "Jude, a servant of Jesus Christ." },
+				{ verse: 25, text: "to the only God, our Savior." },
+			],
+		});
+
+		const reqUrl = new URL(capturedRequests[0]?.url ?? "");
+		expect(capturedRequests[0]?.auth).toBe(`Token ${secretKey}`);
+		expect(reqUrl.origin + reqUrl.pathname).toBe("https://api.esv.org/v3/passage/html/");
+		expect(reqUrl.searchParams.get("q")).toBe("Jude 1:1-99");
+		expect(reqUrl.searchParams.get("include-headings")).toBe("true");
+		expect(reqUrl.searchParams.get("include-subheadings")).toBe("true");
+		expect(reqUrl.searchParams.get("include-copyright")).toBe("false");
+		expect(reqUrl.searchParams.get("include-footnotes")).toBe("false");
+
+		// HEAD strips body
+		const headRes = await app.request(
+			"/api/esv/JUD/1",
+			{ method: "HEAD" },
+			{ ESV_API_KEY: secretKey },
+		);
+		expect(headRes.status).toBe(200);
+		expect(headRes.headers.get("cache-control")).toBe("private, no-store");
+		expect(await headRes.text()).toBe("");
+
+		// 429 rate limit vs 502 upstream errors & 512 KB cap
+		const rateLimited = await app.request("/api/esv/GEN/2", undefined, { ESV_API_KEY: secretKey });
+		expect(rateLimited.status).toBe(429);
+		expect(rateLimited.headers.get("cache-control")).toBe("private, no-store");
+
+		const upstreamErr = await app.request("/api/esv/GEN/3", undefined, { ESV_API_KEY: secretKey });
+		expect(upstreamErr.status).toBe(502);
+		expect(upstreamErr.headers.get("cache-control")).toBe("private, no-store");
+
+		const tooBig = await app.request("/api/esv/GEN/4", undefined, { ESV_API_KEY: secretKey });
+		expect(tooBig.status).toBe(502);
+
+		const emptyHtml = await app.request("/api/esv/GEN/5", undefined, { ESV_API_KEY: secretKey });
+		expect(emptyHtml.status).toBe(502);
+
+		// localEsvLoader overrides live fetch when present and returns null fallback cleanly
+		let liveCallsWithLocal = 0;
+		const localApp = createApp({
+			fetcher: async (input, init) => {
+				liveCallsWithLocal++;
+				return mockFetch(input, init);
+			},
+			localEsvLoader: async (usfm, chapter) =>
+				usfm === "PSA" && chapter === 23
+					? [{ verse: 1, heading: "A Psalm of David", text: "The LORD is my shepherd." }]
+					: null,
+		});
+		const localRes = await localApp.request("/api/esv/PSA/23");
+		expect(localRes.status).toBe(200);
+		expect(localRes.headers.get("cache-control")).toBe("private, no-store");
+		expect(liveCallsWithLocal).toBe(0);
+		expect(((await localRes.json()) as ChapterTextResponse).verses).toEqual([
+			{ verse: 1, heading: "A Psalm of David", text: "The LORD is my shepherd." },
+		]);
+
+		const fallbackRes = await localApp.request("/api/esv/JUD/1", undefined, {
+			ESV_API_KEY: secretKey,
+		});
+		expect(fallbackRes.status).toBe(200);
+		expect(liveCallsWithLocal).toBe(1);
 	});
 });
 

@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 import indexHtml from "../index.html";
+import type { BookBibleData, VerseEntry } from "../src/shared/types";
 import {
 	createApp,
 	type R2BucketLike,
@@ -15,6 +16,7 @@ const DIST_CLIENT_DIR = join(ROOT_DIR, "dist", "client");
 const DEV_VARS_PATH = join(ROOT_DIR, ".dev.vars");
 const HEADERS_PATH = join(PUBLIC_DIR, "_headers");
 const LOCAL_AUDIO_DIR = join(ROOT_DIR, ".cache", "krv-supertonic-audio");
+const LOCAL_ESV_DIR = join(ROOT_DIR, ".cache", "esv-local");
 
 function stripOptionalQuotes(value: string): string {
 	if (
@@ -206,7 +208,22 @@ function createLocalAudioBucket(baseDir: string): R2BucketLike {
 	};
 }
 
+function createLocalEsvLoader(
+	baseDir: string,
+): (usfm: string, chapter: number) => Promise<VerseEntry[] | null> {
+	return async (usfm: string, chapter: number): Promise<VerseEntry[] | null> => {
+		const filePath = resolveSafeStaticPath(baseDir, `${usfm}.json`);
+		if (!filePath) return null;
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) return null;
+		const data = (await file.json()) as Partial<BookBibleData>;
+		const verses = data.chapters?.[String(chapter)];
+		return Array.isArray(verses) ? verses : null;
+	};
+}
+
 const isPreview = process.argv.includes("--preview");
+const useLiveEsv = process.env.USE_LIVE_ESV === "1";
 const hostname = process.env.HOST?.trim() || "127.0.0.1";
 const rawLoopbackHost = hostname === "0.0.0.0" || hostname === "::" ? "127.0.0.1" : hostname;
 const loopbackHost = rawLoopbackHost.includes(":") ? `[${rawLoopbackHost}]` : rawLoopbackHost;
@@ -215,7 +232,11 @@ const devVars = await loadDevVars();
 if (!devVars.AUDIO_BASE_URL?.trim() && (await isDirectory(LOCAL_AUDIO_DIR))) {
 	devVars.AUDIO_BUCKET = createLocalAudioBucket(LOCAL_AUDIO_DIR);
 }
-const workerApp = createApp();
+const localEsvLoader =
+	!isPreview && !useLiveEsv && (await isDirectory(LOCAL_ESV_DIR))
+		? createLocalEsvLoader(LOCAL_ESV_DIR)
+		: undefined;
+const workerApp = createApp(localEsvLoader ? { localEsvLoader } : undefined);
 
 if (isPreview) {
 	const indexExists = await Bun.file(join(DIST_CLIENT_DIR, "index.html")).exists();

@@ -4,9 +4,16 @@ import { SUPERTONIC_TRACK_ID } from "../shared/audio-timings";
 import { getBookByUsfm } from "../shared/books";
 import { isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
-import type { AudioTrackOption, BookMeta, ChapterAudioResponse } from "../shared/types";
+import type {
+	AudioTrackOption,
+	BookMeta,
+	ChapterAudioResponse,
+	ChapterTextResponse,
+	VerseEntry,
+} from "../shared/types";
 import { isSafeHttpsUrl } from "../shared/url";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
+import { fetchEsvChapterVerses } from "./esv-text";
 import { fetchHelloAoCommentaryChapter } from "./helloao";
 import { cancelBody, type FetchLike } from "./http";
 
@@ -45,8 +52,9 @@ export interface WorkerBindings {
 	AUDIO_BUCKET?: R2BucketLike;
 }
 
-interface WorkerDeps {
+export interface WorkerDeps {
 	fetcher?: FetchLike;
+	localEsvLoader?: (usfm: string, chapter: number) => Promise<VerseEntry[] | null>;
 }
 
 const SAFE_AUDIO_MIME_RE = /^audio\/[a-z0-9.+-]+$/i;
@@ -158,10 +166,11 @@ function applySecurityHeaders(headers: Headers): void {
 
 function jsonError(
 	c: Context<{ Bindings: WorkerBindings }>,
-	status: 400 | 404 | 405 | 502 | 503,
+	status: 400 | 404 | 405 | 429 | 502 | 503,
 	error: string,
+	cacheControl = "no-store",
 ): Response {
-	c.header("Cache-Control", "no-store");
+	c.header("Cache-Control", cacheControl);
 	return c.json({ error }, status);
 }
 
@@ -211,6 +220,62 @@ export function createApp(deps: WorkerDeps = {}) {
 		const res = jsonError(c, 502, "Upstream service error");
 		applySecurityHeaders(res.headers);
 		return res;
+	});
+
+	app.get("/api/esv/:usfm/:chapter", async (c) => {
+		const parsed = parseChapterRef(c);
+		if (!parsed) {
+			return jsonError(c, 400, "Invalid book or chapter reference", "private, no-store");
+		}
+		const { book, usfm, chapter } = parsed;
+
+		if (deps.localEsvLoader) {
+			const localVerses = await deps.localEsvLoader(usfm, chapter).catch(() => null);
+			if (localVerses && localVerses.length > 0) {
+				const responseBody: ChapterTextResponse = {
+					translationId: CANONICAL_BIBLES.en.id,
+					bookNumber: book.number,
+					usfm,
+					chapter,
+					verses: localVerses,
+				};
+				c.header("Cache-Control", "private, no-store");
+				return c.json(responseBody);
+			}
+		}
+
+		const esvApiKey = c.env?.ESV_API_KEY?.trim();
+		if (!esvApiKey) {
+			return jsonError(c, 503, "ESV text is not configured", "private, no-store");
+		}
+
+		const result = await fetchEsvChapterVerses(
+			esvApiKey,
+			{ bookEn: book.en, chapter, chaptersInBook: book.chapters },
+			fetcher,
+		).catch(() => ({ status: "error" as const }));
+
+		if (result.status === "rate_limited") {
+			return jsonError(
+				c,
+				429,
+				"ESV API rate limit reached. Please try again shortly.",
+				"private, no-store",
+			);
+		}
+		if (result.status !== "ok") {
+			return jsonError(c, 502, "ESV passage unavailable", "private, no-store");
+		}
+
+		const responseBody: ChapterTextResponse = {
+			translationId: CANONICAL_BIBLES.en.id,
+			bookNumber: book.number,
+			usfm,
+			chapter,
+			verses: result.verses,
+		};
+		c.header("Cache-Control", "private, no-store");
+		return c.json(responseBody);
 	});
 
 	app.get("/api/audio/:usfm/:chapter", async (c) => {
