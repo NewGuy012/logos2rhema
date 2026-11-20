@@ -168,9 +168,8 @@ export function AudioControlRail({
 								>
 									{activeTrack.attribution ?? activeTrack.label}
 								</span>
-								<span className={`rail-track-sync ${syncActive ? "active" : ""}`.trim()}>
-									{syncStatusText}
-								</span>
+								{" · "}
+								<span className="rail-track-sync">{syncStatusText}</span>
 							</p>
 
 							{showFollowButton && activeVerse && (

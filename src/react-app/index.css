@@ -3740,12 +3740,7 @@ button:focus-visible {
 
 .rail-track-caption {
 	margin: 0;
-	display: flex;
-	flex-wrap: wrap;
-	align-items: baseline;
-	justify-content: center;
-	gap: 0.14rem 0.4rem;
-	font-size: 0.68rem;
+	font-size: clamp(0.58rem, 0.68vw, 0.63rem);
 	line-height: 1.35;
 	text-align: center;
 	color: var(--text-muted);
@@ -3753,12 +3748,6 @@ button:focus-visible {
 
 .rail-track-sync {
 	white-space: nowrap;
-	font-weight: 500;
-	color: var(--text-secondary);
-}
-
-.rail-track-sync.active {
-	color: var(--accent);
 }
 
 .rail-unavailable {

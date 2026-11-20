@@ -1022,11 +1022,13 @@ describe("Reader UI & audio hooks", () => {
 		expect(resolveTimeForVerse(supertonicTrack.verseTimings, 17)).toBe(48.2);
 
 		const rail = renderRail(16, false);
+		expect(rail.container.querySelector(".rail-track-caption")?.textContent).toBe(
+			`${SUPERTONIC_TRACK_ATTRIBUTION} · Verse sync on`,
+		);
 		expect(rail.container.querySelector(".rail-track-name")?.textContent).toBe(
 			SUPERTONIC_TRACK_ATTRIBUTION,
 		);
 		expect(rail.container.querySelector(".rail-track-sync")?.textContent).toBe("Verse sync on");
-		expect(rail.container.querySelector(".rail-track-sync")?.className).toContain("active");
 		expect(rail.container.querySelector(".rail-sync-box")).toBeNull();
 		fireClick(getButton(rail.container, "Follow Audio (v.12)"));
 		expect(onFollowActive).toHaveBeenCalledTimes(1);
@@ -1102,8 +1104,10 @@ describe("Reader UI & audio hooks", () => {
 		expect(getButton(rail.container, "Play from v.12").getAttribute("aria-pressed")).toBe("true");
 
 		renderRail(12, true, rail, false);
+		expect(rail.container.querySelector(".rail-track-caption")?.textContent).toBe(
+			`${SUPERTONIC_TRACK_ATTRIBUTION} · Verse sync off`,
+		);
 		expect(rail.container.querySelector(".rail-track-sync")?.textContent).toBe("Verse sync off");
-		expect(rail.container.querySelector(".rail-track-sync")?.className).not.toContain("active");
 
 		const untimedRail = render(
 			<AudioControlRail
@@ -1120,6 +1124,9 @@ describe("Reader UI & audio hooks", () => {
 				onSyncToVisibleVerse={onSyncToVisible}
 				onFollowActiveVerse={onFollowActive}
 			/>,
+		);
+		expect(untimedRail.container.querySelector(".rail-track-caption")?.textContent).toBe(
+			"David Cochran Heath (ESV) · No verse sync",
 		);
 		expect(untimedRail.container.querySelector(".rail-track-name")?.textContent).toBe(
 			"David Cochran Heath (ESV)",
