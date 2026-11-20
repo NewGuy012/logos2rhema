@@ -1194,6 +1194,26 @@ export function buildTnrCreateArgs(options: CliOptions): string[] {
 	return args;
 }
 
+async function persistCreatedThunderKey(rawCreateStdout: string): Promise<void> {
+	try {
+		const parsed = extractJsonValue(rawCreateStdout) as { uuid?: unknown; key?: unknown } | null;
+		if (
+			parsed &&
+			typeof parsed.uuid === "string" &&
+			parsed.uuid.trim() &&
+			typeof parsed.key === "string" &&
+			parsed.key.includes("PRIVATE KEY")
+		) {
+			const keysDir = join(homedir(), ".thunder", "keys");
+			await mkdir(keysDir, { recursive: true, mode: 0o700 });
+			const keyPath = join(keysDir, parsed.uuid.trim());
+			await writeFile(keyPath, parsed.key, { mode: 0o600 });
+		}
+	} catch {
+		// ignore if non-JSON or key already managed via tnr connect
+	}
+}
+
 async function createThunderInstance(
 	tnrBin: string,
 	options: CliOptions,
@@ -1208,6 +1228,7 @@ async function createThunderInstance(
 			`\`tnr create\` failed (exit ${created.exitCode}): ${created.stderr.trim() || created.stdout.trim()}`,
 		);
 	}
+	await persistCreatedThunderKey(created.stdout);
 	const after = await runner.run(tnrBin, ["--json", "status", "--no-wait"], { stdin: "ignore" });
 	if (after.exitCode !== 0) {
 		throw new Error(
@@ -1324,6 +1345,10 @@ async function resolveEndpointForRun(
 
 	if (instance.ip) {
 		let fallbackKey = options.sshKey;
+		if (!fallbackKey && instance.uuid) {
+			const thunderKey = join(homedir(), ".thunder", "keys", instance.uuid);
+			if (await fileExistsNonEmpty(thunderKey)) fallbackKey = thunderKey;
+		}
 		if (!fallbackKey) {
 			const defaultEd25519 = join(homedir(), ".ssh", "id_ed25519");
 			const defaultRsa = join(homedir(), ".ssh", "id_rsa");
@@ -1385,7 +1410,7 @@ echo "ARCH=$(uname -m)"
 echo "CPUS=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 1)"
 if command -v nvidia-smi >/dev/null 2>&1; then
   GPU_LINE=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -n1 || true)
-  CUDA_LINE=$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: *\\([0-9][0-9.]*\\).*/\\1/p' | head -n1 || true)
+  CUDA_LINE=$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA[^:]*Version: *\\([0-9][0-9.]*\\).*/\\1/p' | head -n1 || true)
   echo "GPU=$GPU_LINE"
   echo "CUDA_VER=$CUDA_LINE"
 else
