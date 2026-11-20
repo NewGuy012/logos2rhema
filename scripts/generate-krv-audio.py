@@ -14,6 +14,7 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import gc
 import json
+import multiprocessing
 import os
 import re
 import sys
@@ -723,6 +724,12 @@ def _init_worker(resolved_voice: str, intra_threads: int, active_device: str) ->
         intra_op_num_threads=intra_threads,
         inter_op_num_threads=1,
     )
+    if active_device == "cuda":
+        worker_providers = get_active_tts_providers(_WORKER_TTS)
+        if "CUDAExecutionProvider" not in worker_providers:
+            raise RuntimeError(
+                f"Worker failed to bind CUDAExecutionProvider (active={worker_providers})"
+            )
     _WORKER_STYLE = _WORKER_TTS.get_voice_style(resolved_voice)
 
 
@@ -1035,6 +1042,7 @@ def main() -> int:
             gc.collect()
             with ProcessPoolExecutor(
                 max_workers=worker_count,
+                mp_context=multiprocessing.get_context("spawn"),
                 initializer=_init_worker,
                 initargs=(resolved_voice, args.threads, active_device),
             ) as executor:

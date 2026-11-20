@@ -1153,7 +1153,7 @@ async function runRemoteBash(
 	const args = [
 		...buildSshBaseArgs(endpoint, controlPath),
 		endpoint.target,
-		`bash -lc ${quotePosix(script)}`,
+		`bash -c ${quotePosix(script)}`,
 	];
 	if (opts?.streaming) {
 		const res = await runner.runStreaming("ssh", args, { onChild: opts.onChild });
@@ -1625,7 +1625,7 @@ async function uploadPayload(
 		stderr: "pipe",
 	});
 	const sshProc = Bun.spawn(
-		["ssh", ...sshArgs, endpoint.target, `bash -lc ${quotePosix(`tar -C ${remoteRunExpr} -xf -`)}`],
+		["ssh", ...sshArgs, endpoint.target, `bash -c ${quotePosix(`tar -C ${remoteRunExpr} -xf -`)}`],
 		{
 			stdin: tarProc.stdout,
 			stdout: "pipe",
@@ -1728,7 +1728,7 @@ async function downloadDirectory(
 
 	const sshArgs = buildSshBaseArgs(endpoint, controlPath);
 	const sshProc = Bun.spawn(
-		["ssh", ...sshArgs, endpoint.target, `bash -lc ${quotePosix(`tar -C ${remoteExpr} -cf - .`)}`],
+		["ssh", ...sshArgs, endpoint.target, `bash -c ${quotePosix(`tar -C ${remoteExpr} -cf - .`)}`],
 		{
 			stdin: "ignore",
 			stdout: "pipe",
@@ -1824,7 +1824,7 @@ async function mergePulledOutputs(
 
 	const pulledReportFile = join(pullRoot, "report.json");
 	if (await fileExistsNonEmpty(pulledReportFile, 2)) {
-		const incomingReport = JSON.parse(await readFile(pulledReportFile, "utf8")) as Record<
+		const incomingReport = extractJsonValue(await readFile(pulledReportFile, "utf8")) as Record<
 			string,
 			unknown
 		>;
