@@ -110,7 +110,7 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, and strict CSP/s
    bun run audio:generate-krv --thunder 0 --books GEN,EXO --force
    ```
 
-   Remote runs cache `.venv` (with CUDA `onnxruntime-gpu` when a GPU is detected) and Supertonic 3 weights on the VM, and never upload to R2 unless `--upload` is explicitly passed outside staging mode. Use `--shell` for an interactive `tnr connect` / SSH session, or `--setup-only` to pre-warm the VM environment.
+   Remote runs cache `.venv` (with CUDA `onnxruntime-gpu` when a GPU is detected) and Supertonic 3 weights on the VM, auto-shard batches across all detected GPUs (`--gpus`) with pipelined multi-vCPU MP3 encoding (`--mp3-quality 2`, or `5` for faster encoding), and never upload to R2 unless `--upload` is explicitly passed outside staging mode. Use `--shell` for an interactive `tnr connect` / SSH session, or `--setup-only` to pre-warm the VM environment.
 
    When `.cache/krv-supertonic-audio/` exists locally (and `AUDIO_BASE_URL` is unset), `bun run dev` and `bun run preview` serve chapters directly from disk via `GET /api/audio/krv/:usfm/:chapter`.
 

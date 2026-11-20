@@ -107,15 +107,24 @@ describe("remote-tts CLI parsing & isolation", () => {
 			"RUT",
 			"--staging",
 			"rut-test",
+			"--gpus",
+			"4",
+			"--gpu-streams",
+			"2",
 			"--batch-size",
 			"32",
+			"--mp3-quality",
+			"5",
 			"--verbose",
 		]);
 		expect(stageOpts.remote).toBe(true);
 		expect(stageOpts.thunder).toBe("0");
 		expect(stageOpts.books).toEqual(["RUT"]);
 		expect(stageOpts.staging).toBe("rut-test");
+		expect(stageOpts.gpus).toBe(4);
+		expect(stageOpts.gpuStreams).toBe(2);
 		expect(stageOpts.batchSize).toBe(32);
+		expect(stageOpts.mp3Quality).toBe(5);
 		expect(stageOpts.verbose).toBe(true);
 		expect(stageOpts.upload).toBe(false);
 
@@ -304,6 +313,7 @@ Host tnr-0
 				"ARCH=x86_64",
 				"CPUS=8",
 				"GPU=NVIDIA A100-SXM4-80GB, 81920 MiB",
+				"GPU_COUNT=4",
 				"CUDA_VER=12.8",
 				"HAS_RSYNC=1",
 				"HAS_UV=1",
@@ -313,6 +323,7 @@ Host tnr-0
 		expect(probe).toMatchObject({
 			os: "Linux",
 			cpuCount: 8,
+			gpuCount: 4,
 			cudaMajor: 12,
 			hasNvidiaGpu: true,
 			hasRsync: true,

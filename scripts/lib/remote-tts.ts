@@ -37,6 +37,8 @@ export interface CliOptions {
 	device: DevicePreference;
 	workers: number;
 	threads: number;
+	gpus: number;
+	gpuStreams: number;
 	batchSize: number;
 	mp3Quality: number;
 	verbose: boolean;
@@ -96,6 +98,7 @@ export interface RemoteHardwareProbe {
 	os: string;
 	arch: string;
 	cpuCount: number;
+	gpuCount: number;
 	gpuName?: string;
 	cudaMajor?: number;
 	hasNvidiaGpu: boolean;
@@ -309,6 +312,8 @@ Synthesis & Upload Options:
   --bitrate <INT>           CBR MP3 bitrate in kbps (default: 96)
   --workers <INT>           Worker processes (0 = auto)
   --threads <INT>           ONNX intra-op threads per worker (default: 2)
+  --gpus <INT>              CUDA GPUs to use on target host (0 = auto: all detected GPUs)
+  --gpu-streams <INT>       Concurrent CUDA ONNX sessions per GPU (0 = auto)
   --batch-size <INT>        Chunks per ONNX call (0 = auto: 64 on CUDA, 1 on CPU)
   --mp3-quality <INT>       LAME MP3 quality 0 (best/slowest) to 9 (fastest) (default: 2)
   --verbose                 Show ONNX Runtime startup warnings
@@ -343,6 +348,8 @@ export function parseCliOptions(
 			device: { type: "string" },
 			workers: { type: "string" },
 			threads: { type: "string" },
+			gpus: { type: "string" },
+			"gpu-streams": { type: "string" },
 			"batch-size": { type: "string" },
 			"mp3-quality": { type: "string" },
 			verbose: { type: "boolean" },
@@ -389,6 +396,8 @@ export function parseCliOptions(
 			device: "auto",
 			workers: 0,
 			threads: 2,
+			gpus: 0,
+			gpuStreams: 0,
 			batchSize: 0,
 			mp3Quality: 2,
 			verbose: false,
@@ -552,6 +561,11 @@ export function parseCliOptions(
 			values.threads !== undefined
 				? parseNumberInRange(values.threads, "--threads", 1, 32, true)
 				: 2,
+		gpus: values.gpus !== undefined ? parseNumberInRange(values.gpus, "--gpus", 0, 16, true) : 0,
+		gpuStreams:
+			values["gpu-streams"] !== undefined
+				? parseNumberInRange(values["gpu-streams"], "--gpu-streams", 0, 4, true)
+				: 0,
 		batchSize:
 			values["batch-size"] !== undefined
 				? parseNumberInRange(values["batch-size"], "--batch-size", 0, 128, true)
@@ -1405,14 +1419,17 @@ export function parseProbeOutput(stdout: string): RemoteHardwareProbe {
 	const cpuRaw = map.get("CPUS") ?? "1";
 	const cpuCount = /^\d+$/.test(cpuRaw) ? Math.max(1, Number.parseInt(cpuRaw, 10)) : 1;
 	const gpuName = map.get("GPU") || undefined;
+	const gpuCountRaw = map.get("GPU_COUNT") ?? "";
+	const gpuCount = /^\d+$/.test(gpuCountRaw) ? Number.parseInt(gpuCountRaw, 10) : gpuName ? 1 : 0;
 
 	return {
 		os: map.get("OS") || "Linux",
 		arch: map.get("ARCH") || "x86_64",
 		cpuCount,
+		gpuCount,
 		gpuName,
 		cudaMajor: cudaMatch ? Number.parseInt(cudaMatch[1], 10) : undefined,
-		hasNvidiaGpu: Boolean(gpuName),
+		hasNvidiaGpu: gpuCount > 0 || Boolean(gpuName),
 		hasRsync: map.get("HAS_RSYNC") === "1",
 		hasUv: map.get("HAS_UV") === "1",
 		pythonPath: map.get("PY_BIN") || undefined,
@@ -1431,11 +1448,14 @@ echo "ARCH=$(uname -m)"
 echo "CPUS=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN || echo 1)"
 if command -v nvidia-smi >/dev/null 2>&1; then
   GPU_LINE=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -n1 || true)
+  GPU_COUNT=$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | grep -c '[0-9]' || echo 0)
   CUDA_LINE=$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA[^:]*Version: *\\([0-9][0-9.]*\\).*/\\1/p' | head -n1 || true)
   echo "GPU=$GPU_LINE"
+  echo "GPU_COUNT=$GPU_COUNT"
   echo "CUDA_VER=$CUDA_LINE"
 else
   echo "GPU="
+  echo "GPU_COUNT=0"
   echo "CUDA_VER="
 fi
 echo "HAS_RSYNC=$(command -v rsync >/dev/null 2>&1 && echo 1 || echo 0)"
@@ -2138,9 +2158,12 @@ export async function runRemoteWorkflow(
 		controlOpen = true;
 
 		const probe = await probeRemoteHost(runner, endpoint, controlPath);
+		const gpuLabel = probe.gpuName
+			? `${probe.gpuCount > 1 ? `${probe.gpuCount}x ` : ""}${probe.gpuName}`
+			: "none";
 		console.log(
 			`Remote host: ${probe.os} ${probe.arch}, ${probe.cpuCount} vCPU(s), ` +
-				`GPU=${probe.gpuName ?? "none"}${probe.cudaMajor ? ` (CUDA ${probe.cudaMajor}.x)` : ""}, ` +
+				`GPU=${gpuLabel}${probe.cudaMajor ? ` (CUDA ${probe.cudaMajor}.x)` : ""}, ` +
 				`rsync=${probe.hasRsync ? "yes" : "no"}`,
 		);
 
@@ -2288,6 +2311,10 @@ export async function runRemoteWorkflow(
 			String(options.workers),
 			"--threads",
 			String(options.threads),
+			"--gpus",
+			String(options.gpus),
+			"--gpu-streams",
+			String(options.gpuStreams),
 			"--batch-size",
 			String(options.batchSize),
 			"--mp3-quality",

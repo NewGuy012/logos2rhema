@@ -18,6 +18,7 @@ import multiprocessing
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -61,6 +62,8 @@ MAX_GAIN = 6.0
 
 _WORKER_TTS: Any = None
 _WORKER_STYLE: Any = None
+_WORKER_DEVICE_ID: int = 0
+_WORKER_CUDA_RUNNER: Any = None
 
 
 @dataclass(frozen=True)
@@ -317,13 +320,16 @@ def assemble_chunk_pcms(
 class _CudaBatchRunner:
     """Runs Supertonic 3 ONNX inference with GPU IOBinding so latents stay on CUDA across diffusion steps."""
 
-    def __init__(self, tts: Any, voice_style: Any, steps: int) -> None:
+    def __init__(
+        self, tts: Any, voice_style: Any, steps: int, *, device_id: int = 0
+    ) -> None:
         import onnxruntime as ort
 
         self._ort = ort
         self._model = tts.model
         self._voice_style = voice_style
         self._steps = steps
+        self._device_id = device_id
         self._dp_out = self._model.dp_ort.get_outputs()[0].name
         self._te_out = self._model.text_enc_ort.get_outputs()[0].name
         self._ve_out = self._model.vector_est_ort.get_outputs()[0].name
@@ -335,6 +341,7 @@ class _CudaBatchRunner:
         if cached is not None:
             return cached
         ort = self._ort
+        dev = self._device_id
         dp_np = (
             self._voice_style.dp
             if bsz == 1
@@ -345,14 +352,14 @@ class _CudaBatchRunner:
             if bsz == 1
             else np.repeat(self._voice_style.ttl, bsz, axis=0)
         )
-        ort_dp = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(dp_np), "cuda", 0)
-        ort_ttl = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(ttl_np), "cuda", 0)
+        ort_dp = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(dp_np), "cuda", dev)
+        ort_ttl = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(ttl_np), "cuda", dev)
         ort_total = ort.OrtValue.ortvalue_from_numpy(
-            np.full((bsz,), float(self._steps), dtype=np.float32), "cuda", 0
+            np.full((bsz,), float(self._steps), dtype=np.float32), "cuda", dev
         )
         step_vals = [
             ort.OrtValue.ortvalue_from_numpy(
-                np.full((bsz,), float(s), dtype=np.float32), "cuda", 0
+                np.full((bsz,), float(s), dtype=np.float32), "cuda", dev
             )
             for s in range(self._steps)
         ]
@@ -365,12 +372,17 @@ class _CudaBatchRunner:
     ) -> tuple[np.ndarray, np.ndarray]:
         ort = self._ort
         model = self._model
+        dev = self._device_id
         bsz = len(text_list)
         text_ids, text_mask = model.text_processor(text_list, "ko")
 
         ort_dp, ort_ttl, ort_total, step_vals = self._get_static_gpu_tensors(bsz)
-        ort_text_ids = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(text_ids), "cuda", 0)
-        ort_text_mask = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(text_mask), "cuda", 0)
+        ort_text_ids = ort.OrtValue.ortvalue_from_numpy(
+            np.ascontiguousarray(text_ids), "cuda", dev
+        )
+        ort_text_mask = ort.OrtValue.ortvalue_from_numpy(
+            np.ascontiguousarray(text_mask), "cuda", dev
+        )
 
         dp_io = model.dp_ort.io_binding()
         dp_io.bind_ortvalue_input("text_ids", ort_text_ids)
@@ -384,14 +396,14 @@ class _CudaBatchRunner:
         te_io.bind_ortvalue_input("text_ids", ort_text_ids)
         te_io.bind_ortvalue_input("style_ttl", ort_ttl)
         te_io.bind_ortvalue_input("text_mask", ort_text_mask)
-        te_io.bind_output(self._te_out, "cuda")
+        te_io.bind_output(self._te_out, "cuda", dev)
         model.text_enc_ort.run_with_iobinding(te_io)
         ort_text_emb = te_io.get_outputs()[0]
 
         xt_np, latent_mask_np = model.sample_noisy_latent(dur_onnx)
-        ort_xt = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(xt_np), "cuda", 0)
+        ort_xt = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(xt_np), "cuda", dev)
         ort_latent_mask = ort.OrtValue.ortvalue_from_numpy(
-            np.ascontiguousarray(latent_mask_np), "cuda", 0
+            np.ascontiguousarray(latent_mask_np), "cuda", dev
         )
 
         for s in range(self._steps):
@@ -403,7 +415,7 @@ class _CudaBatchRunner:
             ve_io.bind_ortvalue_input("latent_mask", ort_latent_mask)
             ve_io.bind_ortvalue_input("current_step", step_vals[s])
             ve_io.bind_ortvalue_input("total_step", ort_total)
-            ve_io.bind_output(self._ve_out, "cuda")
+            ve_io.bind_output(self._ve_out, "cuda", dev)
             model.vector_est_ort.run_with_iobinding(ve_io)
             ort_xt = ve_io.get_outputs()[0]
 
@@ -416,10 +428,10 @@ class _CudaBatchRunner:
 
 
 def _create_batch_runner(
-    tts: Any, voice_style: Any, steps: int
+    tts: Any, voice_style: Any, steps: int, *, device_id: int = 0
 ) -> _CudaBatchRunner | None:
     if "CUDAExecutionProvider" in get_active_tts_providers(tts):
-        return _CudaBatchRunner(tts, voice_style, steps)
+        return _CudaBatchRunner(tts, voice_style, steps, device_id=device_id)
     return None
 
 
@@ -831,14 +843,42 @@ def resolve_requested_usfms(
 
 
 _ORIG_LOAD_ONNX_MODULES: Any = None
+_ACTIVE_CUDA_DEVICE_ID: int = 0
+
+
+def detect_cuda_device_count() -> int:
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible is not None:
+        cleaned = visible.strip()
+        if not cleaned or cleaned in ("-1", "none", "None"):
+            return 0
+        entries = [part.strip() for part in cleaned.split(",") if part.strip()]
+        if entries:
+            return len(entries)
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if proc.returncode == 0:
+            lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+            if lines:
+                return len(lines)
+    except Exception:  # noqa: BLE001
+        pass
+    return 1
 
 
 def configure_onnx_providers(
     requested_device: str,
     *,
     verbose: bool = False,
+    device_id: int = 0,
 ) -> tuple[str, list[str]]:
-    global _ORIG_LOAD_ONNX_MODULES
+    global _ORIG_LOAD_ONNX_MODULES, _ACTIVE_CUDA_DEVICE_ID
     import onnxruntime as ort
     import supertonic.config as st_config
     import supertonic.loader as st_loader
@@ -877,13 +917,14 @@ def configure_onnx_providers(
 
     st_config.DEFAULT_ONNX_PROVIDERS[:] = desired
     st_loader.DEFAULT_ONNX_PROVIDERS = list(desired)
+    _ACTIVE_CUDA_DEVICE_ID = max(0, int(device_id))
 
     if _ORIG_LOAD_ONNX_MODULES is None:
         _ORIG_LOAD_ONNX_MODULES = st_loader.load_onnx_modules
 
     if active_device == "cuda":
         # Use HEURISTIC cuDNN search + max workspace to eliminate slow EXHAUSTIVE search on
-        # dynamic sequence shapes while producing bit-identical FP32 outputs.
+        # dynamic sequence shapes while targeting the configured CUDA device_id.
         def _load_onnx_modules_cuda(
             model_dir: Path | str,
             intra_op_num_threads: int | None = None,
@@ -898,10 +939,12 @@ def configure_onnx_providers(
             if inter_op_num_threads is not None:
                 opts.inter_op_num_threads = inter_op_num_threads
 
+            target_dev = str(_ACTIVE_CUDA_DEVICE_ID)
             cuda_providers: list[Any] = [
                 (
                     "CUDAExecutionProvider",
                     {
+                        "device_id": target_dev,
                         "cudnn_conv_algo_search": "HEURISTIC",
                         "cudnn_conv_use_max_workspace": "1",
                     },
@@ -923,15 +966,50 @@ def configure_onnx_providers(
                 )
                 return sessions  # type: ignore[return-value]
             except Exception:  # noqa: BLE001
-                return _ORIG_LOAD_ONNX_MODULES(
-                    model_root, intra_op_num_threads, inter_op_num_threads
-                )
+                fallback_providers: list[Any] = [
+                    ("CUDAExecutionProvider", {"device_id": target_dev}),
+                    "CPUExecutionProvider",
+                ]
+                try:
+                    sessions = tuple(
+                        ort.InferenceSession(
+                            model_root / rel, sess_options=opts, providers=fallback_providers
+                        )
+                        for rel in rel_paths
+                    )
+                    return sessions  # type: ignore[return-value]
+                except Exception:  # noqa: BLE001
+                    return _ORIG_LOAD_ONNX_MODULES(
+                        model_root, intra_op_num_threads, inter_op_num_threads
+                    )
 
         st_loader.load_onnx_modules = _load_onnx_modules_cuda
     else:
         st_loader.load_onnx_modules = _ORIG_LOAD_ONNX_MODULES
 
     return active_device, available
+
+
+def _create_tts_on_cuda_device(
+    device_id: int,
+    intra_threads: int,
+    *,
+    auto_download: bool = False,
+) -> Any:
+    global _ACTIVE_CUDA_DEVICE_ID
+    from supertonic import TTS
+
+    prev_dev = _ACTIVE_CUDA_DEVICE_ID
+    _ACTIVE_CUDA_DEVICE_ID = max(0, int(device_id))
+    try:
+        return TTS(
+            model="supertonic-3",
+            auto_download=auto_download,
+            intra_op_num_threads=intra_threads,
+            inter_op_num_threads=1,
+        )
+    finally:
+        _ACTIVE_CUDA_DEVICE_ID = prev_dev
 
 
 def get_active_tts_providers(tts: Any) -> list[str]:
@@ -1043,10 +1121,16 @@ def parse_args() -> argparse.Namespace:
         help="Chunks synthesized per ONNX call (default: 0 = auto: 64 on CUDA, 1 on CPU)",
     )
     parser.add_argument(
+        "--gpus",
+        type=int,
+        default=0,
+        help="Number of CUDA GPUs to use (default: 0 = auto: all detected GPUs)",
+    )
+    parser.add_argument(
         "--gpu-streams",
         type=int,
         default=0,
-        help="Concurrent CUDA ONNX sessions (default: 0 = auto: 2 on CUDA for >=12 chapters, else 1)",
+        help="Concurrent CUDA ONNX sessions per GPU (default: 0 = auto: 2 on 1 GPU for >=12 chapters, 1 per GPU on multi-GPU)",
     )
     parser.add_argument(
         "--verbose",
@@ -1090,9 +1174,18 @@ def _init_worker(
     active_device: str,
     requested_device: str,
     verbose: bool,
+    gpu_count: int = 1,
 ) -> None:
-    global _WORKER_TTS, _WORKER_STYLE
-    configure_onnx_providers(active_device, verbose=verbose)
+    global _WORKER_TTS, _WORKER_STYLE, _WORKER_DEVICE_ID, _WORKER_CUDA_RUNNER
+    worker_ident = getattr(multiprocessing.current_process(), "_identity", ())
+    device_id = (
+        ((int(worker_ident[0]) - 1) % max(1, gpu_count))
+        if (active_device == "cuda" and worker_ident and gpu_count > 1)
+        else 0
+    )
+    _WORKER_DEVICE_ID = device_id
+    _WORKER_CUDA_RUNNER = None
+    configure_onnx_providers(active_device, verbose=verbose, device_id=device_id)
     from supertonic import TTS
 
     _WORKER_TTS = TTS(
@@ -1104,7 +1197,10 @@ def _init_worker(
     if active_device == "cuda":
         worker_providers = get_active_tts_providers(_WORKER_TTS)
         if "CUDAExecutionProvider" not in worker_providers:
-            msg = f"Worker failed to bind CUDAExecutionProvider (active={worker_providers})"
+            msg = (
+                f"Worker (gpu={device_id}) failed to bind CUDAExecutionProvider "
+                f"(active={worker_providers})"
+            )
             if requested_device == "cuda":
                 raise RuntimeError(msg)
             print(f"Warning: {msg} Continuing on CPU.", file=sys.stderr, flush=True)
@@ -1142,7 +1238,14 @@ def _process_chapter_job(
     job: tuple[str, str, int, list[VerseJob], int],
     cfg: SynthConfig,
 ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
-    return _synthesize_job(_WORKER_TTS, _WORKER_STYLE, job, cfg)
+    global _WORKER_CUDA_RUNNER
+    if _WORKER_CUDA_RUNNER is None and cfg.batch_size > 1:
+        _WORKER_CUDA_RUNNER = _create_batch_runner(
+            _WORKER_TTS, _WORKER_STYLE, cfg.steps, device_id=_WORKER_DEVICE_ID
+        )
+    return _synthesize_job(
+        _WORKER_TTS, _WORKER_STYLE, job, cfg, cuda_runner=_WORKER_CUDA_RUNNER
+    )
 
 
 def main() -> int:
@@ -1293,13 +1396,27 @@ def main() -> int:
 
     resolved_voice = resolve_voice_name(args.voice, voice_names)
     batch_size = args.batch_size if args.batch_size > 0 else (64 if active_device == "cuda" else 1)
-    if active_device == "cuda" and worker_count == 1:
-        gpu_streams = (
-            max(1, min(args.gpu_streams, 4))
-            if args.gpu_streams > 0
-            else (2 if len(jobs) >= 12 else 1)
-        )
+    pending_chunks = sum(1 + sum(len(v.chunks) for v in job[3]) for job in jobs)
+    est_batches = max(1, (pending_chunks + max(1, batch_size) - 1) // max(1, batch_size))
+
+    if active_device == "cuda":
+        detected_gpus = max(1, detect_cuda_device_count())
+        if args.gpus > 0:
+            active_gpu_count = max(1, min(args.gpus, detected_gpus))
+        else:
+            active_gpu_count = max(1, min(detected_gpus, est_batches))
+        if worker_count == 1:
+            if args.gpu_streams > 0:
+                gpu_streams = max(1, min(args.gpu_streams, 4))
+            elif active_gpu_count == 1:
+                gpu_streams = 2 if len(jobs) >= 12 else 1
+            else:
+                gpu_streams = 1
+        else:
+            gpu_streams = 1
     else:
+        detected_gpus = 0
+        active_gpu_count = 0
         gpu_streams = 1
 
     # Validate entire selected corpus against Supertonic's character table up front.
@@ -1315,11 +1432,16 @@ def main() -> int:
                     f"Unsupported chars in {usfm} {ch_num}:{v.verse}: {bad}"
                 )
 
+    gpu_info = (
+        f"gpus={active_gpu_count}/{detected_gpus}, gpu_streams={gpu_streams}, "
+        if active_device == "cuda"
+        else ""
+    )
     print(
         f"Generating {len(jobs)} chapter(s) across {len(selected_books)} book(s) "
         f"using Supertonic 3 voice '{args.voice}' ({resolved_voice}), "
         f"device={active_device} ({','.join(active_providers) or 'unknown'}), "
-        f"workers={worker_count}, gpu_streams={gpu_streams}, batch_size={batch_size}, "
+        f"workers={worker_count}, {gpu_info}batch_size={batch_size}, "
         f"threads={args.threads}, speed={args.speed}, steps={args.steps}, "
         f"bitrate={args.bitrate}kbps, mp3_quality={args.mp3_quality}...",
         flush=True,
@@ -1451,23 +1573,33 @@ def main() -> int:
         if worker_count == 1:
             voice_style = tts.get_voice_style(resolved_voice)
             sr = int(tts.sample_rate)
-            cuda_runner = _create_batch_runner(tts, voice_style, cfg.steps)
+            cuda_runner = _create_batch_runner(tts, voice_style, cfg.steps, device_id=0)
             extra_tts_instances: list[Any] = []
             cuda_runners: list[_CudaBatchRunner] = [cuda_runner] if cuda_runner is not None else []
-            if cuda_runner is not None and gpu_streams > 1:
-                from supertonic import TTS
-
-                for _ in range(gpu_streams - 1):
-                    extra_tts = TTS(
-                        model="supertonic-3",
-                        auto_download=False,
-                        intra_op_num_threads=args.threads,
-                        inter_op_num_threads=1,
-                    )
-                    extra_tts_instances.append(extra_tts)
-                    extra_runner = _create_batch_runner(extra_tts, voice_style, cfg.steps)
-                    if extra_runner is not None:
-                        cuda_runners.append(extra_runner)
+            if cuda_runner is not None and (active_gpu_count > 1 or gpu_streams > 1):
+                for dev_id in range(active_gpu_count):
+                    for stream_idx in range(gpu_streams):
+                        if dev_id == 0 and stream_idx == 0:
+                            continue
+                        extra_tts = _create_tts_on_cuda_device(
+                            dev_id, args.threads, auto_download=False
+                        )
+                        extra_providers = get_active_tts_providers(extra_tts)
+                        if "CUDAExecutionProvider" not in extra_providers:
+                            msg = (
+                                f"GPU {dev_id} stream {stream_idx} failed to bind "
+                                f"CUDAExecutionProvider (active={extra_providers})"
+                            )
+                            if args.device == "cuda":
+                                raise RuntimeError(msg)
+                            print(f"Warning: {msg} Skipping runner.", file=sys.stderr, flush=True)
+                            continue
+                        extra_tts_instances.append(extra_tts)
+                        extra_runner = _create_batch_runner(
+                            extra_tts, voice_style, cfg.steps, device_id=dev_id
+                        )
+                        if extra_runner is not None:
+                            cuda_runners.append(extra_runner)
 
             encode_workers = max(1, min(len(jobs), os.cpu_count() or 4))
 
@@ -1524,9 +1656,17 @@ def main() -> int:
                     )
 
                 # Group jobs into bounded windows for cross-chapter length-bucketed GPU batching,
-                # capped so CPU MP3 threads light up quickly and drain in a single parallel wave.
-                window_chunk_limit = max(cfg.batch_size * 4, 256) if cfg.batch_size > 1 else 1
-                window_chapter_limit = max(encode_workers, 4) if cfg.batch_size > 1 else 1
+                # scaled by active GPU runners so every GPU stays saturated while CPU MP3 threads
+                # light up quickly and drain in parallel.
+                num_runners = max(1, len(cuda_runners))
+                window_chunk_limit = (
+                    max(cfg.batch_size * max(4, num_runners * 2), 256)
+                    if cfg.batch_size > 1
+                    else 1
+                )
+                window_chapter_limit = (
+                    max(encode_workers, num_runners * 4) if cfg.batch_size > 1 else 1
+                )
                 windows: list[list[tuple[str, str, int, list[VerseJob], int]]] = []
                 cur_win: list[tuple[str, str, int, list[VerseJob], int]] = []
                 cur_chunks = 0
@@ -1718,6 +1858,7 @@ def main() -> int:
                     active_device,
                     args.device,
                     args.verbose,
+                    max(1, active_gpu_count),
                 ),
             ) as executor:
                 future_to_ref = {
@@ -1737,6 +1878,8 @@ def main() -> int:
             "device": active_device,
             "onnxProviders": active_providers,
             "workers": worker_count,
+            "gpus": active_gpu_count,
+            "detectedGpus": detected_gpus,
             "gpuStreams": gpu_streams,
             "batchSize": batch_size,
             "threads": args.threads,
