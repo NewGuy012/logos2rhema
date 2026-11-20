@@ -556,6 +556,16 @@ def configure_onnx_providers(requested_device: str) -> tuple[str, list[str]]:
     available = list(ort.get_available_providers())
     has_cuda = "CUDAExecutionProvider" in available
 
+    if requested_device in ("auto", "cuda") and has_cuda and hasattr(ort, "preload_dlls"):
+        try:
+            ort.preload_dlls()
+        except Exception as err:  # noqa: BLE001
+            print(
+                f"Warning: onnxruntime.preload_dlls() failed: {err}",
+                file=sys.stderr,
+                flush=True,
+            )
+
     if requested_device == "cuda":
         if not has_cuda:
             raise RuntimeError(
