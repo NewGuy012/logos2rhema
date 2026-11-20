@@ -20,7 +20,7 @@
 
 - **Side-by-Side Scripture** — Read English (**ESV®** via Crossway's live ESV API) and bundled Korean (**개역한글**, KRV 1961) stacked verse by verse, flip stack order (`EN / 한` ↔ `한 / EN`), and practice recall with hover-to-reveal **Study Mode** blur.
 - **Instant Korean Dictionary & Grammar** — Hover or tap any Korean word for morphological analysis, **Revised Romanization**, **Web Speech (`ko-KR`)** pronunciation, and a chapter-synced **Words & Grammar** panel.
-- **Verse-Synced Audio** — Listen to **Supertonic 3 (`Daniel`)** Korean narration synced verse by verse (two-way scroll follow, preset and custom `0.1x–2.0x` playback speed, `±10s` skip) alongside **Crossway ESV** English audio.
+- **Verse-Synced Audio** — Listen to **Supertonic 3 (`Daniel`)** AI-generated Korean narration (`개역한글 · AI 낭독`) synced verse by verse (two-way scroll follow, preset and custom `0.1x–2.0x` playback speed, `±10s` skip) alongside **Crossway ESV** English audio.
 - **Integrated Commentary** — Switch between **Tyndale Open Study Notes** and **Matthew Henry Commentary** synced to your active verse, with keyword/verse search and book/chapter introductions.
 - **Fast Navigation & Personalization** — Jump via bilingual references (`John 3:16`, `요 3:16`, `시 23`), browse **Scripture**, **Genres**, **Audio**, **Dictionary**, and **Commentary** directly from Home, save **Bookmarks** and **Highlights**, drag and snap back desktop side rails, and choose Paper, Sepia, or Dark themes, English (`Newsreader` / `Lora` / `Inter`) and Korean (`Serif` / `Sans`) fonts, and `S`–`XL` text scaling.
 
@@ -34,12 +34,12 @@
 
 ## Tech Stack
 
-| Layer                  | Technology                                                                                                                                                                               |
-| :--------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Frontend**           | [React 19](https://react.dev/), custom editorial CSS (`Paper` / `Sepia` / `Dark`)                                                                                                        |
-| **Edge API**           | [Hono](https://hono.dev/) on [Cloudflare Workers](https://workers.cloudflare.com/)                                                                                                       |
-| **Language & Tooling** | [TypeScript](https://www.typescriptlang.org/), [Bun](https://bun.sh/) (`bun build`, `bun test`, `bun fmt`, `bun check`), [Wrangler](https://developers.cloudflare.com/workers/wrangler/) |
-| **Data & Audio**       | Bundled KRV JSON & Korean lexicon (`public/data/`), live [ESV API](https://api.esv.org/) text & audio, [HelloAO](https://bible.helloao.org/) commentaries, Supertonic 3 Korean audio     |
+| Layer                  | Technology                                                                                                                                                                                   |
+| :--------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Frontend**           | [React 19](https://react.dev/), custom editorial CSS (`Paper` / `Sepia` / `Dark`)                                                                                                            |
+| **Edge API**           | [Hono](https://hono.dev/) on [Cloudflare Workers](https://workers.cloudflare.com/)                                                                                                           |
+| **Language & Tooling** | [TypeScript](https://www.typescriptlang.org/), [Bun](https://bun.sh/) (`bun build`, `bun test`, `bun fmt`, `bun check`), [Wrangler](https://developers.cloudflare.com/workers/wrangler/)     |
+| **Data & Audio**       | Bundled KRV 1961 JSON & Korean lexicon (`public/data/`), live [ESV API](https://api.esv.org/) text & audio, [HelloAO](https://bible.helloao.org/) commentaries, Supertonic 3 AI Korean audio |
 
 ## Quick Start
 
@@ -72,8 +72,8 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security
 | Endpoint                                           | Purpose                                                                                                                                                      |
 | :------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /api/esv/:usfm/:chapter`                      | Fetch live ESV chapter text from `api.esv.org` (`Cache-Control: private, no-store`; uses local `.cache/esv-local/` in `bun run dev` unless `USE_LIVE_ESV=1`) |
-| `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3) and English (Crossway ESV) chapter tracks                                                                                      |
-| `GET /api/audio/krv/:usfm/:chapter`                | Stream Korean Supertonic 3 chapter MP3 from private R2 (`Range` + ETag)                                                                                      |
+| `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3 AI narration) and English (Crossway ESV) chapter tracks                                                                         |
+| `GET /api/audio/krv/:usfm/:chapter`                | Stream Korean Supertonic 3 AI narration MP3 from private R2 (`Range` + ETag)                                                                                 |
 | `GET /api/audio/esv/:usfm/:chapter`                | Proxy or redirect Crossway ESV chapter audio                                                                                                                 |
 | `GET /api/commentary/:commentaryId/:usfm/:chapter` | Normalized chapter commentary & introductions from `bible.helloao.org`                                                                                       |
 
@@ -91,7 +91,7 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security
 
    _(Optional private dev cache)_: If you keep a personal `data-sources/esv.spb` locally (gitignored), `bun run data:build` writes `.cache/esv-local/{USFM}.json` (gitignored, never bundled into `dist/client/`) for fast offline local `bun run dev`.
 
-2. _(Optional)_ Generate Supertonic 3 (`Daniel`) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)):
+2. _(Optional)_ Generate Supertonic 3 (`Daniel`, AI TTS) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)):
 
    ```bash
    bun run audio:generate-krv --dry-run
@@ -117,3 +117,13 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS and strict CSP/security
    ```
 
 </details>
+
+## Licensing & Attribution
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for full details, upstream links, and build-time modifications:
+
+- **성경전서 개역한글판 (KRV 1961)** (`public/data/bibles/krv/`) — Attributed to **대한성서공회** (Korean Bible Society). Economic rights (저작재산권) expired in South Korea on December 31, 2011; moral rights (성명표시권 · 동일성유지권) are respected via attribution and verbatim text rendering. _(Note: U.S. URAA restoration rules under 17 U.S.C. § 104A may technically apply to foreign works protected in 1996.)_
+- **Supertonic 3 AI Audio** (`logos-krv-audio` R2 & `public/data/timings/krv-supertonic/`) — Synthesized with **Supertonic 3** by Supertone (runtime/SDK: **MIT**; model weights: **BigScience OpenRAIL-M**). Clearly disclosed as AI-generated narration (`개역한글 · AI 낭독`) across API responses, audio players, and page footers.
+- **Crossway ESV® Text & Audio** — Streamed live under Crossway's non-commercial ESV API terms with bounded in-memory caching and attribution (`ESV.org`).
+- **Commentaries (HelloAO)** — **Tyndale Open Study Notes** (CC BY-SA 4.0) and **Matthew Henry's Complete Commentary** (Public Domain).
+- **Bundled Korean Lexicon** (`public/data/lexicon.json`) — Compiled from **KRDICT** (국립국어원, CC BY-SA 2.0 KR), **Korean Wiktionary via Kaikki.org** (CC BY-SA 4.0 / GFDL), and **Kengdic** (MPL 2.0 / LGPL 2.0+).
