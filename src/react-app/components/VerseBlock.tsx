@@ -35,6 +35,7 @@ interface VerseBlockProps {
 	isFavorited?: boolean;
 	enHighlights?: readonly HighlightItem[];
 	koHighlights?: readonly HighlightItem[];
+	enUnavailable?: boolean;
 	hasVerseTimestamps: boolean;
 	onSelectVerse: (verseNum: number) => void;
 	onToggleFavorite?: (verse: AlignedVerse) => void;
@@ -50,27 +51,29 @@ export function VerseBlock({
 	isFavorited = false,
 	enHighlights = [],
 	koHighlights = [],
+	enUnavailable = false,
 	hasVerseTimestamps,
 	onSelectVerse,
 	onToggleFavorite,
 	onSelectFootnote,
 }: VerseBlockProps) {
-	const englishLine = (
-		<p
-			key="en"
-			data-verse={verse.enText !== null ? verse.verse : undefined}
-			data-lang={verse.enText !== null ? "en" : undefined}
-			className={`verse-en ${stackOrder === "en-first" ? "verse-line-primary" : "verse-line-secondary"} ${studyMask === "mask-en" ? "study-masked" : ""}`}
-		>
-			{verse.enText !== null ? (
-				renderHighlightedText(verse.enText, 0, enHighlights)
-			) : (
-				<span className="verse-omitted">
-					[Verse omitted in {CANONICAL_BIBLES.en.code} manuscripts]
-				</span>
-			)}
-		</p>
-	);
+	const englishLine =
+		enUnavailable && verse.enText === null ? null : (
+			<p
+				key="en"
+				data-verse={verse.enText !== null ? verse.verse : undefined}
+				data-lang={verse.enText !== null ? "en" : undefined}
+				className={`verse-en ${stackOrder === "en-first" ? "verse-line-primary" : "verse-line-secondary"} ${studyMask === "mask-en" ? "study-masked" : ""}`}
+			>
+				{verse.enText !== null ? (
+					renderHighlightedText(verse.enText, 0, enHighlights)
+				) : (
+					<span className="verse-omitted">
+						[Verse omitted in {CANONICAL_BIBLES.en.code} manuscripts]
+					</span>
+				)}
+			</p>
+		);
 
 	const seenTokenCounts = new Map<string, number>();
 	let koOffset = 0;
@@ -160,7 +163,10 @@ export function VerseBlock({
 					</button>
 				</div>
 				<div className="verse-lines">
-					{stackOrder === "en-first" ? [englishLine, koreanLine] : [koreanLine, englishLine]}
+					{(stackOrder === "en-first"
+						? [englishLine, koreanLine]
+						: [koreanLine, englishLine]
+					).filter(Boolean)}
 				</div>
 			</div>
 		</article>

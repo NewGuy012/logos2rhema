@@ -8,8 +8,33 @@ import {
 } from "./storage";
 
 export const HIGHLIGHTS_STORAGE_KEY = "logos.reader.highlights.v1";
+export const MAX_EN_HIGHLIGHTS = 100;
+export const MAX_EN_HIGHLIGHT_TEXT_LEN = 160;
 const MAX_HIGHLIGHT_TEXT_LEN = 500;
 const MAX_HIGHLIGHT_OFFSET = 4000;
+
+function maxHighlightTextLen(lang: TranslationLanguage): number {
+	return lang === "en" ? MAX_EN_HIGHLIGHT_TEXT_LEN : MAX_HIGHLIGHT_TEXT_LEN;
+}
+
+function capStoredHighlights(items: readonly HighlightItem[]): HighlightItem[] {
+	const normalized = items.map((item) => {
+		const maxLen = maxHighlightTextLen(item.lang);
+		return item.text.length > maxLen ? { ...item, text: item.text.slice(0, maxLen) } : item;
+	});
+	const enEntries = normalized
+		.map((item, index) => ({ item, index }))
+		.filter((entry) => entry.item.lang === "en");
+
+	let filtered = normalized;
+	if (enEntries.length > MAX_EN_HIGHLIGHTS) {
+		enEntries.sort((a, b) => b.item.createdAt - a.item.createdAt || a.index - b.index);
+		const keepIndices = new Set(enEntries.slice(0, MAX_EN_HIGHLIGHTS).map((e) => e.index));
+		filtered = normalized.filter((item, idx) => item.lang !== "en" || keepIndices.has(idx));
+	}
+
+	return filtered.slice(0, MAX_STORED_ITEMS);
+}
 
 interface SelectionHighlightSpan {
 	verse: number;
@@ -53,40 +78,45 @@ function sameLine(
 }
 
 export function readStoredHighlights(): HighlightItem[] {
-	return readStoredCollection(HIGHLIGHTS_STORAGE_KEY, (rec, bookNumber, chapter) => {
-		if (typeof rec.verse !== "number" || !Number.isInteger(rec.verse) || rec.verse < 1) {
-			return null;
-		}
-		if (rec.lang !== "en" && rec.lang !== "ko") return null;
-		if (
-			typeof rec.start !== "number" ||
-			!Number.isInteger(rec.start) ||
-			rec.start < 0 ||
-			typeof rec.end !== "number" ||
-			!Number.isInteger(rec.end) ||
-			rec.end <= rec.start ||
-			rec.end > MAX_HIGHLIGHT_OFFSET
-		) {
-			return null;
-		}
-		const rawText = typeof rec.text === "string" ? rec.text.slice(0, MAX_HIGHLIGHT_TEXT_LEN) : "";
-		if (!rawText.trim()) return null;
-		return {
-			id: makeHighlightId(bookNumber, chapter, rec.verse, rec.lang, rec.start, rec.end),
-			bookNumber,
-			chapter,
-			verse: rec.verse,
-			lang: rec.lang,
-			start: rec.start,
-			end: rec.end,
-			text: rawText,
-			createdAt: finiteTimestamp(rec.createdAt),
-		};
-	});
+	const parsed = readStoredCollection<HighlightItem>(
+		HIGHLIGHTS_STORAGE_KEY,
+		(rec, bookNumber, chapter) => {
+			if (typeof rec.verse !== "number" || !Number.isInteger(rec.verse) || rec.verse < 1) {
+				return null;
+			}
+			if (rec.lang !== "en" && rec.lang !== "ko") return null;
+			if (
+				typeof rec.start !== "number" ||
+				!Number.isInteger(rec.start) ||
+				rec.start < 0 ||
+				typeof rec.end !== "number" ||
+				!Number.isInteger(rec.end) ||
+				rec.end <= rec.start ||
+				rec.end > MAX_HIGHLIGHT_OFFSET
+			) {
+				return null;
+			}
+			const rawText =
+				typeof rec.text === "string" ? rec.text.slice(0, maxHighlightTextLen(rec.lang)) : "";
+			if (!rawText.trim()) return null;
+			return {
+				id: makeHighlightId(bookNumber, chapter, rec.verse, rec.lang, rec.start, rec.end),
+				bookNumber,
+				chapter,
+				verse: rec.verse,
+				lang: rec.lang,
+				start: rec.start,
+				end: rec.end,
+				text: rawText,
+				createdAt: finiteTimestamp(rec.createdAt),
+			};
+		},
+	);
+	return capStoredHighlights(parsed);
 }
 
 export function writeStoredHighlights(items: readonly HighlightItem[]): void {
-	writeJsonStorage(HIGHLIGHTS_STORAGE_KEY, items.slice(0, MAX_STORED_ITEMS));
+	writeJsonStorage(HIGHLIGHTS_STORAGE_KEY, capStoredHighlights(items));
 }
 
 function getSelectionRangeOffsetsInLine(
@@ -165,7 +195,7 @@ export function extractVerseSelectionSpans(
 			lang,
 			start,
 			end,
-			text: lineText.slice(start, end).slice(0, MAX_HIGHLIGHT_TEXT_LEN),
+			text: lineText.slice(start, end).slice(0, maxHighlightTextLen(lang)),
 		});
 	}
 
@@ -230,7 +260,7 @@ export function toggleHighlightSpans(
 						id: makeHighlightId(bookNumber, chapter, span.verse, span.lang, sliceStart, sliceEnd),
 						start: sliceStart,
 						end: sliceEnd,
-						text: sliceText.slice(0, MAX_HIGHLIGHT_TEXT_LEN),
+						text: sliceText.slice(0, maxHighlightTextLen(span.lang)),
 					});
 				};
 				if (item.start < span.start) {
@@ -277,7 +307,7 @@ export function toggleHighlightSpans(
 		const verseText = getVerseText(span.verse, span.lang);
 		const mergedText = (verseText ? verseText.slice(mergedStart, mergedEnd) : span.text).slice(
 			0,
-			MAX_HIGHLIGHT_TEXT_LEN,
+			maxHighlightTextLen(span.lang),
 		);
 
 		added.push({
@@ -294,7 +324,7 @@ export function toggleHighlightSpans(
 		next = remaining;
 	}
 
-	return { next: [...added, ...next].slice(0, MAX_STORED_ITEMS), action: "added" };
+	return { next: capStoredHighlights([...added, ...next]), action: "added" };
 }
 
 export function splitTextByHighlights(

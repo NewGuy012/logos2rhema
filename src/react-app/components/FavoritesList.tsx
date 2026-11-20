@@ -162,14 +162,11 @@ export function FavoritesList({
 								removeLabel={`Remove ${refEn} from favorites`}
 								onRemove={onRemoveFavorite ? () => onRemoveFavorite(item.id) : undefined}
 								preview={
-									(item.enText || item.koText) && (
+									item.koText && (
 										<div className="home-favorite-preview">
-											{item.enText && <p className="home-favorite-preview-en">{item.enText}</p>}
-											{item.koText && (
-												<p className="home-favorite-preview-ko" lang="ko">
-													{item.koText}
-												</p>
-											)}
+											<p className="home-favorite-preview-ko" lang="ko">
+												{item.koText}
+											</p>
 										</div>
 									)
 								}

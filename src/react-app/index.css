@@ -1948,12 +1948,47 @@ button:focus-visible {
 	transform: scale(0.94);
 }
 
+.en-load-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+	padding: 0.7rem 0.9rem;
+	border-radius: 12px;
+	background: var(--bg-subtle);
+	border: 1px solid var(--border-hairline);
+}
+
+.en-load-banner-body {
+	min-width: 0;
+}
+
+.en-load-banner-title {
+	font-size: 0.84rem;
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.en-load-banner-desc {
+	margin: 0.16rem 0 0;
+	font-size: 0.76rem;
+	color: var(--text-muted);
+	line-height: 1.4;
+}
+
 .copyright-footer {
 	margin-top: 2.25rem;
 	font-size: 0.75rem;
 	color: var(--text-muted);
 	line-height: 1.5;
 	text-align: center;
+}
+
+.copyright-footer a {
+	color: var(--accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
 }
 
 /* Quick-Access Bottom Bar */

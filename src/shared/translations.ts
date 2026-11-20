@@ -1,11 +1,11 @@
 import type { TranslationLanguage, TranslationMeta } from "./types";
 
-/** Canonical bundled Bible editions (one per language). */
+/** Canonical Bible editions (one per language). */
 export const CANONICAL_BIBLES: Record<TranslationLanguage, TranslationMeta> = {
 	en: {
 		id: "esv",
 		code: "ESV",
-		nativeName: "English Standard Version (2001)",
+		nativeName: "ESV® Bible (English Standard Version®)",
 	},
 	ko: {
 		id: "krv",

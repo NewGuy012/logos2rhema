@@ -147,7 +147,6 @@ export interface FavoriteItem {
 	bookNumber: number;
 	chapter: number;
 	verse?: number;
-	enText?: string;
 	koText?: string;
 	createdAt: number;
 }

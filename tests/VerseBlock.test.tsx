@@ -18,7 +18,13 @@ import {
 	resolveVerseAtTime,
 	useHumanAudio,
 } from "../src/react-app/hooks/useHumanAudio";
-import { clearLoaderCaches, loadSyncedChapterAudio } from "../src/react-app/lib/bible-loader";
+import {
+	clearLoaderCaches,
+	getEsvCacheStats,
+	loadSyncedChapterAudio,
+	loadTranslationChapter,
+	MAX_ESV_CACHED_VERSES,
+} from "../src/react-app/lib/bible-loader";
 import {
 	FAVORITES_STORAGE_KEY,
 	formatFavoriteLabel,
@@ -28,6 +34,8 @@ import {
 import {
 	formatHighlightLabel,
 	HIGHLIGHTS_STORAGE_KEY,
+	MAX_EN_HIGHLIGHT_TEXT_LEN,
+	MAX_EN_HIGHLIGHTS,
 	readStoredHighlights,
 	splitTextByHighlights,
 	toggleHighlightSpans,
@@ -44,6 +52,7 @@ import {
 	getByText,
 	installMockAudio,
 	makeBookResponse,
+	makeChapterResponse,
 	mockMatchMedia,
 	noop,
 	render,
@@ -500,7 +509,7 @@ describe("Reader UI & audio hooks", () => {
 					bookNumber: 43,
 					chapter: 3,
 					verse: 16,
-					enText: "For God so loved the world...",
+					koText: "하나님이 세상을 이처럼 사랑하사...",
 					createdAt: 100,
 				},
 			],
@@ -661,14 +670,15 @@ describe("Reader UI & audio hooks", () => {
 							],
 							"2": [{ verse: 1, text: "천지와 만물이 다 이루니라" }],
 						}),
-					esv: () =>
-						makeBookResponse("esv", 1, "GEN", {
-							"1": [
-								{ verse: 1, text: "In the beginning..." },
-								{ verse: 2, text: "The earth was without form..." },
-							],
-							"2": [{ verse: 1, text: "Thus the heavens and the earth were finished..." }],
-						}),
+					esv: (url) =>
+						url.endsWith("/GEN/2")
+							? makeChapterResponse("esv", 1, "GEN", 2, [
+									{ verse: 1, text: "Thus the heavens and the earth were finished..." },
+								])
+							: makeChapterResponse("esv", 1, "GEN", 1, [
+									{ verse: 1, text: "In the beginning..." },
+									{ verse: 2, text: "The earth was without form..." },
+								]),
 					audio: () => {
 						audioLoadCount++;
 						return Response.json({ tracks: [] });
@@ -1287,10 +1297,15 @@ describe("Reader UI & audio hooks", () => {
 						}),
 					esv: () => {
 						esvCalls++;
-						if (esvCalls === 1) return new Response("Server Error", { status: 500 });
-						return makeBookResponse("esv", 8, "RUT", {
-							"1": [{ verse: 1, text: "In the days when the judges ruled..." }],
-						});
+						if (esvCalls === 1) {
+							return Response.json(
+								{ error: "ESV API rate limit reached. Please try again shortly." },
+								{ status: 429 },
+							);
+						}
+						return makeChapterResponse("esv", 8, "RUT", 1, [
+							{ verse: 1, text: "In the days when the judges ruled..." },
+						]);
 					},
 					audio: () =>
 						Response.json({
@@ -1308,12 +1323,22 @@ describe("Reader UI & audio hooks", () => {
 				async () => {
 					const { container } = render(<App />);
 					await waitUntil(() => {
-						expect(getByText(container, "Unable to load passage")).toBeDefined();
+						// KRV still renders alongside the inline ESV error banner + Retry button
+						expect(getByText(container, "사사들의")).toBeDefined();
+						expect(getByText(container, "English (ESV) unavailable")).toBeDefined();
+						expect(
+							getByText(container, "ESV API rate limit reached. Please try again shortly."),
+						).toBeDefined();
+						expect(container.querySelector(".verse-omitted")).toBeNull();
+						expect(
+							container.querySelector('footer.copyright-footer a[href="https://www.esv.org"]'),
+						).not.toBeNull();
 					});
-					fireClick(getButton(container, "Try again"));
+					fireClick(getButton(container, "Retry"));
 
 					await waitUntil(() => {
 						expect(getByText(container, "In the days when the judges ruled...")).toBeDefined();
+						expect(container.querySelector(".en-load-banner")).toBeNull();
 						const rail = container.querySelector(".audio-rail");
 						expect(rail).not.toBeNull();
 						expect(getButton(rail as ParentNode, "Play audio").disabled).toBe(false);
@@ -1366,17 +1391,58 @@ describe("Reader UI & audio hooks", () => {
 				{ bookNumber: 999, chapter: 1 },
 				{ bookNumber: 2, chapter: 2, createdAt: 10 },
 				{ bookNumber: 2, chapter: 2, createdAt: 20 },
-				{ bookNumber: 43, chapter: 3, verse: 16, enText: "For God so loved the world" },
+				{
+					bookNumber: 43,
+					chapter: 3,
+					verse: 16,
+					enText: "For God so loved the world",
+					koText: "하나님이 세상을 이처럼 사랑하사",
+				},
 			]),
 		);
 		const loadedFavs = readStoredFavorites();
 		expect(loadedFavs).toHaveLength(2);
+		expect("enText" in loadedFavs[1]).toBe(false);
+		expect(loadedFavs[1]?.koText).toBe("하나님이 세상을 이처럼 사랑하사");
 		expect(formatFavoriteLabel(loadedFavs[1])).toEqual({
 			refEn: "John 3:16",
 			refKo: "요한복음 3장 16절",
 			kind: "verse",
 		});
 		expect(toggleFavoriteItem(loadedFavs, { bookNumber: 2, chapter: 2 })).toHaveLength(1);
+
+		const longEnText = "A".repeat(220);
+		const legacyHighlights = [
+			{
+				bookNumber: 1,
+				chapter: 1,
+				verse: 1,
+				lang: "ko",
+				start: 0,
+				end: 3,
+				text: "태초에",
+				createdAt: 1,
+			},
+			...Array.from({ length: MAX_EN_HIGHLIGHTS + 10 }, (_, idx) => ({
+				bookNumber: 19,
+				chapter: 119,
+				verse: idx + 1,
+				lang: "en",
+				start: 0,
+				end: 220,
+				text: longEnText,
+				createdAt: idx + 2,
+			})),
+		];
+		localStorage.setItem(HIGHLIGHTS_STORAGE_KEY, JSON.stringify(legacyHighlights));
+		const cappedHl = readStoredHighlights();
+		const cappedEn = cappedHl.filter((h) => h.lang === "en");
+		const cappedKo = cappedHl.filter((h) => h.lang === "ko");
+		expect(cappedKo).toHaveLength(1);
+		expect(cappedEn).toHaveLength(MAX_EN_HIGHLIGHTS);
+		expect(cappedEn.every((h) => h.text.length === MAX_EN_HIGHLIGHT_TEXT_LEN)).toBe(true);
+		expect(cappedEn[0]?.verse).toBe(11);
+		expect(cappedEn.at(-1)?.verse).toBe(MAX_EN_HIGHLIGHTS + 10);
 
 		localStorage.setItem(HIGHLIGHTS_STORAGE_KEY, "bad-json");
 		expect(readStoredHighlights()).toEqual([]);
@@ -1436,5 +1502,76 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(getButton(list.container, "Clear all bookmarks and highlights"));
 		expect(onClearFav).toHaveBeenCalledTimes(1);
 		expect(onClearHl).toHaveBeenCalledTimes(1);
+	});
+
+	it("bounds ESV in-memory LRU cache to <= 400 verses and <= half of any multi-chapter book", async () => {
+		clearLoaderCaches();
+		const fetchCounts = new Map<string, number>();
+
+		const makeVerses = (count: number, label: string) =>
+			Array.from({ length: count }, (_, idx) => ({
+				verse: idx + 1,
+				text: `${label} verse ${idx + 1}`,
+			}));
+
+		try {
+			await withMockFetch(
+				(url) => {
+					fetchCounts.set(url, (fetchCounts.get(url) ?? 0) + 1);
+					const [, usfm, chStr] = url.match(/\/api\/esv\/([A-Z0-9]+)\/(\d+)/) ?? [];
+					const chapter = Number.parseInt(chStr ?? "1", 10);
+					if (usfm === "RUT") {
+						// Ruth has 4 chapters -> max 2 chapters cached at once
+						return makeChapterResponse("esv", 8, "RUT", chapter, makeVerses(20, `RUT ${chapter}`));
+					}
+					if (usfm === "PSA" && chapter === 119) {
+						return makeChapterResponse("esv", 19, "PSA", 119, makeVerses(176, "PSA 119"));
+					}
+					if (usfm === "GEN") {
+						return makeChapterResponse("esv", 1, "GEN", chapter, makeVerses(150, `GEN ${chapter}`));
+					}
+					if (usfm === "JUD") {
+						// Single-chapter book (25 verses)
+						return makeChapterResponse("esv", 65, "JUD", 1, makeVerses(25, "JUD 1"));
+					}
+					return new Response("Not Found", { status: 404 });
+				},
+				async () => {
+					// Half-book cap on Ruth (4 chapters -> max 2 cached)
+					await loadTranslationChapter("esv", 8, 1);
+					await loadTranslationChapter("esv", 8, 2);
+					expect(fetchCounts.get("/api/esv/RUT/1")).toBe(1);
+					// Touch RUT 1 so RUT 2 becomes LRU before loading RUT 3
+					await loadTranslationChapter("esv", 8, 1);
+					expect(fetchCounts.get("/api/esv/RUT/1")).toBe(1);
+
+					await loadTranslationChapter("esv", 8, 3);
+					expect(getEsvCacheStats()).toEqual({ chapters: 2, verses: 40 });
+					// RUT 1 stayed cached, RUT 2 was evicted
+					await loadTranslationChapter("esv", 8, 1);
+					expect(fetchCounts.get("/api/esv/RUT/1")).toBe(1);
+					await loadTranslationChapter("esv", 8, 2);
+					expect(fetchCounts.get("/api/esv/RUT/2")).toBe(2);
+
+					// Global 400-verse cap across books
+					clearLoaderCaches();
+					await loadTranslationChapter("esv", 19, 119); // 176 verses
+					await loadTranslationChapter("esv", 1, 1); // 150 verses -> 326 total
+					expect(getEsvCacheStats()).toEqual({ chapters: 2, verses: 326 });
+
+					// Loading 150 more verses (326 + 150 = 476 > 400) evicts PSA 119 (176), leaving 300 <= 400
+					await loadTranslationChapter("esv", 1, 2);
+					expect(getEsvCacheStats().verses).toBe(300);
+					expect(getEsvCacheStats().verses).toBeLessThanOrEqual(MAX_ESV_CACHED_VERSES);
+
+					// Single-chapter book Jude can be cached
+					await loadTranslationChapter("esv", 65, 1);
+					expect(getEsvCacheStats().verses).toBe(325);
+					expect(getEsvCacheStats().verses).toBeLessThanOrEqual(MAX_ESV_CACHED_VERSES);
+				},
+			);
+		} finally {
+			clearLoaderCaches();
+		}
 	});
 });

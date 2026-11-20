@@ -1,7 +1,7 @@
 import { BIBLE_BOOKS, getBookByNumber } from "../../shared/books";
 import type { BookMeta } from "../../shared/types";
 
-export const MAX_STORED_ITEMS = 500;
+export const MAX_STORED_ITEMS = 200;
 
 export function readJsonStorage(key: string): unknown {
 	if (typeof localStorage === "undefined") return null;

@@ -5,31 +5,77 @@ import {
 } from "../../shared/audio-timings";
 import { getBookByNumber } from "../../shared/books";
 import { analyzeKoreanChapter, type ChapterAnalysisResult } from "../../shared/korean-morphology";
+import { CANONICAL_BIBLES } from "../../shared/translations";
 import type {
 	AlignedVerse,
 	BookAudioTimingsData,
 	BookBibleData,
+	BookMeta,
 	ChapterAudioResponse,
 	ChapterCommentaryResponse,
+	ChapterTextResponse,
 	CommentaryId,
 	LexiconMap,
 	VerseEntry,
 } from "../../shared/types";
 
 const MAX_COMMENTARY_CACHE_ENTRIES = 50;
+export const MAX_ESV_CACHED_VERSES = 400;
 const STATIC_TIMINGS_DIR_BY_TRACK_ID: Readonly<Record<string, string>> = {
 	[SUPERTONIC_TRACK_ID]: "krv-supertonic",
 };
 const bundledBookCache = new Map<string, Promise<BookBibleData>>();
+const esvChapterCache = new Map<string, { bookNumber: number; verses: VerseEntry[] }>();
+const esvInFlightCache = new Map<string, Promise<VerseEntry[]>>();
 const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>>();
 const commentaryCache = new Map<string, Promise<ChapterCommentaryResponse>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
 
 export function clearLoaderCaches(): void {
 	bundledBookCache.clear();
+	esvChapterCache.clear();
+	esvInFlightCache.clear();
 	bundledTimingsCache.clear();
 	commentaryCache.clear();
 	lexiconPromise = null;
+}
+
+export function getEsvCacheStats(): { chapters: number; verses: number } {
+	let verses = 0;
+	for (const entry of esvChapterCache.values()) {
+		verses += entry.verses.length;
+	}
+	return { chapters: esvChapterCache.size, verses };
+}
+
+function cacheEsvChapter(book: BookMeta, chapter: number, verses: VerseEntry[]): void {
+	if (verses.length > MAX_ESV_CACHED_VERSES) return;
+	const key = `${book.usfm}:${chapter}`;
+	esvChapterCache.delete(key);
+
+	// Never cache more than half of any multi-chapter book (Crossway ESV compliance cap).
+	if (book.chapters > 1) {
+		const maxBookChapters = Math.floor(book.chapters / 2);
+		const bookKeys: string[] = [];
+		for (const [k, entry] of esvChapterCache.entries()) {
+			if (entry.bookNumber === book.number) bookKeys.push(k);
+		}
+		while (bookKeys.length >= maxBookChapters) {
+			const oldestBookKey = bookKeys.shift();
+			if (oldestBookKey) esvChapterCache.delete(oldestBookKey);
+		}
+	}
+
+	let totalVerses = getEsvCacheStats().verses;
+	while (totalVerses + verses.length > MAX_ESV_CACHED_VERSES && esvChapterCache.size > 0) {
+		const oldestKey = esvChapterCache.keys().next().value;
+		if (!oldestKey) break;
+		const oldest = esvChapterCache.get(oldestKey);
+		esvChapterCache.delete(oldestKey);
+		if (oldest) totalVerses -= oldest.verses.length;
+	}
+
+	esvChapterCache.set(key, { bookNumber: book.number, verses });
 }
 
 function cachedFetch<T>(
@@ -83,6 +129,40 @@ export async function loadTranslationChapter(
 ): Promise<VerseEntry[]> {
 	const book = getBookByNumber(bookNumber);
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
+
+	if (translationId === CANONICAL_BIBLES.en.id) {
+		const key = `${book.usfm}:${chapter}`;
+		const cached = esvChapterCache.get(key);
+		if (cached) {
+			esvChapterCache.delete(key);
+			esvChapterCache.set(key, cached);
+			return cached.verses;
+		}
+		const existing = esvInFlightCache.get(key);
+		if (existing) return existing;
+
+		const promise = fetch(`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`)
+			.then(async (res) => {
+				if (!res.ok) {
+					let message = `Failed to load ${translationId} ${book.usfm} ${chapter}`;
+					try {
+						const payload = (await res.json()) as { error?: string };
+						if (payload?.error) message = payload.error;
+					} catch {}
+					throw new Error(message);
+				}
+				const payload = (await res.json()) as Partial<ChapterTextResponse>;
+				const verses = Array.isArray(payload.verses) ? payload.verses : [];
+				cacheEsvChapter(book, chapter, verses);
+				return verses;
+			})
+			.finally(() => {
+				esvInFlightCache.delete(key);
+			});
+
+		esvInFlightCache.set(key, promise);
+		return promise;
+	}
 
 	const data = await cachedFetch(bundledBookCache, `${translationId}:${book.usfm}`, async () => {
 		const res = await fetch(

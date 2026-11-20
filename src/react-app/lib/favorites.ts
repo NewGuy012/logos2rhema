@@ -31,7 +31,6 @@ export function readStoredFavorites(): FavoriteItem[] {
 			bookNumber,
 			chapter,
 			verse,
-			enText: truncatePreview(typeof rec.enText === "string" ? rec.enText : undefined),
 			koText: truncatePreview(typeof rec.koText === "string" ? rec.koText : undefined),
 			createdAt: finiteTimestamp(rec.createdAt),
 		};
@@ -48,7 +47,6 @@ export function toggleFavoriteItem(
 		bookNumber: number;
 		chapter: number;
 		verse?: number;
-		enText?: string | null;
 		koText?: string | null;
 	},
 ): FavoriteItem[] {
@@ -61,7 +59,6 @@ export function toggleFavoriteItem(
 		bookNumber: input.bookNumber,
 		chapter: input.chapter,
 		verse: input.verse,
-		enText: truncatePreview(input.enText),
 		koText: truncatePreview(input.koText),
 		createdAt: Date.now(),
 	};

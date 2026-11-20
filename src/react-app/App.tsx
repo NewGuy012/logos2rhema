@@ -273,6 +273,7 @@ export default function App() {
 	const [rawKoVerses, setRawKoVerses] = useState<VerseEntry[]>([]);
 	const [loadingChapter, setLoadingChapter] = useState(false);
 	const [chapterError, setChapterError] = useState<string | null>(null);
+	const [enChapterError, setEnChapterError] = useState<string | null>(null);
 	const [chapterRetrySeq, setChapterRetrySeq] = useState(0);
 
 	const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
@@ -373,7 +374,6 @@ export default function App() {
 					bookNumber,
 					chapter,
 					verse: verse.verse,
-					enText: verse.enText,
 					koText: verse.koText,
 				}),
 			);
@@ -545,22 +545,37 @@ export default function App() {
 		setRawKoVerses([]);
 		setLoadingChapter(true);
 		setChapterError(null);
+		setEnChapterError(null);
 
-		Promise.all([
+		Promise.allSettled([
 			loadTranslationChapter(CANONICAL_BIBLES.en.id, bookNumber, chapter),
 			loadTranslationChapter(CANONICAL_BIBLES.ko.id, bookNumber, chapter),
-		])
-			.then(([enVerses, koVerses]) => {
-				if (cancelled) return;
-				setRawEnVerses(enVerses);
-				setRawKoVerses(koVerses);
+		]).then(([enResult, koResult]) => {
+			if (cancelled) return;
+			const enOk = enResult.status === "fulfilled";
+			const koOk = koResult.status === "fulfilled";
+
+			if (!koOk) {
+				const reason = !enOk ? enResult.reason : koResult.reason;
+				setChapterError(reason instanceof Error ? reason.message : "Could not load chapter.");
 				setLoadingChapter(false);
-			})
-			.catch((err: unknown) => {
-				if (cancelled) return;
-				setChapterError(err instanceof Error ? err.message : "Could not load chapter.");
-				setLoadingChapter(false);
-			});
+				return;
+			}
+
+			setRawKoVerses(koResult.value);
+			if (enOk) {
+				setRawEnVerses(enResult.value);
+				setEnChapterError(null);
+			} else {
+				setRawEnVerses([]);
+				setEnChapterError(
+					enResult.reason instanceof Error
+						? enResult.reason.message
+						: "Could not load English (ESV) text.",
+				);
+			}
+			setLoadingChapter(false);
+		});
 
 		return () => {
 			cancelled = true;
@@ -1106,41 +1121,65 @@ export default function App() {
 									</button>
 								</div>
 							) : (
-								<section
-									ref={versesListRef}
-									className="verses-list"
-									aria-label="Bilingual Scripture"
-								>
-									{alignedVerses.map((verse) => {
-										const verseHighlights = chapterHighlightsByVerse.get(verse.verse);
-										return (
-											<VerseBlock
-												key={verse.verse}
-												verse={verse}
-												stackOrder={prefs.stackOrder}
-												studyMask={prefs.studyMask}
-												isSelected={selectedVerse === verse.verse}
-												isAudioActive={activeVerse === verse.verse}
-												isFavorited={favoriteIds.has(
-													makeFavoriteId(bookNumber, chapter, verse.verse),
-												)}
-												enHighlights={verseHighlights?.en}
-												koHighlights={verseHighlights?.ko}
-												hasVerseTimestamps={hasAudioTimings}
-												onSelectVerse={handleSelectVerse}
-												onToggleFavorite={handleToggleVerseFavorite}
-												onSelectFootnote={handleSelectFootnote}
-											/>
-										);
-									})}
-								</section>
+								<>
+									{enChapterError && (
+										<div className="en-load-banner" role="alert">
+											<div className="en-load-banner-body">
+												<div className="en-load-banner-title">English (ESV) unavailable</div>
+												<p className="en-load-banner-desc">{enChapterError}</p>
+											</div>
+											<button
+												type="button"
+												className="quick-inline-chip active"
+												onClick={() => setChapterRetrySeq((seq) => seq + 1)}
+											>
+												Retry
+											</button>
+										</div>
+									)}
+									<section
+										ref={versesListRef}
+										className="verses-list"
+										aria-label="Bilingual Scripture"
+									>
+										{alignedVerses.map((verse) => {
+											const verseHighlights = chapterHighlightsByVerse.get(verse.verse);
+											return (
+												<VerseBlock
+													key={verse.verse}
+													verse={verse}
+													stackOrder={prefs.stackOrder}
+													studyMask={prefs.studyMask}
+													isSelected={selectedVerse === verse.verse}
+													isAudioActive={activeVerse === verse.verse}
+													isFavorited={favoriteIds.has(
+														makeFavoriteId(bookNumber, chapter, verse.verse),
+													)}
+													enHighlights={verseHighlights?.en}
+													koHighlights={verseHighlights?.ko}
+													enUnavailable={Boolean(enChapterError)}
+													hasVerseTimestamps={hasAudioTimings}
+													onSelectVerse={handleSelectVerse}
+													onToggleFavorite={handleToggleVerseFavorite}
+													onSelectFootnote={handleSelectFootnote}
+												/>
+											);
+										})}
+									</section>
+								</>
 							)}
 
 							{renderChapterNav("footer")}
 
 							<footer className="copyright-footer">
-								Korean text: 성경전서 개역한글판 (1961, Public Domain) · English text:{" "}
-								{CANONICAL_BIBLES.en.nativeName} · Hover any Korean word for instant translation.
+								Korean text: 성경전서 개역한글판 (1961, 대한성서공회, Public Domain). Scripture
+								quotations are from the ESV® Bible (The Holy Bible, English Standard Version®), ©
+								2001 by Crossway, a publishing ministry of Good News Publishers. ESV Text Edition:
+								2025. Used by permission. All rights reserved. (
+								<a href="https://www.esv.org" target="_blank" rel="noopener noreferrer">
+									ESV.org
+								</a>
+								)
 							</footer>
 						</main>
 

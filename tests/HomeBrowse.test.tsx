@@ -15,6 +15,7 @@ import {
 	getByText,
 	installMockAudio,
 	makeBookResponse,
+	makeChapterResponse,
 	mockMatchMedia,
 	render,
 	setInputValue,
@@ -373,9 +374,9 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 			await withMockFetch(
 				createReaderFetchHandler({
 					esv: () =>
-						makeBookResponse("esv", 1, "GEN", {
-							"1": [{ verse: 1, text: "In the beginning, God created." }],
-						}),
+						makeChapterResponse("esv", 1, "GEN", 1, [
+							{ verse: 1, text: "In the beginning, God created." },
+						]),
 					krv: () =>
 						makeBookResponse("krv", 1, "GEN", {
 							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],

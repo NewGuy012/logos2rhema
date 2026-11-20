@@ -64,6 +64,16 @@ export function makeBookResponse(
 	return Response.json({ translationId, bookNumber, usfm, chapters });
 }
 
+export function makeChapterResponse(
+	translationId: string,
+	bookNumber: number,
+	usfm: string,
+	chapter: number,
+	verses: Array<{ verse: number; text: string; heading?: string }>,
+) {
+	return Response.json({ translationId, bookNumber, usfm, chapter, verses });
+}
+
 export function createReaderFetchHandler(
 	options: {
 		lexicon?: Record<string, unknown>;
@@ -77,7 +87,7 @@ export function createReaderFetchHandler(
 	return (url: string) => {
 		if (url.includes("/data/lexicon.json")) return Response.json(options.lexicon ?? {});
 		if (url.includes("/data/bibles/krv/") && options.krv) return options.krv(url);
-		if (url.includes("/data/bibles/esv/") && options.esv) return options.esv(url);
+		if (url.startsWith("/api/esv/") && options.esv) return options.esv(url);
 		if (url.startsWith("/api/audio/")) {
 			return options.audio ? options.audio(url) : Response.json({ tracks: [] });
 		}
