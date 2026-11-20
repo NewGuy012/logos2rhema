@@ -2,7 +2,8 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs as parseCliArgs } from "node:util";
 
-import { BIBLE_BOOKS, getBookByUsfm } from "../src/shared/books";
+import { BIBLE_BOOKS } from "../src/shared/books";
+import { resolveBookList } from "./lib/book-selection";
 
 const ROOT_DIR = join(import.meta.dir, "..");
 const CACHE_DIR = join(ROOT_DIR, ".cache");
@@ -15,9 +16,9 @@ const DEFAULT_RETRIES = 2;
 const CACHE_CONTROL_VALUE = "public, max-age=31536000, immutable";
 const BUCKET_NAME_RE = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 
-interface UploadOptions {
+export interface UploadOptions {
 	bucket: string;
-	book?: string;
+	books?: string[];
 	concurrency: number;
 	retries: number;
 	dryRun: boolean;
@@ -47,7 +48,8 @@ function printUsage(): void {
 
 Options:
   --dry-run             Show what would be uploaded without calling Wrangler
-  --book <USFM>         Upload a single canonical book (e.g. PHM, GEN, PSA)
+  --book <USFM>         Upload a single canonical book (repeatable or comma-separated)
+  --books <USFM,...>    Upload multiple books (e.g. RUT,PHM,JUD)
   --bucket <name>       Target R2 bucket name (default: ${DEFAULT_BUCKET})
   --concurrency <N>     Max parallel wrangler uploads, 1-32 (default: ${DEFAULT_CONCURRENCY})
   --retries <N>         Retries per failed upload, 0-10 (default: ${DEFAULT_RETRIES})
@@ -66,14 +68,15 @@ function parseIntInRange(raw: string, flag: string, min: number, max: number): n
 	return value;
 }
 
-function parseArgs(argv: string[]): UploadOptions | null {
+export function parseUploadArgs(argv: string[]): UploadOptions | null {
 	const { values } = parseCliArgs({
 		args: argv,
 		options: {
 			help: { type: "boolean", short: "h" },
 			"dry-run": { type: "boolean" },
 			force: { type: "boolean" },
-			book: { type: "string" },
+			book: { type: "string", multiple: true },
+			books: { type: "string", multiple: true },
 			bucket: { type: "string" },
 			concurrency: { type: "string" },
 			retries: { type: "string" },
@@ -86,12 +89,9 @@ function parseArgs(argv: string[]): UploadOptions | null {
 		return null;
 	}
 
-	let book: string | undefined;
-	if (values.book !== undefined) {
-		const found = getBookByUsfm(values.book.trim());
-		if (!found) throw new Error(`Unknown book USFM code: "${values.book}"`);
-		book = found.usfm;
-	}
+	const rawBookInputs = [...(values.book ?? []), ...(values.books ?? [])];
+	const books =
+		rawBookInputs.length > 0 ? resolveBookList(rawBookInputs).map((b) => b.usfm) : undefined;
 
 	const bucket = values.bucket !== undefined ? values.bucket.trim() : DEFAULT_BUCKET;
 	if (!BUCKET_NAME_RE.test(bucket)) {
@@ -100,7 +100,7 @@ function parseArgs(argv: string[]): UploadOptions | null {
 
 	return {
 		bucket,
-		book,
+		books,
 		concurrency:
 			values.concurrency !== undefined
 				? parseIntInRange(values.concurrency.trim(), "--concurrency", 1, 32)
@@ -121,12 +121,13 @@ function formatBytes(bytes: number): string {
 	return `${bytes} B`;
 }
 
-async function scanAudioFiles(bookFilter?: string): Promise<{
+export async function scanAudioFiles(bookFilter?: readonly string[]): Promise<{
 	items: AudioUploadItem[];
 	expectedCount: number;
 	missingKeys: string[];
 }> {
-	const books = bookFilter ? BIBLE_BOOKS.filter((b) => b.usfm === bookFilter) : BIBLE_BOOKS;
+	const allowed = bookFilter && bookFilter.length > 0 ? new Set(bookFilter) : null;
+	const books = allowed ? BIBLE_BOOKS.filter((b) => allowed.has(b.usfm)) : BIBLE_BOOKS;
 	const items: AudioUploadItem[] = [];
 	const missingKeys: string[] = [];
 	let expectedCount = 0;
@@ -280,7 +281,7 @@ async function putObjectWithRetries(
 async function main(): Promise<void> {
 	let options: UploadOptions | null;
 	try {
-		options = parseArgs(process.argv.slice(2));
+		options = parseUploadArgs(process.argv.slice(2));
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		printUsage();
@@ -289,7 +290,7 @@ async function main(): Promise<void> {
 	}
 	if (!options) return;
 
-	const { items, expectedCount, missingKeys } = await scanAudioFiles(options.book);
+	const { items, expectedCount, missingKeys } = await scanAudioFiles(options.books);
 	if (items.length === 0) {
 		console.error(`No MP3 files found under ${AUDIO_CACHE_DIR}.`);
 		process.exitCode = 1;
@@ -327,7 +328,10 @@ async function main(): Promise<void> {
 	}
 
 	if (options.dryRun) {
-		const sampleCount = options.book ? pending.length : Math.min(5, pending.length);
+		const sampleCount =
+			options.books && options.books.length > 0
+				? Math.min(25, pending.length)
+				: Math.min(5, pending.length);
 		console.log(
 			`Dry run (concurrency=${options.concurrency}, retries=${options.retries}). Sample command(s):`,
 		);
@@ -412,4 +416,6 @@ async function main(): Promise<void> {
 	}
 }
 
-await main();
+if (import.meta.main) {
+	await main();
+}
