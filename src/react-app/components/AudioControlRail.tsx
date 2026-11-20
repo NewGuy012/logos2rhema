@@ -79,6 +79,7 @@ export function AudioControlRail({
 			: "Verse sync off";
 	const showFollowButton = Boolean(syncActive && isPlaying && !isFollowingAudio && activeVerse);
 	const isPlayingVisibleVerse = Boolean(isPlaying && activeVerse === visibleVerse);
+	const currentVerse = isPlaying && activeVerse ? activeVerse : visibleVerse;
 
 	return (
 		<aside
@@ -227,16 +228,6 @@ export function AudioControlRail({
 							{hasTimestamps ? (
 								<dl className="rail-sync-status">
 									<div className="rail-kv-row">
-										<dt className="rail-section-label">Reading</dt>
-										<dd className="rail-sync-value">v.{visibleVerse}</dd>
-									</div>
-									{Boolean(isPlaying && activeVerse) && (
-										<div className="rail-kv-row">
-											<dt className="rail-section-label">Playing</dt>
-											<dd className="rail-sync-value">v.{activeVerse}</dd>
-										</div>
-									)}
-									<div className="rail-kv-row">
 										<dt className="rail-section-label">Play from</dt>
 										<dd className="rail-sync-control">
 											<button
@@ -251,6 +242,10 @@ export function AudioControlRail({
 												<span>v.{visibleVerse}</span>
 											</button>
 										</dd>
+									</div>
+									<div className="rail-kv-row">
+										<dt className="rail-section-label">Current</dt>
+										<dd className="rail-sync-value">v.{currentVerse}</dd>
 									</div>
 								</dl>
 							) : (

@@ -1091,9 +1091,8 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(settingsBtn);
 		expect(settingsBtn.getAttribute("aria-expanded")).toBe("true");
 		expect(readSyncDetails()).toEqual([
-			["Reading", "v.16"],
-			["Playing", "v.12"],
 			["Play from", "v.16"],
+			["Current", "v.12"],
 		]);
 		const playFromV16 = getButton(rail.container, "Play from v.16");
 		expect(playFromV16.getAttribute("aria-pressed")).toBe("false");
@@ -1102,12 +1101,42 @@ describe("Reader UI & audio hooks", () => {
 
 		renderRail(12, true, rail);
 		expect(getButton(rail.container, "Play from v.12").getAttribute("aria-pressed")).toBe("true");
+		expect(readSyncDetails()).toEqual([
+			["Play from", "v.12"],
+			["Current", "v.12"],
+		]);
 
 		renderRail(12, true, rail, false);
 		expect(rail.container.querySelector(".rail-track-caption")?.textContent).toBe(
 			`${SUPERTONIC_TRACK_ATTRIBUTION} · Verse sync off`,
 		);
 		expect(rail.container.querySelector(".rail-track-sync")?.textContent).toBe("Verse sync off");
+
+		rail.rerender(
+			<AudioControlRail
+				{...baseBarProps()}
+				bookEn="John"
+				bookKo="요한복음"
+				chapter={3}
+				tracks={[supertonicTrack]}
+				preferredLang="ko"
+				activeTrack={supertonicTrack}
+				isPlaying={false}
+				currentTime={35}
+				visibleVerse={16}
+				activeVerse={12}
+				autoSync={true}
+				isFollowingAudio={true}
+				onChangeSpeed={onChangeSpeed}
+				onToggleAutoSync={noop}
+				onSyncToVisibleVerse={onSyncToVisible}
+				onFollowActiveVerse={onFollowActive}
+			/>,
+		);
+		expect(readSyncDetails()).toEqual([
+			["Play from", "v.16"],
+			["Current", "v.16"],
+		]);
 
 		const untimedRail = render(
 			<AudioControlRail
