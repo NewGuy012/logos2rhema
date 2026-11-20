@@ -935,6 +935,7 @@ describe("Reader UI & audio hooks", () => {
 			visibleVerse: number,
 			isFollowingAudio: boolean,
 			target?: ReturnType<typeof render>,
+			autoSync = true,
 		) => {
 			const ui = (
 				<AudioControlRail
@@ -949,7 +950,7 @@ describe("Reader UI & audio hooks", () => {
 					currentTime={35}
 					visibleVerse={visibleVerse}
 					activeVerse={12}
-					autoSync={true}
+					autoSync={autoSync}
 					isFollowingAudio={isFollowingAudio}
 					onChangeSpeed={onChangeSpeed}
 					onToggleAutoSync={noop}
@@ -1021,9 +1022,12 @@ describe("Reader UI & audio hooks", () => {
 		expect(resolveTimeForVerse(supertonicTrack.verseTimings, 17)).toBe(48.2);
 
 		const rail = renderRail(16, false);
-		expect(rail.container.querySelector(".rail-track-caption")?.textContent).toBe(
+		expect(rail.container.querySelector(".rail-track-name")?.textContent).toBe(
 			SUPERTONIC_TRACK_ATTRIBUTION,
 		);
+		expect(rail.container.querySelector(".rail-track-sync")?.textContent).toBe("Verse sync on");
+		expect(rail.container.querySelector(".rail-track-sync")?.className).toContain("active");
+		expect(rail.container.querySelector(".rail-sync-box")).toBeNull();
 		fireClick(getButton(rail.container, "Follow Audio (v.12)"));
 		expect(onFollowActive).toHaveBeenCalledTimes(1);
 
@@ -1079,9 +1083,11 @@ describe("Reader UI & audio hooks", () => {
 				row.querySelector("dt")?.textContent,
 				row.querySelector("dd")?.textContent,
 			]);
-		expect(rail.container.querySelector(".rail-settings-btn")).toBeNull();
-		expect(rail.container.querySelector(".rail-sync-box")).not.toBeNull();
-		expect(getByText(rail.container, "Verse Sync")).toBeDefined();
+		const settingsBtn = getButton(rail.container, "Settings");
+		expect(settingsBtn.querySelector(".rail-settings-label svg")).not.toBeNull();
+		expect(settingsBtn.getAttribute("aria-expanded")).toBe("false");
+		fireClick(settingsBtn);
+		expect(settingsBtn.getAttribute("aria-expanded")).toBe("true");
 		expect(readSyncDetails()).toEqual([
 			["Reading", "v.16"],
 			["Playing", "v.12"],
@@ -1094,6 +1100,10 @@ describe("Reader UI & audio hooks", () => {
 
 		renderRail(12, true, rail);
 		expect(getButton(rail.container, "Play from v.12").getAttribute("aria-pressed")).toBe("true");
+
+		renderRail(12, true, rail, false);
+		expect(rail.container.querySelector(".rail-track-sync")?.textContent).toBe("Verse sync off");
+		expect(rail.container.querySelector(".rail-track-sync")?.className).not.toContain("active");
 
 		const untimedRail = render(
 			<AudioControlRail
@@ -1111,8 +1121,14 @@ describe("Reader UI & audio hooks", () => {
 				onFollowActiveVerse={onFollowActive}
 			/>,
 		);
-		expect(untimedRail.container.querySelector(".rail-settings-btn")).toBeNull();
-		expect(getByText(untimedRail.container, "Verse Sync")).toBeDefined();
+		expect(untimedRail.container.querySelector(".rail-track-name")?.textContent).toBe(
+			"David Cochran Heath (ESV)",
+		);
+		expect(untimedRail.container.querySelector(".rail-track-sync")?.textContent).toBe(
+			"No verse sync",
+		);
+		expect(untimedRail.container.querySelector(".rail-sync-box")).toBeNull();
+		fireClick(getButton(untimedRail.container, "Settings"));
 		expect(getByText(untimedRail.container, "Verse sync unavailable for this audio")).toBeDefined();
 		const untimedToggle = untimedRail.container.querySelector(
 			'.rail-sync-toggle[role="switch"]',
