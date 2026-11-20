@@ -38,6 +38,7 @@ export interface CliOptions {
 	workers: number;
 	threads: number;
 	batchSize: number;
+	mp3Quality: number;
 	verbose: boolean;
 	force: boolean;
 	dryRun: boolean;
@@ -308,7 +309,8 @@ Synthesis & Upload Options:
   --bitrate <INT>           CBR MP3 bitrate in kbps (default: 96)
   --workers <INT>           Worker processes (0 = auto)
   --threads <INT>           ONNX intra-op threads per worker (default: 2)
-  --batch-size <INT>        Chunks per ONNX call (0 = auto: 24 on CUDA, 1 on CPU)
+  --batch-size <INT>        Chunks per ONNX call (0 = auto: 32 on CUDA, 1 on CPU)
+  --mp3-quality <INT>       LAME MP3 quality 0 (best/slowest) to 9 (fastest) (default: 2)
   --verbose                 Show ONNX Runtime startup warnings
   --force                   Regenerate chapters even if outputs already exist
   --dry-run                 Validate scope and probe remote VM without synthesizing
@@ -342,6 +344,7 @@ export function parseCliOptions(
 			workers: { type: "string" },
 			threads: { type: "string" },
 			"batch-size": { type: "string" },
+			"mp3-quality": { type: "string" },
 			verbose: { type: "boolean" },
 			force: { type: "boolean" },
 			"dry-run": { type: "boolean" },
@@ -387,6 +390,7 @@ export function parseCliOptions(
 			workers: 0,
 			threads: 2,
 			batchSize: 0,
+			mp3Quality: 2,
 			verbose: false,
 			force: false,
 			dryRun: false,
@@ -552,6 +556,10 @@ export function parseCliOptions(
 			values["batch-size"] !== undefined
 				? parseNumberInRange(values["batch-size"], "--batch-size", 0, 128, true)
 				: 0,
+		mp3Quality:
+			values["mp3-quality"] !== undefined
+				? parseNumberInRange(values["mp3-quality"], "--mp3-quality", 0, 9, true)
+				: 2,
 		verbose: Boolean(values.verbose),
 		force: Boolean(values.force),
 		dryRun: Boolean(values["dry-run"]),
@@ -2277,6 +2285,8 @@ export async function runRemoteWorkflow(
 			String(options.threads),
 			"--batch-size",
 			String(options.batchSize),
+			"--mp3-quality",
+			String(options.mp3Quality),
 			...(options.verbose ? ["--verbose"] : []),
 			...(options.force ? ["--force"] : []),
 		];

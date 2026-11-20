@@ -11,13 +11,14 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait
 import gc
 import json
 import multiprocessing
 import os
 import re
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,6 +78,7 @@ class SynthConfig:
     bitrate_kbps: int
     audio_dir: Path = AUDIO_CACHE_DIR
     batch_size: int = 1
+    mp3_quality: int = 2
     verbose: bool = False
 
 
@@ -262,12 +264,15 @@ def trim_silence(
     if peak < 1e-6:
         return x
 
-    # Use smoothed short-window energy so brief zero-crossings inside consonants aren't clipped.
+    # Exact O(N) sliding-window average matching np.convolve(..., mode="same").
     win = max(1, int(0.010 * sample_rate))
     abs_x = np.abs(x)
-    if abs_x.size >= win:
-        kernel = np.ones(win, dtype=np.float32) / float(win)
-        env = np.convolve(abs_x, kernel, mode="same")
+    if abs_x.size >= win and win > 1:
+        left = (win - 1) // 2
+        right = win - 1 - left
+        padded = np.pad(abs_x.astype(np.float64), (left + 1, right), mode="constant")
+        csum = np.cumsum(padded)
+        env = ((csum[win:] - csum[:-win]) / float(win)).astype(np.float32)
     else:
         env = abs_x
 
@@ -424,17 +429,19 @@ def encode_cbr_mp3(
     sample_rate: int,
     bitrate_kbps: int,
     out_path: Path,
+    *,
+    quality: int = 2,
 ) -> int:
     encoder = lameenc.Encoder()
     encoder.set_bit_rate(bitrate_kbps)
     encoder.set_in_sample_rate(sample_rate)
     encoder.set_channels(1)
-    encoder.set_quality(2)
+    encoder.set_quality(quality)
     encoder.set_vbr(0)
     encoder.silence()
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = out_path.with_suffix(f".{os.getpid()}.mp3.tmp")
+    tmp_path = out_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.mp3.tmp")
     total_bytes = 0
     chunk_samples = 524_288
 
@@ -459,7 +466,7 @@ def encode_cbr_mp3(
     return total_bytes
 
 
-def synthesize_chapter(
+def prepare_chapter_segments(
     tts: Any,
     voice_style: Any,
     *,
@@ -468,8 +475,7 @@ def synthesize_chapter(
     chapter: int,
     verses: list[VerseJob],
     cfg: SynthConfig,
-    mp3_path: Path,
-) -> tuple[dict[str, float], dict[str, Any]]:
+) -> tuple[list[np.ndarray], int, dict[str, float], str]:
     sr = int(tts.sample_rate)
     header_text = format_chapter_header(usfm, book_ko, chapter)
     all_chunks = [header_text, *[chunk for v in verses for chunk in v.chunks]]
@@ -518,14 +524,36 @@ def synthesize_chapter(
             segments.append(verse_pause)
             sample_cursor += int(verse_pause.size)
 
+    return segments, sr, timings, header_text
+
+
+def finalize_chapter_audio(
+    segments: list[np.ndarray],
+    sr: int,
+    timings: dict[str, float],
+    *,
+    usfm: str,
+    chapter: int,
+    verses: list[VerseJob],
+    header_text: str,
+    cfg: SynthConfig,
+    mp3_path: Path,
+) -> tuple[dict[str, float], dict[str, Any]]:
     mastered, rms_dbfs, peak_dbfs = master_chapter_audio(segments)
     total_duration = float(mastered.size) / float(sr)
-    if not timings or prev_start >= total_duration:
+    last_start = timings[str(verses[-1].verse)]
+    if not timings or last_start >= total_duration:
         raise RuntimeError(
-            f"{usfm} {chapter}: invalid final timestamp {prev_start} >= duration {total_duration:.3f}s"
+            f"{usfm} {chapter}: invalid final timestamp {last_start} >= duration {total_duration:.3f}s"
         )
 
-    mp3_bytes = encode_cbr_mp3(mastered, sr, cfg.bitrate_kbps, mp3_path)
+    mp3_bytes = encode_cbr_mp3(
+        mastered,
+        sr,
+        cfg.bitrate_kbps,
+        mp3_path,
+        quality=cfg.mp3_quality,
+    )
 
     metrics = {
         "duration": round(total_duration, 2),
@@ -537,6 +565,39 @@ def synthesize_chapter(
         "mp3Bytes": mp3_bytes,
     }
     return timings, metrics
+
+
+def synthesize_chapter(
+    tts: Any,
+    voice_style: Any,
+    *,
+    usfm: str,
+    book_ko: str,
+    chapter: int,
+    verses: list[VerseJob],
+    cfg: SynthConfig,
+    mp3_path: Path,
+) -> tuple[dict[str, float], dict[str, Any]]:
+    segments, sr, timings, header_text = prepare_chapter_segments(
+        tts,
+        voice_style,
+        usfm=usfm,
+        book_ko=book_ko,
+        chapter=chapter,
+        verses=verses,
+        cfg=cfg,
+    )
+    return finalize_chapter_audio(
+        segments,
+        sr,
+        timings,
+        usfm=usfm,
+        chapter=chapter,
+        verses=verses,
+        header_text=header_text,
+        cfg=cfg,
+        mp3_path=mp3_path,
+    )
 
 
 def atomic_write_json(path: Path, data: Any, *, compact: bool = True) -> None:
@@ -751,6 +812,13 @@ def parse_args() -> argparse.Namespace:
         help="CBR MP3 bitrate in kbps (default: 96)",
     )
     parser.add_argument(
+        "--mp3-quality",
+        type=int,
+        default=2,
+        choices=range(0, 10),
+        help="LAME MP3 encoding quality 0 (best/slowest) to 9 (fastest) (default: 2)",
+    )
+    parser.add_argument(
         "--device",
         choices=["auto", "cuda", "cpu"],
         default="auto",
@@ -772,7 +840,7 @@ def parse_args() -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=0,
-        help="Chunks synthesized per ONNX call (default: 0 = auto: 24 on CUDA, 1 on CPU)",
+        help="Chunks synthesized per ONNX call (default: 0 = auto: 32 on CUDA, 1 on CPU)",
     )
     parser.add_argument(
         "--verbose",
@@ -964,8 +1032,8 @@ def main() -> int:
     if args.workers > 0:
         worker_count = args.workers
     elif active_device == "cuda":
-        cpu_count = os.cpu_count() or 4
-        worker_count = min(4, max(2, cpu_count // 2), len(jobs))
+        # 1 CUDA process + background CPU MP3 threadpool avoids multi-worker GPU proxy contention.
+        worker_count = 1
     else:
         cpu_count = os.cpu_count() or 6
         worker_count = 1 if len(jobs) <= 2 else min(6, max(1, cpu_count // max(1, args.threads)))
@@ -1016,7 +1084,7 @@ def main() -> int:
         )
 
     resolved_voice = resolve_voice_name(args.voice, voice_names)
-    batch_size = args.batch_size if args.batch_size > 0 else (24 if active_device == "cuda" else 1)
+    batch_size = args.batch_size if args.batch_size > 0 else (32 if active_device == "cuda" else 1)
 
     # Validate entire selected corpus against Supertonic's character table up front.
     for usfm, book_ko, ch_num, verses, _ in jobs:
@@ -1158,19 +1226,102 @@ def main() -> int:
         bitrate_kbps=args.bitrate,
         audio_dir=audio_dir,
         batch_size=batch_size,
+        mp3_quality=args.mp3_quality,
         verbose=args.verbose,
     )
 
     try:
         if worker_count == 1:
             voice_style = tts.get_voice_style(resolved_voice)
-            for idx, job in enumerate(jobs, start=1):
-                run_job_step(
-                    idx,
-                    job[0],
-                    job[2],
-                    lambda j=job: _synthesize_job(tts, voice_style, j, cfg),
-                )
+            encode_workers = max(1, min(len(jobs), os.cpu_count() or 4))
+            if encode_workers == 1 or len(jobs) == 1:
+                for idx, job in enumerate(jobs, start=1):
+                    run_job_step(
+                        idx,
+                        job[0],
+                        job[2],
+                        lambda j=job: _synthesize_job(tts, voice_style, j, cfg),
+                    )
+            else:
+                max_in_flight = encode_workers * 2
+                pending_futures: dict[Any, tuple[str, int]] = {}
+                done_count = 0
+
+                def _drain_one() -> None:
+                    nonlocal done_count
+                    done_set, _ = wait(pending_futures.keys(), return_when=FIRST_COMPLETED)
+                    for fut in done_set:
+                        usfm_f, ch_f = pending_futures.pop(fut)
+                        done_count += 1
+                        run_job_step(done_count, usfm_f, ch_f, fut.result)
+
+                def _encode_task(
+                    segments: list[np.ndarray],
+                    sr: int,
+                    timings: dict[str, float],
+                    usfm_t: str,
+                    ch_t: int,
+                    verses_t: list[VerseJob],
+                    total_verses_t: int,
+                    header_t: str,
+                    t_start: float,
+                ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
+                    mp3_path = cfg.audio_dir / usfm_t / f"{ch_t}.mp3"
+                    final_timings, metrics = finalize_chapter_audio(
+                        segments,
+                        sr,
+                        timings,
+                        usfm=usfm_t,
+                        chapter=ch_t,
+                        verses=verses_t,
+                        header_text=header_t,
+                        cfg=cfg,
+                        mp3_path=mp3_path,
+                    )
+                    return (
+                        usfm_t,
+                        ch_t,
+                        total_verses_t,
+                        final_timings,
+                        metrics,
+                        time.time() - t_start,
+                    )
+
+                with ThreadPoolExecutor(max_workers=encode_workers) as encode_pool:
+                    for job in jobs:
+                        usfm_j, book_ko_j, ch_j, verses_j, total_verses_j = job
+                        t_start = time.time()
+                        try:
+                            segments, sr, timings, header_text = prepare_chapter_segments(
+                                tts,
+                                voice_style,
+                                usfm=usfm_j,
+                                book_ko=book_ko_j,
+                                chapter=ch_j,
+                                verses=verses_j,
+                                cfg=cfg,
+                            )
+                        except Exception as err:  # noqa: BLE001
+                            done_count += 1
+                            record_error(done_count, usfm_j, ch_j, err)
+                            continue
+                        fut = encode_pool.submit(
+                            _encode_task,
+                            segments,
+                            sr,
+                            timings,
+                            usfm_j,
+                            ch_j,
+                            verses_j,
+                            total_verses_j,
+                            header_text,
+                            t_start,
+                        )
+                        pending_futures[fut] = (usfm_j, ch_j)
+                        if len(pending_futures) >= max_in_flight:
+                            _drain_one()
+                    while pending_futures:
+                        _drain_one()
         else:
             with ProcessPoolExecutor(
                 max_workers=worker_count,

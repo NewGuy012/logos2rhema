@@ -53,6 +53,8 @@ function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 		String(options.threads),
 		"--batch-size",
 		String(options.batchSize),
+		"--mp3-quality",
+		String(options.mp3Quality),
 	);
 
 	if (options.verbose) args.push("--verbose");
