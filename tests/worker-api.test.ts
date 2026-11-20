@@ -134,18 +134,18 @@ describe("Worker API & Security Boundaries", () => {
 		).toBe(false);
 
 		const app = createApp({ fetcher: mockFetch });
-		expect((await app.request("/api/audio/GEN/999")).status).toBe(400);
-		expect((await app.request("/api/audio/GEN/1abc")).status).toBe(400);
-		const malformedRes = await app.request("/api/audio/%E0%A4%A/1");
-		expect(malformedRes.status).toBe(400);
-		assertSecurityHeaders(malformedRes);
+		for (const badPath of ["/api/audio/GEN/999", "/api/audio/GEN/1abc", "/api/audio/%E0%A4%A/1"]) {
+			const res = await app.request(badPath);
+			expect(res.status).toBe(400);
+			assertSecurityHeaders(res);
+		}
 
-		const notFoundRes = await app.request("/api/health");
-		expect(notFoundRes.status).toBe(404);
-		expect(notFoundRes.headers.get("cache-control")).toBe("no-store");
-		assertSecurityHeaders(notFoundRes);
-		expect((await app.request("/api/commentaries")).status).toBe(404);
-		expect((await app.request("/api/languages")).status).toBe(404);
+		for (const notFoundPath of ["/api/health", "/api/commentaries", "/api/languages"]) {
+			const res = await app.request(notFoundPath);
+			expect(res.status).toBe(404);
+			expect(res.headers.get("cache-control")).toBe("no-store");
+			assertSecurityHeaders(res);
+		}
 
 		await expect(
 			readJsonWithLimit(
@@ -168,11 +168,17 @@ describe("Worker API & Security Boundaries", () => {
 		expect(badMethod.headers.get("x-content-type-options")).toBe("nosniff");
 		expect(badMethod.headers.get("content-security-policy")).toContain("default-src 'none'");
 
-		const ssrfAudioRes = await app.request("/api/audio/GEN/1", undefined, {
-			AUDIO_BASE_URL: "https://127.0.0.1/krv",
-		});
-		expect(ssrfAudioRes.status).toBe(200);
-		expect(((await ssrfAudioRes.json()) as ChapterAudioResponse).tracks).toEqual([]);
+		for (const blockedAudioBase of [
+			"https://127.0.0.1/krv",
+			"https://cdn.example.com/krv?token=x",
+			"https://cdn.example.com/krv#frag",
+		]) {
+			const blockedRes = await app.request("/api/audio/GEN/1", undefined, {
+				AUDIO_BASE_URL: blockedAudioBase,
+			});
+			expect(blockedRes.status).toBe(200);
+			expect(((await blockedRes.json()) as ChapterAudioResponse).tracks).toEqual([]);
+		}
 	});
 
 	it("normalizes Tyndale & Matthew Henry commentaries, caps deep recursion, and handles 404/400/502", async () => {
@@ -368,17 +374,15 @@ describe("Worker API & Security Boundaries", () => {
 			return res;
 		};
 
-		const badRef = await requestR2("/api/audio/krv/GEN/999");
-		expect(badRef.status).toBe(400);
-		expect(bucket.totalOps()).toBe(0);
-
-		const traversalRef = await requestR2("/api/audio/krv/..%2FGEN/1");
-		expect(traversalRef.status).toBe(400);
-		expect(bucket.totalOps()).toBe(0);
-
-		const nonNumericChapter = await requestR2("/api/audio/krv/GEN/1abc");
-		expect(nonNumericChapter.status).toBe(400);
-		expect(bucket.totalOps()).toBe(0);
+		for (const badR2Path of [
+			"/api/audio/krv/GEN/999",
+			"/api/audio/krv/..%2FGEN/1",
+			"/api/audio/krv/GEN/1abc",
+		]) {
+			const res = await requestR2(badR2Path);
+			expect(res.status).toBe(400);
+			expect(bucket.totalOps()).toBe(0);
+		}
 
 		const unboundRes = await app.request("/api/audio/krv/GEN/1");
 		expect(unboundRes.status).toBe(503);
@@ -447,6 +451,14 @@ describe("Worker API & Security Boundaries", () => {
 		expect(notModifiedRes.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
 		expect(bucket.cancelledStreams).toBe(1);
 		expect(bucket.totalOps()).toBe(1);
+
+		for (const nonMatchingEtag of ['"other\\\\"', `"${"a".repeat(2100)}"`]) {
+			const res = await requestR2("/api/audio/krv/GEN/1", {
+				headers: { "If-None-Match": nonMatchingEtag },
+			});
+			expect(res.status).toBe(200);
+			expect(await res.text()).toBe("0123456789");
+		}
 
 		const headRes = await requestR2("/api/audio/krv/GEN/1", { method: "HEAD" });
 		expect(headRes.status).toBe(200);
@@ -569,11 +581,11 @@ describe("Worker API & Security Boundaries", () => {
 		]);
 
 		const mat17Html = `
-			<p><b class="verse-num">20&nbsp;</b><span class="woc">He said to them, &ldquo;Because of your little faith.&rdquo;</span> <b class="verse-num">21&nbsp;</b><b class="verse-num">22&nbsp;</b>As they were gathering in Galilee&#x2026;</p>
+			<p><b class="verse-num">20&nbsp;</b><span class="woc">He said to them, &ldquo;Because of your little faith.&rdquo;</span> <b class="verse-num">21&nbsp;</b><b class="verse-num">22&nbsp;</b>As they were gathering in Galilee&#x2026;&#x00;&#127;</p>
 		`;
 		expect(parseEsvPassageHtml(mat17Html)).toEqual([
 			{ verse: 20, text: "He said to them, “Because of your little faith.”" },
-			{ verse: 22, text: "As they were gathering in Galilee…" },
+			{ verse: 22, text: "As they were gathering in Galilee…&#x00;&#127;" },
 		]);
 
 		const sng1Html = `
@@ -697,24 +709,17 @@ describe("Worker API & Security Boundaries", () => {
 		expect(await headRes.text()).toBe("");
 
 		// 429 rate limit vs 502 upstream errors & 512 KB cap
-		const rateLimited = await app.request("/api/esv/GEN/2", undefined, { ESV_API_KEY: secretKey });
-		expect(rateLimited.status).toBe(429);
-		expect(rateLimited.headers.get("cache-control")).toBe("private, no-store");
-
-		const upstreamErr = await app.request("/api/esv/GEN/3", undefined, { ESV_API_KEY: secretKey });
-		expect(upstreamErr.status).toBe(502);
-		expect(upstreamErr.headers.get("cache-control")).toBe("private, no-store");
-
-		const tooBig = await app.request("/api/esv/GEN/4", undefined, { ESV_API_KEY: secretKey });
-		expect(tooBig.status).toBe(502);
-
-		const emptyHtml = await app.request("/api/esv/GEN/5", undefined, { ESV_API_KEY: secretKey });
-		expect(emptyHtml.status).toBe(502);
-
-		const redirectBlocked = await app.request("/api/esv/GEN/6", undefined, {
-			ESV_API_KEY: secretKey,
-		});
-		expect(redirectBlocked.status).toBe(502);
+		for (const [path, expectedStatus] of [
+			["/api/esv/GEN/2", 429],
+			["/api/esv/GEN/3", 502],
+			["/api/esv/GEN/4", 502],
+			["/api/esv/GEN/5", 502],
+			["/api/esv/GEN/6", 502],
+		] as const) {
+			const res = await app.request(path, undefined, { ESV_API_KEY: secretKey });
+			expect(res.status).toBe(expectedStatus);
+			expect(res.headers.get("cache-control")).toBe("private, no-store");
+		}
 
 		// localEsvLoader overrides live fetch when present and returns null fallback cleanly
 		let liveCallsWithLocal = 0;

@@ -92,6 +92,11 @@ describe("books & passage reference parser", () => {
 			chapter: 1,
 			verse: undefined,
 		});
+		expect(parsePassageReference("창세기 1장 1절")).toEqual({
+			bookNumber: 1,
+			chapter: 1,
+			verse: 1,
+		});
 		expect(parsePassageReference("Ps 23")).toEqual({
 			bookNumber: 19,
 			chapter: 23,

@@ -1,7 +1,15 @@
-import { afterEach } from "bun:test";
+import { afterEach, expect } from "bun:test";
 
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+
+import {
+	SUPERTONIC_LICENSE_NAME,
+	SUPERTONIC_LICENSE_URL,
+	SUPERTONIC_TRACK_ATTRIBUTION,
+	SUPERTONIC_TRACK_ID,
+	SUPERTONIC_TRACK_LABEL,
+} from "../src/shared/audio-timings";
 
 const activeRoots = new Set<{ root: Root; container: HTMLElement }>();
 
@@ -281,4 +289,30 @@ export function fireDrag(el: Element, from: [number, number], to: [number, numbe
 		);
 		window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
 	});
+}
+
+export function makeSupertonicTrack(url: string, verseTimings?: Record<number, number>) {
+	return {
+		id: SUPERTONIC_TRACK_ID,
+		label: SUPERTONIC_TRACK_LABEL,
+		language: "ko" as const,
+		url,
+		isAiGenerated: true as const,
+		attribution: SUPERTONIC_TRACK_ATTRIBUTION,
+		...(verseTimings ? { verseTimings } : {}),
+	};
+}
+
+export function assertLegalFooter(container: ParentNode): void {
+	const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
+	expect(footer).not.toBeNull();
+	expect(footer.textContent).toContain("대한성서공회");
+	expect(footer.textContent).toContain("AI 낭독");
+	expect(footer.textContent).toContain("Supertonic 3");
+	expect(footer.textContent).not.toContain("Public Domain");
+	expect(footer.textContent).not.toContain("KRDICT");
+	expect(footer.querySelector(`a[href="${SUPERTONIC_LICENSE_URL}"]`)?.textContent).toBe(
+		SUPERTONIC_LICENSE_NAME,
+	);
+	expect(footer.querySelector('a[href="https://www.esv.org"]')).not.toBeNull();
 }

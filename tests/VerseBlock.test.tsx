@@ -41,15 +41,13 @@ import {
 	toggleHighlightSpans,
 } from "../src/react-app/lib/highlights";
 import {
-	SUPERTONIC_LICENSE_NAME,
-	SUPERTONIC_LICENSE_URL,
 	SUPERTONIC_MOBILE_BADGE,
 	SUPERTONIC_TRACK_ATTRIBUTION,
 	SUPERTONIC_TRACK_ID,
-	SUPERTONIC_TRACK_LABEL,
 } from "../src/shared/audio-timings";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import {
+	assertLegalFooter,
 	createReaderFetchHandler,
 	fireClick,
 	fireDrag,
@@ -60,6 +58,7 @@ import {
 	installMockAudio,
 	makeBookResponse,
 	makeChapterResponse,
+	makeSupertonicTrack,
 	mockMatchMedia,
 	noop,
 	render,
@@ -902,27 +901,76 @@ describe("Reader UI & audio hooks", () => {
 	it("renders FloatingBottomBar, AudioControlRail, and validates useHumanAudio URLs", async () => {
 		const onSelectLanguage = mock(() => {});
 		const onSkipBy = mock((_delta: number) => {});
-		const koTrack = {
-			id: SUPERTONIC_TRACK_ID,
-			label: SUPERTONIC_TRACK_LABEL,
-			language: "ko" as const,
-			url: "https://cdn.example.com/krv/GEN/1.mp3",
-			isAiGenerated: true,
-			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
+		const koTrack = makeSupertonicTrack("https://cdn.example.com/krv/GEN/1.mp3");
+		const supertonicTrack = makeSupertonicTrack("https://cdn.example.com/JHN/3.mp3", {
+			1: 2.3,
+			12: 34.5,
+			16: 48.2,
+		});
+		const onSyncToVisible = mock(() => {});
+		const onChangeSpeed = mock((_rate: number) => {});
+		const onFollowActive = mock(() => {});
+
+		const renderBar = (
+			overrides: Partial<ComponentProps<typeof FloatingBottomBar>>,
+			target?: ReturnType<typeof render>,
+		) => {
+			const ui = (
+				<FloatingBottomBar
+					{...baseBarProps()}
+					dictionaryOpen={false}
+					onToggleDictionary={noop}
+					{...overrides}
+				/>
+			);
+			if (target) {
+				target.rerender(ui);
+				return target;
+			}
+			return render(ui);
 		};
 
-		const bar = render(
-			<FloatingBottomBar
-				{...baseBarProps()}
-				tracks={[koTrack]}
-				activeTrack={koTrack}
-				isPlaying={true}
-				currentTime={15}
-				dictionaryOpen={true}
-				onToggleDictionary={noop}
-				onSkipBy={onSkipBy}
-			/>,
-		);
+		const renderRail = (
+			visibleVerse: number,
+			isFollowingAudio: boolean,
+			target?: ReturnType<typeof render>,
+		) => {
+			const ui = (
+				<AudioControlRail
+					{...baseBarProps()}
+					bookEn="John"
+					bookKo="요한복음"
+					chapter={3}
+					tracks={[supertonicTrack]}
+					preferredLang="ko"
+					activeTrack={supertonicTrack}
+					isPlaying={true}
+					currentTime={35}
+					visibleVerse={visibleVerse}
+					activeVerse={12}
+					autoSync={true}
+					isFollowingAudio={isFollowingAudio}
+					onChangeSpeed={onChangeSpeed}
+					onToggleAutoSync={noop}
+					onSyncToVisibleVerse={onSyncToVisible}
+					onFollowActiveVerse={onFollowActive}
+				/>
+			);
+			if (target) {
+				target.rerender(ui);
+				return target;
+			}
+			return render(ui);
+		};
+
+		const bar = renderBar({
+			tracks: [koTrack],
+			activeTrack: koTrack,
+			isPlaying: true,
+			currentTime: 15,
+			dictionaryOpen: true,
+			onSkipBy,
+		});
 		expect(bar.container.querySelector(".quick-strip-ai-badge")?.textContent).toBe(
 			SUPERTONIC_MOBILE_BADGE,
 		);
@@ -931,17 +979,14 @@ describe("Reader UI & audio hooks", () => {
 		expect(onSkipBy).toHaveBeenNthCalledWith(1, -10);
 		expect(onSkipBy).toHaveBeenNthCalledWith(2, 10);
 
-		bar.rerender(
-			<FloatingBottomBar
-				{...baseBarProps()}
-				tracks={[koTrack]}
-				preferredLang="en"
-				activeTrack={null}
-				rightRailTab="commentary"
-				dictionaryOpen={false}
-				onToggleDictionary={noop}
-				onSelectLanguage={onSelectLanguage}
-			/>,
+		renderBar(
+			{
+				tracks: [koTrack],
+				preferredLang: "en",
+				rightRailTab: "commentary",
+				onSelectLanguage,
+			},
+			bar,
 		);
 		expect(getButton(bar.container, "Toggle commentary").textContent).toContain("Notes");
 		fireClick(getButton(bar.container, /Use 개역한글/));
@@ -953,73 +998,28 @@ describe("Reader UI & audio hooks", () => {
 			language: "en" as const,
 			url: "https://audio.esv.org/hw/gen1.mp3",
 		};
-		bar.rerender(
-			<FloatingBottomBar
-				{...baseBarProps()}
-				tracks={[enTrack]}
-				preferredLang="ko"
-				activeTrack={null}
-				dictionaryOpen={false}
-				onToggleDictionary={noop}
-				onSelectLanguage={onSelectLanguage}
-			/>,
-		);
+		renderBar({ tracks: [enTrack], preferredLang: "ko", onSelectLanguage }, bar);
 		fireClick(getButton(bar.container, /Use ESV/));
 		expect(onSelectLanguage).toHaveBeenCalledWith("en");
-		bar.rerender(
-			<FloatingBottomBar
-				{...baseBarProps()}
-				tracks={[enTrack]}
-				preferredLang="en"
-				activeTrack={enTrack}
-				isPlaying={true}
-				currentTime={10}
-				dictionaryOpen={false}
-				onToggleDictionary={noop}
-				onSelectLanguage={onSelectLanguage}
-			/>,
+		renderBar(
+			{
+				tracks: [enTrack],
+				preferredLang: "en",
+				activeTrack: enTrack,
+				isPlaying: true,
+				currentTime: 10,
+				onSelectLanguage,
+			},
+			bar,
 		);
 		expect(bar.container.querySelector(".quick-strip-ai-badge")).toBeNull();
 
-		const supertonicTrack = {
-			id: SUPERTONIC_TRACK_ID,
-			label: SUPERTONIC_TRACK_LABEL,
-			language: "ko" as const,
-			url: "https://cdn.example.com/JHN/3.mp3",
-			isAiGenerated: true,
-			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-			verseTimings: { 1: 2.3, 12: 34.5, 16: 48.2 },
-		};
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 1.5)).toBeNull();
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 2.1)).toBe(1);
 		expect(resolveVerseAtTime(supertonicTrack.verseTimings, 48.5)).toBe(16);
 		expect(resolveTimeForVerse(supertonicTrack.verseTimings, 17)).toBe(48.2);
 
-		const onSyncToVisible = mock(() => {});
-		const onChangeSpeed = mock((_rate: number) => {});
-		const onFollowActive = mock(() => {});
-		const rail = render(
-			<AudioControlRail
-				{...baseBarProps()}
-				bookEn="John"
-				bookKo="요한복음"
-				chapter={3}
-				tracks={[supertonicTrack]}
-				preferredLang="ko"
-				activeTrack={supertonicTrack}
-				isPlaying={true}
-				currentTime={35}
-				visibleVerse={16}
-				activeVerse={12}
-				autoSync={true}
-				isFollowingAudio={false}
-				onChangeSpeed={onChangeSpeed}
-				onToggleAutoSync={noop}
-				onSyncToVisibleVerse={onSyncToVisible}
-				onFollowActiveVerse={onFollowActive}
-			/>,
-		);
-		// Track caption and Follow recovery button are visible even with Settings collapsed
+		const rail = renderRail(16, false);
 		expect(rail.container.querySelector(".rail-track-caption")?.textContent).toBe(
 			SUPERTONIC_TRACK_ATTRIBUTION,
 		);
@@ -1028,42 +1028,20 @@ describe("Reader UI & audio hooks", () => {
 
 		const onMobileToggleSync = mock(() => {});
 		const onMobileFollow = mock(() => {});
-		const mobileSyncBar = render(
-			<FloatingBottomBar
-				{...baseBarProps()}
-				tracks={[supertonicTrack]}
-				preferredLang="ko"
-				activeTrack={supertonicTrack}
-				isPlaying={true}
-				currentTime={35}
-				activeVerse={12}
-				autoSync={true}
-				isFollowingAudio={true}
-				dictionaryOpen={false}
-				onToggleDictionary={noop}
-				onToggleAutoSync={onMobileToggleSync}
-				onFollowActiveVerse={onMobileFollow}
-			/>,
-		);
+		const mobileSyncProps = {
+			tracks: [supertonicTrack],
+			activeTrack: supertonicTrack,
+			isPlaying: true,
+			currentTime: 35,
+			activeVerse: 12,
+			autoSync: true,
+			onToggleAutoSync: onMobileToggleSync,
+			onFollowActiveVerse: onMobileFollow,
+		};
+		const mobileSyncBar = renderBar({ ...mobileSyncProps, isFollowingAudio: true });
 		fireClick(getButton(mobileSyncBar.container, "Sync"));
 		expect(onMobileToggleSync).toHaveBeenCalledTimes(1);
-		mobileSyncBar.rerender(
-			<FloatingBottomBar
-				{...baseBarProps()}
-				tracks={[supertonicTrack]}
-				preferredLang="ko"
-				activeTrack={supertonicTrack}
-				isPlaying={true}
-				currentTime={35}
-				activeVerse={12}
-				autoSync={true}
-				isFollowingAudio={false}
-				dictionaryOpen={false}
-				onToggleDictionary={noop}
-				onToggleAutoSync={onMobileToggleSync}
-				onFollowActiveVerse={onMobileFollow}
-			/>,
-		);
+		renderBar({ ...mobileSyncProps, isFollowingAudio: false }, mobileSyncBar);
 		fireClick(getButton(mobileSyncBar.container, "Follow v.12"));
 		expect(onMobileFollow).toHaveBeenCalledTimes(1);
 
@@ -1113,27 +1091,7 @@ describe("Reader UI & audio hooks", () => {
 		fireClick(playFromV16);
 		expect(onSyncToVisible).toHaveBeenCalledTimes(1);
 
-		rail.rerender(
-			<AudioControlRail
-				{...baseBarProps()}
-				bookEn="John"
-				bookKo="요한복음"
-				chapter={3}
-				tracks={[supertonicTrack]}
-				preferredLang="ko"
-				activeTrack={supertonicTrack}
-				isPlaying={true}
-				currentTime={35}
-				visibleVerse={12}
-				activeVerse={12}
-				autoSync={true}
-				isFollowingAudio={true}
-				onChangeSpeed={onChangeSpeed}
-				onToggleAutoSync={noop}
-				onSyncToVisibleVerse={onSyncToVisible}
-				onFollowActiveVerse={onFollowActive}
-			/>,
-		);
+		renderRail(12, true, rail);
 		expect(getButton(rail.container, "Play from v.12").getAttribute("aria-pressed")).toBe("true");
 
 		const mockAudio = installMockAudio();
@@ -1141,15 +1099,10 @@ describe("Reader UI & audio hooks", () => {
 			const { result } = renderHook(() =>
 				useHumanAudio({
 					tracks: [
-						{
-							id: SUPERTONIC_TRACK_ID,
-							label: SUPERTONIC_TRACK_LABEL,
-							language: "ko",
-							url: "/api/audio/krv/JHN/3",
-							isAiGenerated: true,
-							attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-							verseTimings: { 1: 2.3, 16: 48.2 },
-						},
+						makeSupertonicTrack("/api/audio/krv/JHN/3", {
+							1: 2.3,
+							16: 48.2,
+						}),
 					],
 					visibleVerse: 16,
 					autoSync: true,
@@ -1206,22 +1159,16 @@ describe("Reader UI & audio hooks", () => {
 				expect(unsafeHook.result.current.errorMessage).toBe("Audio stream URL was rejected.");
 			}
 
-			// Pre-metadata seek: queues target verse when readyState === 0 and seeks on loadedmetadata
 			mockAudio.restore();
 			const deferredAudio = installMockAudio({ readyState: 0 });
 			try {
 				const deferredHook = renderHook(() =>
 					useHumanAudio({
 						tracks: [
-							{
-								id: SUPERTONIC_TRACK_ID,
-								label: SUPERTONIC_TRACK_LABEL,
-								language: "ko",
-								url: "https://cdn.example.com/krv.mp3",
-								isAiGenerated: true,
-								attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-								verseTimings: { 1: 1.2, 16: 48.2 },
-							},
+							makeSupertonicTrack("https://cdn.example.com/krv.mp3", {
+								1: 1.2,
+								16: 48.2,
+							}),
 						],
 						visibleVerse: 16,
 						autoSync: true,
@@ -1254,14 +1201,7 @@ describe("Reader UI & audio hooks", () => {
 					if (url === "/api/audio/JHN/3") {
 						return Response.json({
 							tracks: [
-								{
-									id: SUPERTONIC_TRACK_ID,
-									label: SUPERTONIC_TRACK_LABEL,
-									language: "ko",
-									url: "https://cdn.example.com/JHN/3.mp3",
-									isAiGenerated: true,
-									attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-								},
+								makeSupertonicTrack("https://cdn.example.com/JHN/3.mp3"),
 								{
 									id: "esv-api:JHN:3",
 									label: "David Cochran Heath (ESV)",
@@ -1285,7 +1225,6 @@ describe("Reader UI & audio hooks", () => {
 					return new Response("Not Found", { status: 404 });
 				},
 				async () => {
-					// First load hits 503 on timings: audio track survives, and 503 is not poisoned in cache
 					const first = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 3 });
 					expect(
 						first.tracks.find((t) => t.id === SUPERTONIC_TRACK_ID)?.verseTimings,
@@ -1298,7 +1237,6 @@ describe("Reader UI & audio hooks", () => {
 					expect(supertonicTrack?.verseTimings).toEqual({ 1: 2.345, 16: 51.789 });
 					expect(esvTrack?.verseTimings).toBeUndefined();
 
-					// Gracefully handles missing chapter inside timing JSON without refetching
 					const missing = await loadSyncedChapterAudio({ usfm: "JHN", chapter: 99 });
 					expect(timingCalls).toBe(2);
 					expect(
@@ -1341,40 +1279,20 @@ describe("Reader UI & audio hooks", () => {
 					},
 					audio: () =>
 						Response.json({
-							tracks: [
-								{
-									id: SUPERTONIC_TRACK_ID,
-									label: SUPERTONIC_TRACK_LABEL,
-									language: "ko",
-									url: "https://cdn.example.com/krv/RUT/1.mp3",
-									isAiGenerated: true,
-									attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-								},
-							],
+							tracks: [makeSupertonicTrack("https://cdn.example.com/krv/RUT/1.mp3")],
 						}),
 					timings: () => Response.json({ chapters: { "1": { "1": 1.2 } } }),
 				}),
 				async () => {
 					const { container } = render(<App />);
 					await waitUntil(() => {
-						// KRV still renders alongside the inline ESV error banner + Retry button
 						expect(getByText(container, "사사들의")).toBeDefined();
 						expect(getByText(container, "English (ESV) unavailable")).toBeDefined();
 						expect(
 							getByText(container, "ESV API rate limit reached. Please try again shortly."),
 						).toBeDefined();
 						expect(container.querySelector(".verse-omitted")).toBeNull();
-						const readerFooter = container.querySelector("footer.copyright-footer") as HTMLElement;
-						expect(readerFooter).not.toBeNull();
-						expect(readerFooter.textContent).toContain("대한성서공회");
-						expect(readerFooter.textContent).toContain("AI 낭독");
-						expect(readerFooter.textContent).toContain("Supertonic 3");
-						expect(readerFooter.textContent).not.toContain("Public Domain");
-						expect(readerFooter.textContent).not.toContain("KRDICT");
-						expect(
-							readerFooter.querySelector(`a[href="${SUPERTONIC_LICENSE_URL}"]`)?.textContent,
-						).toBe(SUPERTONIC_LICENSE_NAME);
-						expect(readerFooter.querySelector('a[href="https://www.esv.org"]')).not.toBeNull();
+						assertLegalFooter(container);
 					});
 					fireClick(getButton(container, "Retry"));
 
@@ -1391,7 +1309,6 @@ describe("Reader UI & audio hooks", () => {
 						expect(container.querySelector("#verse-1")?.className).toContain("audio-active");
 					});
 
-					// Scrolling inside the dictionary sidebar or top popover should NOT pause follow
 					const dictWrap = container.querySelector(".dict-sidebar-wrap") as HTMLElement;
 					act(() => {
 						dictWrap.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true }));
@@ -1405,7 +1322,6 @@ describe("Reader UI & audio hooks", () => {
 					});
 					expect(container.querySelector(".rail-follow-btn")).toBeNull();
 
-					// Scrolling the main reader SHOULD pause follow and reveal Follow Audio button
 					const verseEl = container.querySelector("#verse-1") as HTMLElement;
 					act(() => {
 						verseEl.dispatchEvent(new window.WheelEvent("wheel", { deltaY: 120, bubbles: true }));
@@ -1563,7 +1479,6 @@ describe("Reader UI & audio hooks", () => {
 					const [, usfm, chStr] = url.match(/\/api\/esv\/([A-Z0-9]+)\/(\d+)/) ?? [];
 					const chapter = Number.parseInt(chStr ?? "1", 10);
 					if (usfm === "RUT") {
-						// Ruth has 4 chapters -> max 2 chapters cached at once
 						return makeChapterResponse("esv", 8, "RUT", chapter, makeVerses(20, `RUT ${chapter}`));
 					}
 					if (usfm === "PSA" && chapter === 119) {
@@ -1573,40 +1488,33 @@ describe("Reader UI & audio hooks", () => {
 						return makeChapterResponse("esv", 1, "GEN", chapter, makeVerses(150, `GEN ${chapter}`));
 					}
 					if (usfm === "JUD") {
-						// Single-chapter book (25 verses)
 						return makeChapterResponse("esv", 65, "JUD", 1, makeVerses(25, "JUD 1"));
 					}
 					return new Response("Not Found", { status: 404 });
 				},
 				async () => {
-					// Half-book cap on Ruth (4 chapters -> max 2 cached)
 					await loadTranslationChapter("esv", 8, 1);
 					await loadTranslationChapter("esv", 8, 2);
 					expect(fetchCounts.get("/api/esv/RUT/1")).toBe(1);
-					// Touch RUT 1 so RUT 2 becomes LRU before loading RUT 3
 					await loadTranslationChapter("esv", 8, 1);
 					expect(fetchCounts.get("/api/esv/RUT/1")).toBe(1);
 
 					await loadTranslationChapter("esv", 8, 3);
 					expect(getEsvCacheStats()).toEqual({ chapters: 2, verses: 40 });
-					// RUT 1 stayed cached, RUT 2 was evicted
 					await loadTranslationChapter("esv", 8, 1);
 					expect(fetchCounts.get("/api/esv/RUT/1")).toBe(1);
 					await loadTranslationChapter("esv", 8, 2);
 					expect(fetchCounts.get("/api/esv/RUT/2")).toBe(2);
 
-					// Global 400-verse cap across books
 					clearLoaderCaches();
-					await loadTranslationChapter("esv", 19, 119); // 176 verses
-					await loadTranslationChapter("esv", 1, 1); // 150 verses -> 326 total
+					await loadTranslationChapter("esv", 19, 119);
+					await loadTranslationChapter("esv", 1, 1);
 					expect(getEsvCacheStats()).toEqual({ chapters: 2, verses: 326 });
 
-					// Loading 150 more verses (326 + 150 = 476 > 400) evicts PSA 119 (176), leaving 300 <= 400
 					await loadTranslationChapter("esv", 1, 2);
 					expect(getEsvCacheStats().verses).toBe(300);
 					expect(getEsvCacheStats().verses).toBeLessThanOrEqual(MAX_ESV_CACHED_VERSES);
 
-					// Single-chapter book Jude can be cached
 					await loadTranslationChapter("esv", 65, 1);
 					expect(getEsvCacheStats().verses).toBe(325);
 					expect(getEsvCacheStats().verses).toBeLessThanOrEqual(MAX_ESV_CACHED_VERSES);

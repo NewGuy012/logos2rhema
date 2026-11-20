@@ -301,45 +301,52 @@ describe("korean-morphology", () => {
 		const rootDir = join(import.meta.dir, "..");
 		const lexicon: LexiconMap = await Bun.file(join(rootDir, "public/data/lexicon.json")).json();
 
+		const lexiconFailures: string[] = [];
 		for (const [key, entry] of Object.entries(lexicon)) {
-			expect(containsHangul(key)).toBe(true);
-			expect(entry.gloss.length).toBeGreaterThanOrEqual(2);
-			expect(entry.pos).toBeDefined();
-			expect(entry.gloss.includes("`")).toBe(false);
-			expect(containsHangul(entry.gloss)).toBe(false);
-			expect(/^\d+$/.test(entry.gloss)).toBe(false);
-			expect(
+			const openParens = entry.gloss.match(/\(/g)?.length ?? 0;
+			const closeParens = entry.gloss.match(/\)/g)?.length ?? 0;
+			if (
+				!containsHangul(key) ||
+				entry.gloss.length < 2 ||
+				entry.pos === undefined ||
+				entry.gloss.includes("`") ||
+				containsHangul(entry.gloss) ||
+				/^\d+$/.test(entry.gloss) ||
 				/\b(sth|sb|what the hell|napoo|ejaculation|petuntse|sharpbelly|heavy water|license plate|aiding the enemy)\b|\(English\)/i.test(
 					entry.gloss,
-				),
-			).toBe(false);
-			expect(entry.gloss.match(/\(/g)?.length ?? 0).toBe(entry.gloss.match(/\)/g)?.length ?? 0);
+				) ||
+				openParens !== closeParens
+			) {
+				lexiconFailures.push(`${key}: ${JSON.stringify(entry)}`);
+			}
+		}
+		expect(lexiconFailures).toEqual([]);
+
+		async function validateBibleDir(dir: string): Promise<string[]> {
+			const failures: string[] = [];
+			for (const book of BIBLE_BOOKS) {
+				const data = (await Bun.file(join(dir, `${book.usfm}.json`)).json()) as BookBibleData;
+				for (let ch = 1; ch <= book.chapters; ch++) {
+					const verses = data.chapters[String(ch)];
+					if (!verses?.length) {
+						failures.push(`${book.usfm} ${ch}: empty or missing`);
+						continue;
+					}
+					for (const v of verses) {
+						if (v.text.trim().length === 0) failures.push(`${book.usfm} ${ch}:${v.verse}: empty`);
+					}
+				}
+			}
+			return failures;
 		}
 
 		const localEsvDir = join(rootDir, ".cache/esv-local");
-		const hasLocalEsv = await Bun.file(join(localEsvDir, "GEN.json")).exists();
-
-		for (const book of BIBLE_BOOKS) {
-			const krv = (await Bun.file(
-				join(rootDir, "public/data/bibles/krv", `${book.usfm}.json`),
-			).json()) as BookBibleData;
-
-			for (let ch = 1; ch <= book.chapters; ch++) {
-				const krvVerses = krv.chapters[String(ch)];
-				expect(krvVerses?.length ?? 0).toBeGreaterThan(0);
-				for (const v of krvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
-			}
-
-			if (hasLocalEsv) {
-				const esv = (await Bun.file(
-					join(localEsvDir, `${book.usfm}.json`),
-				).json()) as BookBibleData;
-				for (let ch = 1; ch <= book.chapters; ch++) {
-					const esvVerses = esv.chapters[String(ch)];
-					expect(esvVerses?.length ?? 0).toBeGreaterThan(0);
-					for (const v of esvVerses) expect(v.text.trim().length).toBeGreaterThan(0);
-				}
-			}
-		}
+		const bibleFailures = [
+			...(await validateBibleDir(join(rootDir, "public/data/bibles/krv"))),
+			...((await Bun.file(join(localEsvDir, "GEN.json")).exists())
+				? await validateBibleDir(localEsvDir)
+				: []),
+		];
+		expect(bibleFailures).toEqual([]);
 	});
 });

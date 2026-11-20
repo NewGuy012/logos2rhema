@@ -5,16 +5,10 @@ import { act } from "react";
 import App from "../src/react-app/App";
 import { HomePage } from "../src/react-app/components/HomePage";
 import { clearLoaderCaches } from "../src/react-app/lib/bible-loader";
-import {
-	SUPERTONIC_COMPACT_BADGE,
-	SUPERTONIC_LICENSE_NAME,
-	SUPERTONIC_LICENSE_URL,
-	SUPERTONIC_TRACK_ATTRIBUTION,
-	SUPERTONIC_TRACK_ID,
-	SUPERTONIC_TRACK_LABEL,
-} from "../src/shared/audio-timings";
+import { SUPERTONIC_COMPACT_BADGE, SUPERTONIC_TRACK_LABEL } from "../src/shared/audio-timings";
 import { BIBLICAL_GLOSSARY, KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
 import {
+	assertLegalFooter,
 	createReaderFetchHandler,
 	fireClick,
 	flushAsync,
@@ -23,6 +17,7 @@ import {
 	installMockAudio,
 	makeBookResponse,
 	makeChapterResponse,
+	makeSupertonicTrack,
 	mockMatchMedia,
 	render,
 	setInputValue,
@@ -56,14 +51,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					if (url.startsWith("/api/audio/")) {
 						return Response.json({
 							tracks: [
-								{
-									id: SUPERTONIC_TRACK_ID,
-									label: SUPERTONIC_TRACK_LABEL,
-									language: "ko",
-									url: `${url.replace("/api/audio/", "/api/audio/krv/")}.mp3`,
-									isAiGenerated: true,
-									attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-								},
+								makeSupertonicTrack(`${url.replace("/api/audio/", "/api/audio/krv/")}.mp3`),
 								{
 									id: "esv-audio",
 									label: "ESV Audio",
@@ -100,17 +88,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						"Listen along verse by verse",
 					]);
 
-					const homeFooter = container.querySelector("footer.copyright-footer") as HTMLElement;
-					expect(homeFooter).not.toBeNull();
-					expect(homeFooter.textContent).toContain("대한성서공회");
-					expect(homeFooter.textContent).toContain("AI 낭독");
-					expect(homeFooter.textContent).toContain("Supertonic 3");
-					expect(homeFooter.textContent).not.toContain("Public Domain");
-					expect(homeFooter.textContent).not.toContain("KRDICT");
-					expect(homeFooter.querySelector(`a[href="${SUPERTONIC_LICENSE_URL}"]`)?.textContent).toBe(
-						SUPERTONIC_LICENSE_NAME,
-					);
-					expect(homeFooter.querySelector('a[href="https://www.esv.org"]')).not.toBeNull();
+					assertLegalFooter(container);
 
 					const browseSection = container.querySelector(
 						'section[aria-label="Browse"]',
