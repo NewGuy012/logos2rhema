@@ -589,13 +589,18 @@ describe("Worker API & Security Boundaries", () => {
 
 	it("serves /api/esv/:usfm/:chapter via Crossway HTML API and localEsvLoader with strict compliance headers", async () => {
 		const secretKey = "esv-text-secret-key-999";
-		const capturedRequests: Array<{ url: string; auth: string | null }> = [];
+		const capturedRequests: Array<{
+			url: string;
+			auth: string | null;
+			redirect?: RequestRedirect;
+		}> = [];
 
 		const mockFetch: FetchLike = async (input, init) => {
 			const url = String(input);
 			capturedRequests.push({
 				url,
 				auth: new Headers(init?.headers).get("Authorization"),
+				redirect: init?.redirect,
 			});
 			const parsedUrl = new URL(url);
 			const q = parsedUrl.searchParams.get("q");
@@ -620,6 +625,9 @@ describe("Worker API & Security Boundaries", () => {
 			}
 			if (q === "Genesis 5") {
 				return Response.json({ passages: ["<div>No verse numbers here</div>"] });
+			}
+			if (q === "Genesis 6") {
+				return new Response(null, { status: 302, headers: { Location: "https://evil.example/" } });
 			}
 			return new Response("Not Found", { status: 404 });
 		};
@@ -658,6 +666,7 @@ describe("Worker API & Security Boundaries", () => {
 
 		const reqUrl = new URL(capturedRequests[0]?.url ?? "");
 		expect(capturedRequests[0]?.auth).toBe(`Token ${secretKey}`);
+		expect(capturedRequests[0]?.redirect).toBe("manual");
 		expect(reqUrl.origin + reqUrl.pathname).toBe("https://api.esv.org/v3/passage/html/");
 		expect(reqUrl.searchParams.get("q")).toBe("Jude 1:1-99");
 		expect(reqUrl.searchParams.get("include-headings")).toBe("true");
@@ -689,6 +698,11 @@ describe("Worker API & Security Boundaries", () => {
 
 		const emptyHtml = await app.request("/api/esv/GEN/5", undefined, { ESV_API_KEY: secretKey });
 		expect(emptyHtml.status).toBe(502);
+
+		const redirectBlocked = await app.request("/api/esv/GEN/6", undefined, {
+			ESV_API_KEY: secretKey,
+		});
+		expect(redirectBlocked.status).toBe(502);
 
 		// localEsvLoader overrides live fetch when present and returns null fallback cleanly
 		let liveCallsWithLocal = 0;

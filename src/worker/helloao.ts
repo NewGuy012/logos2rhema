@@ -171,7 +171,8 @@ export async function fetchHelloAoCommentaryChapter(
 	try {
 		const response = await fetchWithTimeout(fetcher, url, {
 			headers: { Accept: "application/json" },
-			redirect: "error",
+			// Cloudflare Workers rejects redirect: "error" with a TypeError; manual + !response.ok rejects 3xx safely.
+			redirect: "manual",
 		});
 		if (response.status === 404) {
 			cancelBody(response);

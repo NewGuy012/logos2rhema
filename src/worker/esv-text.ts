@@ -323,7 +323,8 @@ export async function fetchEsvChapterVerses(
 				Authorization: `Token ${apiKey}`,
 				Accept: "application/json",
 			},
-			redirect: "error",
+			// Cloudflare Workers rejects redirect: "error" with a TypeError; manual + !response.ok rejects 3xx safely.
+			redirect: "manual",
 		});
 
 		if (response.status === 429) {
