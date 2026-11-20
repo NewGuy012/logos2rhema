@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { join } from "node:path";
 
 import type { ComponentProps } from "react";
 
@@ -242,5 +243,28 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 				expect(first).toEqual(second);
 			},
 		);
+	});
+
+	it("lays out the StudyRightRail dictionary/commentary toggle vertically in CSS", async () => {
+		const css = await Bun.file(join(import.meta.dir, "../src/react-app/index.css")).text();
+		const style = document.createElement("style");
+		style.textContent = css;
+		document.head.appendChild(style);
+
+		try {
+			const { container } = render(<StudyRightRail {...makeRailProps()} />);
+			const tablist = container.querySelector(
+				'[role="tablist"][aria-label="Study panel"]',
+			) as HTMLElement;
+			expect(tablist.getAttribute("aria-orientation")).toBe("vertical");
+
+			const computed = window.getComputedStyle(tablist);
+			expect(computed.display).toBe("grid");
+			expect(computed.gridAutoFlow).toBe("row");
+			expect(computed.gridTemplateColumns).toBe("minmax(0, 1fr)");
+			expect(computed.gridAutoRows).toBe("minmax(0, 1fr)");
+		} finally {
+			style.remove();
+		}
 	});
 });
