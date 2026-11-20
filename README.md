@@ -108,6 +108,10 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, and strict CSP/s
    # Direct SSH option & multi-book runs (also supports Korean/English names, e.g. "룻기", "Philemon")
    bun run audio:generate-krv --ssh tnr-0 --books RUT,PHM,JUD --staging multi-test --force
    bun run audio:generate-krv --thunder 0 --books GEN,EXO --force
+
+   # Parallel multi-VM sharding (e.g. 4x cheap 1x A6000 VMs for ~12-16 min whole-Bible runs, auto-deleted after sync)
+   bun run audio:generate-krv --shards 4 --create --mp3-quality 5 --delete-after --all --dry-run
+   bun run audio:generate-krv --shards 4 --create --mp3-quality 5 --delete-after --all
    ```
 
    Remote runs cache `.venv` (with CUDA `onnxruntime-gpu` when a GPU is detected) and Supertonic 3 weights on the VM, auto-shard batches across all detected GPUs (`--gpus`) with pipelined multi-vCPU MP3 encoding (`--mp3-quality 2`, or `5` for faster encoding), and never upload to R2 unless `--upload` is explicitly passed outside staging mode. Use `--shell` for an interactive `tnr connect` / SSH session, or `--setup-only` to pre-warm the VM environment.

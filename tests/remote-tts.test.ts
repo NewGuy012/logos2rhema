@@ -13,6 +13,7 @@ import {
 	type CommandRunner,
 	DEFAULT_THUNDER_VM_SPEC,
 	findSshConfigMatch,
+	formatShardSummary,
 	loadDevVarsRecord,
 	mergeBookTimingsPayload,
 	mergeGenerationReportPayload,
@@ -21,6 +22,7 @@ import {
 	parseProbeOutput,
 	parseSshTarget,
 	parseThunderStatusOutput,
+	partitionJobPlan,
 	quotePosix,
 	remoteDirBashExpr,
 	remoteDirTransferPath,
@@ -688,5 +690,246 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 		const good = await verifyAndSummarizeOutputs(plan, paths, rootDir);
 		expect(good.ok).toBe(true);
 		expect(good.errors).toEqual([]);
+	});
+
+	it("parses --shards options, balances full-Bible chapter weights, and rejects invalid combos", async () => {
+		const shardCreate = parseCliOptions(["--shards", "4", "--create", "--delete-after", "--all"]);
+		expect(shardCreate.shards).toBe(4);
+		expect(shardCreate.remote).toBe(true);
+		expect(shardCreate.create).toBe(true);
+		expect(shardCreate.deleteAfter).toBe(true);
+
+		const inferredThunder = parseCliOptions(["--thunder", "0,1,2", "--book", "PSA"]);
+		expect(inferredThunder.shards).toBe(3);
+		expect(inferredThunder.remote).toBe(true);
+
+		const inferredSsh = parseCliOptions(["--ssh", "ubuntu@h1,ubuntu@h2", "--book", "RUT"]);
+		expect(inferredSsh.shards).toBe(2);
+
+		expect(() => parseCliOptions(["--shards", "4", "--shell"])).toThrow("Cannot combine --shards");
+		expect(() => parseCliOptions(["--shards", "4", "--ssh", "ubuntu@onlyone"])).toThrow(
+			"requires 4 comma-separated SSH target",
+		);
+		expect(() => parseCliOptions(["--shards", "2", "--thunder", "0,1,2"])).toThrow(
+			"exceeds --shards 2",
+		);
+
+		// Partition real 66-book Bible (1,189 chapters) across 4 shards using KRV char weights
+		const realRoot = join(import.meta.dir, "..");
+		const allPaths = resolveOutputPaths(shardCreate, await makeTempDir("l2r-shard-plan-"));
+		const fullPlan = await buildPendingJobPlan(parseCliOptions(["--all", "--force"]), allPaths);
+		expect(fullPlan.pendingChapters).toBe(1189);
+		const shards4 = await partitionJobPlan(fullPlan, 4, realRoot);
+		expect(shards4).toHaveLength(4);
+		const seenRefs = new Set<string>();
+		for (const shard of shards4) {
+			expect(shard.pendingChapters).toBeGreaterThan(200);
+			expect(shard.pendingChapters).toBeLessThan(400);
+			expect(formatShardSummary(shard)).toContain("ch");
+			for (const [usfm, chs] of Object.entries(shard.chaptersByBook)) {
+				for (const ch of chs) {
+					const ref = `${usfm}:${ch}`;
+					expect(seenRefs.has(ref)).toBe(false);
+					seenRefs.add(ref);
+				}
+			}
+		}
+		expect(seenRefs.size).toBe(1189);
+
+		// Single-chapter book caps shards at 1
+		const obaPlan = await buildPendingJobPlan(
+			parseCliOptions(["--book", "OBA", "--force"]),
+			allPaths,
+		);
+		const obaShards = await partitionJobPlan(obaPlan, 4, realRoot);
+		expect(obaShards).toHaveLength(1);
+	});
+
+	it("orchestrates parallel --shards 2 --create --delete-after VMs, merges split book chapters safely, and skips create on --dry-run", async () => {
+		const rootDir = await makeTempDir("l2r-e2e-shards-");
+		await mkdir(join(rootDir, "scripts"), { recursive: true });
+		await mkdir(join(rootDir, "src", "shared"), { recursive: true });
+		await mkdir(join(rootDir, "public", "data", "bibles", "krv"), { recursive: true });
+		await writeFile(join(rootDir, "scripts", "generate-krv-audio.py"), "# mock\n", "utf8");
+		await writeFile(join(rootDir, "src", "shared", "books.ts"), "// mock\n", "utf8");
+		await writeFile(
+			join(rootDir, "public", "data", "bibles", "krv", "RUT.json"),
+			JSON.stringify({
+				usfm: "RUT",
+				bookNumber: 8,
+				chapters: {
+					"1": [{ verse: 1, text: "가나다라마바사아자차" }],
+					"2": [{ verse: 1, text: "가나다라마바사아자차" }],
+					"3": [{ verse: 1, text: "가나다라마바사아자차" }],
+					"4": [{ verse: 1, text: "가나다라마바사아자차" }],
+				},
+			}),
+			"utf8",
+		);
+
+		const createdList: Array<{
+			id: string;
+			uuid: string;
+			status: string;
+			gpuType: string;
+			ip: string;
+			port: number;
+		}> = [];
+		const deletedIds: string[] = [];
+		const uploadedShardDirs: string[] = [];
+		const streamPrefixes: string[] = [];
+
+		const runner: CommandRunner = {
+			which(bin) {
+				return bin === "tnr" ? "/usr/local/bin/tnr" : `/usr/bin/${bin}`;
+			},
+			async run(cmd, args): Promise<CommandResult> {
+				if (cmd === "/usr/local/bin/tnr") {
+					if (args.includes("create")) {
+						const idx = createdList.length;
+						const uuid = `uuid-shard-${idx}`;
+						createdList.push({
+							id: String(idx),
+							uuid,
+							status: "RUNNING",
+							gpuType: "a6000",
+							ip: `198.51.100.${10 + idx}`,
+							port: 40010 + idx,
+						});
+						return {
+							exitCode: 0,
+							stdout: JSON.stringify({ uuid, identifier: idx }),
+							stderr: "",
+						};
+					}
+					if (args.includes("status")) {
+						return { exitCode: 0, stdout: JSON.stringify(createdList), stderr: "" };
+					}
+					if (args.includes("delete")) {
+						deletedIds.push(args[args.length - 1]);
+						return { exitCode: 0, stdout: "{}", stderr: "" };
+					}
+				}
+				if (cmd === "ssh" && args.includes("-M")) {
+					return { exitCode: 0, stdout: "", stderr: "" };
+				}
+				if (cmd === "ssh" && args.includes("-O")) {
+					return { exitCode: 0, stdout: "", stderr: "" };
+				}
+				if (cmd === "ssh" && args.some((a) => a.includes("HAS_RSYNC"))) {
+					return {
+						exitCode: 0,
+						stdout: [
+							"OS=Linux",
+							"ARCH=x86_64",
+							"CPUS=8",
+							"GPU=NVIDIA RTX A6000, 49140 MiB",
+							"GPU_COUNT=1",
+							"CUDA_VER=13.3",
+							"HAS_RSYNC=1",
+							"HAS_UV=1",
+							"PY_BIN=/usr/bin/python3",
+						].join("\n"),
+						stderr: "",
+					};
+				}
+				if (cmd === "ssh" && args.some((a) => a.includes("echo PRESENT"))) {
+					return { exitCode: 0, stdout: "PRESENT\n", stderr: "" };
+				}
+				if (cmd === "ssh" && args.some((a) => a.includes("report.json"))) {
+					const scriptArg = args[args.length - 1];
+					const isShard1 = scriptArg.includes("shard-1");
+					const chs = isShard1
+						? { "RUT:1": { status: "ok" }, "RUT:2": { status: "ok" } }
+						: { "RUT:3": { status: "ok" }, "RUT:4": { status: "ok" } };
+					return {
+						exitCode: 0,
+						stdout: JSON.stringify({ chapters: chs }),
+						stderr: "",
+					};
+				}
+				if (cmd === "rsync") {
+					const src = args[args.length - 2];
+					const dst = args[args.length - 1];
+					if (dst.includes(":")) {
+						uploadedShardDirs.push(dst);
+						return { exitCode: 0, stdout: "", stderr: "" };
+					}
+					const isShard1 = src.includes("shard-1");
+					const chList = isShard1 ? [1, 2] : [3, 4];
+					if (src.includes("out/audio/")) {
+						await mkdir(join(dst, "RUT"), { recursive: true });
+						for (const ch of chList) {
+							await writeFile(join(dst, "RUT", `${ch}.mp3`), Buffer.alloc(1600, ch));
+						}
+					} else if (src.includes("out/timings/")) {
+						await mkdir(dst, { recursive: true });
+						const chMap: Record<string, Record<string, number>> = {};
+						for (const ch of chList) chMap[String(ch)] = { "1": 1.2 + ch * 0.1 };
+						await writeFile(join(dst, "RUT.json"), JSON.stringify({ chapters: chMap }), "utf8");
+					}
+					return { exitCode: 0, stdout: "", stderr: "" };
+				}
+				return { exitCode: 0, stdout: "", stderr: "" };
+			},
+			async runStreaming(_cmd, _args, opts): Promise<{ exitCode: number }> {
+				if (opts?.logPrefix) streamPrefixes.push(opts.logPrefix);
+				return { exitCode: 0 };
+			},
+			async runInteractive(): Promise<number> {
+				return 0;
+			},
+		};
+
+		// 1. --dry-run with --shards 2 --create must NOT provision any VMs
+		const dryCode = await runCli(
+			["--shards", "2", "--create", "--book", "RUT", "--staging", "shard-dry", "--dry-run"],
+			rootDir,
+			runner,
+		);
+		expect(dryCode).toBe(0);
+		expect(createdList).toHaveLength(0);
+
+		// 2. Full 2-shard run creates 2 VMs, splits RUT (ch 1-2 + ch 3-4), merges cleanly, and deletes both VMs
+		const code = await runCli(
+			[
+				"--shards",
+				"2",
+				"--create",
+				"--delete-after",
+				"--book",
+				"RUT",
+				"--staging",
+				"shard-test",
+				"--mp3-quality",
+				"5",
+				"--force",
+			],
+			rootDir,
+			runner,
+		);
+		expect(code).toBe(0);
+		expect(createdList).toHaveLength(2);
+		expect(deletedIds.sort()).toEqual(["0", "1"]);
+		expect(uploadedShardDirs.some((d) => d.includes("shard-1"))).toBe(true);
+		expect(uploadedShardDirs.some((d) => d.includes("shard-2"))).toBe(true);
+		expect(streamPrefixes.some((p) => p.includes("shard 1/2"))).toBe(true);
+		expect(streamPrefixes.some((p) => p.includes("shard 2/2"))).toBe(true);
+
+		const mergedTimings = JSON.parse(
+			await readFile(
+				join(rootDir, ".cache", "krv-supertonic-staging", "shard-test", "timings", "RUT.json"),
+				"utf8",
+			),
+		) as { chapters: Record<string, Record<string, number>> };
+		expect(Object.keys(mergedTimings.chapters)).toEqual(["1", "2", "3", "4"]);
+
+		const mergedReport = JSON.parse(
+			await readFile(
+				join(rootDir, ".cache", "krv-supertonic-staging", "shard-test", "report.json"),
+				"utf8",
+			),
+		) as { chapters: Record<string, unknown> };
+		expect(Object.keys(mergedReport.chapters).sort()).toEqual(["RUT:1", "RUT:2", "RUT:3", "RUT:4"]);
 	});
 });

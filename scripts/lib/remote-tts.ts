@@ -59,6 +59,7 @@ export interface CliOptions {
 	pullOnly: boolean;
 	create: boolean;
 	deleteAfter: boolean;
+	shards: number;
 	gpu?: string;
 	mode?: string;
 	numGpus?: number;
@@ -148,6 +149,7 @@ export interface CommandRunner {
 			cwd?: string;
 			env?: Record<string, string | undefined>;
 			onChild?: (kill: () => void) => void;
+			logPrefix?: string;
 		},
 	): Promise<{ exitCode: number }>;
 	runInteractive(
@@ -249,6 +251,13 @@ function parseNumberInRange(
 	return parsed;
 }
 
+function parseCommaList(raw: string): string[] {
+	return raw
+		.split(",")
+		.map((part) => part.trim())
+		.filter(Boolean);
+}
+
 function parseChapterList(raw: string): number[] {
 	const seen = new Set<number>();
 	const chapters: number[] = [];
@@ -277,8 +286,9 @@ Book & Chapter Scope:
   --chapters <LIST>         Optional comma-separated chapter numbers (e.g. 1,3)
 
 Thunder Compute (tnr CLI) & SSH Offload:
-  --thunder <ID>            Run on Thunder Compute instance ID/name via tnr CLI
-  --ssh <TARGET>            Run via explicit SSH target (alias, user@host, or user@host:port)
+  --thunder <ID[,ID...]>    Run on Thunder Compute instance ID/name(s) via tnr CLI
+  --ssh <TARGET[,...]>      Run via explicit SSH target(s) (alias, user@host, or user@host:port)
+  --shards <N>              Split chapters across N parallel remote VMs (1-16, default: 1; implies --remote)
   --remote                  Use THUNDER_INSTANCE / THUNDER_SSH_TARGET from .dev.vars or env
   --ssh-port <PORT>         Override SSH port (1-65535)
   --ssh-key <PATH>          Override SSH private key path
@@ -370,6 +380,7 @@ export function parseCliOptions(
 			"pull-only": { type: "boolean" },
 			create: { type: "boolean" },
 			"delete-after": { type: "boolean" },
+			shards: { type: "string" },
 			gpu: { type: "string" },
 			mode: { type: "string" },
 			"num-gpus": { type: "string" },
@@ -412,6 +423,7 @@ export function parseCliOptions(
 			pullOnly: false,
 			create: false,
 			deleteAfter: false,
+			shards: 1,
 			upload: false,
 			help: true,
 		};
@@ -460,6 +472,15 @@ export function parseCliOptions(
 	}
 	const transfer: TransferMethod = rawTransfer;
 
+	const rawShards =
+		values.shards !== undefined
+			? parseNumberInRange(values.shards, "--shards", 1, 16, true)
+			: undefined;
+	const cliThunderTargets = values.thunder ? parseCommaList(values.thunder) : [];
+	const cliSshTargets = values.ssh ? parseCommaList(values.ssh) : [];
+	const inferredShards = Math.max(cliThunderTargets.length, cliSshTargets.length, 1);
+	const shards = rawShards ?? inferredShards;
+
 	const explicitRemote =
 		Boolean(values.remote) ||
 		values.thunder !== undefined ||
@@ -467,16 +488,36 @@ export function parseCliOptions(
 		Boolean(values.create) ||
 		Boolean(values["setup-only"]) ||
 		Boolean(values.shell) ||
-		Boolean(values["pull-only"]);
+		Boolean(values["pull-only"]) ||
+		shards > 1;
 
 	const thunder =
 		values.thunder?.trim() ||
-		(explicitRemote ? env.THUNDER_INSTANCE?.trim() : undefined) ||
+		(explicitRemote && shards === 1 ? env.THUNDER_INSTANCE?.trim() : undefined) ||
 		undefined;
 	const ssh =
 		values.ssh?.trim() ||
-		(explicitRemote ? env.THUNDER_SSH_TARGET?.trim() : undefined) ||
+		(explicitRemote && shards === 1 ? env.THUNDER_SSH_TARGET?.trim() : undefined) ||
 		undefined;
+
+	if (values.thunder && values.ssh) {
+		throw new Error("Options --thunder and --ssh are mutually exclusive.");
+	}
+	if (shards > 1 && values.shell) {
+		throw new Error("Cannot combine --shards > 1 with --shell.");
+	}
+	const thunderTargets = thunder ? parseCommaList(thunder) : [];
+	const sshTargets = ssh ? parseCommaList(ssh) : [];
+	if (shards > 1 && sshTargets.length > 0 && sshTargets.length !== shards) {
+		throw new Error(
+			`--shards ${shards} with --ssh requires ${shards} comma-separated SSH target(s), got ${sshTargets.length}.`,
+		);
+	}
+	if (shards > 1 && thunderTargets.length > shards) {
+		throw new Error(
+			`Received ${thunderTargets.length} --thunder instance(s), which exceeds --shards ${shards}.`,
+		);
+	}
 
 	const rawPort = values["ssh-port"] ?? (explicitRemote ? env.THUNDER_SSH_PORT : undefined);
 	const sshPort =
@@ -592,6 +633,7 @@ export function parseCliOptions(
 		pullOnly: Boolean(values["pull-only"]),
 		create: Boolean(values.create),
 		deleteAfter: Boolean(values["delete-after"]),
+		shards,
 		gpu:
 			values.gpu?.trim() ||
 			(explicitRemote ? env.THUNDER_GPU?.trim() || DEFAULT_THUNDER_VM_SPEC.gpu : undefined),
@@ -996,6 +1038,130 @@ export async function buildPendingJobPlan(
 	};
 }
 
+interface WeightedChapter {
+	book: BookMeta;
+	chapter: number;
+	weight: number;
+}
+
+async function loadBookChapterWeights(
+	usfm: string,
+	rootDir?: string,
+): Promise<Map<number, number>> {
+	const weights = new Map<number, number>();
+	if (!rootDir) return weights;
+	try {
+		const raw = JSON.parse(
+			await readFile(join(rootDir, "public", "data", "bibles", "krv", `${usfm}.json`), "utf8"),
+		) as { chapters?: Record<string, Array<{ text?: string }>> };
+		if (raw && typeof raw.chapters === "object" && raw.chapters !== null) {
+			for (const [chKey, verses] of Object.entries(raw.chapters)) {
+				const ch = Number.parseInt(chKey, 10);
+				if (!Number.isFinite(ch) || !Array.isArray(verses)) continue;
+				let chars = 0;
+				for (const v of verses) {
+					if (typeof v?.text === "string") chars += v.text.length;
+				}
+				weights.set(ch, Math.max(100, chars));
+			}
+		}
+	} catch {
+		// Fall back to uniform per-chapter weights when KRV JSON isn't present (e.g. mocked tests).
+	}
+	return weights;
+}
+
+export async function partitionJobPlan(
+	jobPlan: JobPlan,
+	shardCount: number,
+	rootDir?: string,
+): Promise<JobPlan[]> {
+	const bookByUsfm = new Map(jobPlan.books.map((b) => [b.usfm, b]));
+	const items: WeightedChapter[] = [];
+
+	for (const book of jobPlan.books) {
+		const chapters = jobPlan.chaptersByBook[book.usfm];
+		if (!chapters || chapters.length === 0) continue;
+		const weights = await loadBookChapterWeights(book.usfm, rootDir);
+		for (const ch of chapters) {
+			items.push({
+				book,
+				chapter: ch,
+				weight: weights.get(ch) ?? 1,
+			});
+		}
+	}
+
+	if (items.length === 0) return [];
+	const effectiveShards = Math.max(1, Math.min(shardCount, items.length));
+	if (effectiveShards === 1) {
+		return [jobPlan];
+	}
+
+	const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+	const buckets: WeightedChapter[][] = Array.from({ length: effectiveShards }, () => []);
+	let shardIdx = 0;
+	let cumWeight = 0;
+
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
+		const remainingItems = items.length - i;
+		const remainingShardsAfterCurrent = effectiveShards - 1 - shardIdx;
+
+		if (
+			shardIdx < effectiveShards - 1 &&
+			buckets[shardIdx].length > 0 &&
+			(remainingItems <= remainingShardsAfterCurrent ||
+				cumWeight + item.weight / 2 >= ((shardIdx + 1) * totalWeight) / effectiveShards)
+		) {
+			shardIdx++;
+		}
+		buckets[shardIdx].push(item);
+		cumWeight += item.weight;
+	}
+
+	return buckets
+		.filter((bucket) => bucket.length > 0)
+		.map((bucket) => {
+			const chaptersByBook: Record<string, number[]> = {};
+			const books: BookMeta[] = [];
+			const seenBooks = new Set<string>();
+			for (const entry of bucket) {
+				const usfm = entry.book.usfm;
+				if (!seenBooks.has(usfm)) {
+					seenBooks.add(usfm);
+					const meta = bookByUsfm.get(usfm) ?? entry.book;
+					books.push(meta);
+					chaptersByBook[usfm] = [];
+				}
+				chaptersByBook[usfm].push(entry.chapter);
+			}
+			return {
+				books,
+				chaptersByBook,
+				totalSelectedChapters: bucket.length,
+				pendingChapters: bucket.length,
+				skippedChapters: 0,
+			};
+		});
+}
+
+export function formatShardSummary(shard: JobPlan): string {
+	const usfms = Object.keys(shard.chaptersByBook);
+	if (usfms.length === 0) return "0 chapters";
+	if (usfms.length === 1) {
+		const usfm = usfms[0];
+		const chs = shard.chaptersByBook[usfm];
+		const range = chs.length === 1 ? `${chs[0]}` : `${chs[0]}-${chs[chs.length - 1]}`;
+		return `${shard.pendingChapters} ch (${usfm} ${range})`;
+	}
+	const firstUsfm = usfms[0];
+	const lastUsfm = usfms[usfms.length - 1];
+	const firstChs = shard.chaptersByBook[firstUsfm];
+	const lastChs = shard.chaptersByBook[lastUsfm];
+	return `${shard.pendingChapters} ch across ${usfms.length} book(s) (${firstUsfm}:${firstChs[0]}..${lastUsfm}:${lastChs[lastChs.length - 1]})`;
+}
+
 export function mergeBookTimingsPayload(
 	existing: Record<string, unknown> | null,
 	incoming: Record<string, unknown>,
@@ -1085,12 +1251,13 @@ export function createDefaultCommandRunner(): CommandRunner {
 			return { exitCode, stdout, stderr };
 		},
 		async runStreaming(cmd, args, opts) {
+			const prefix = opts?.logPrefix;
 			const proc = Bun.spawn([cmd, ...args], {
 				cwd: opts?.cwd,
 				env: opts?.env ? { ...process.env, ...opts.env } : process.env,
 				stdin: "ignore",
-				stdout: "inherit",
-				stderr: "inherit",
+				stdout: prefix ? "pipe" : "inherit",
+				stderr: prefix ? "pipe" : "inherit",
 			});
 			opts?.onChild?.(() => {
 				try {
@@ -1099,6 +1266,38 @@ export function createDefaultCommandRunner(): CommandRunner {
 					// process may already have exited
 				}
 			});
+			if (prefix && proc.stdout && proc.stderr) {
+				const pump = async (
+					stream: ReadableStream<Uint8Array>,
+					target: NodeJS.WriteStream,
+				): Promise<void> => {
+					const reader = stream.getReader();
+					const decoder = new TextDecoder();
+					let carry = "";
+					try {
+						while (true) {
+							const { value, done } = await reader.read();
+							if (done) break;
+							carry += decoder.decode(value, { stream: true });
+							const lines = carry.split(/\r?\n/);
+							carry = lines.pop() ?? "";
+							for (const line of lines) {
+								if (line.length > 0) target.write(`${prefix}${line}\n`);
+							}
+						}
+						carry += decoder.decode();
+						if (carry.length > 0) target.write(`${prefix}${carry}\n`);
+					} finally {
+						reader.releaseLock();
+					}
+				};
+				const [exitCode] = await Promise.all([
+					proc.exited,
+					pump(proc.stdout, process.stdout),
+					pump(proc.stderr, process.stderr),
+				]);
+				return { exitCode };
+			}
 			const exitCode = await proc.exited;
 			return { exitCode };
 		},
@@ -1183,7 +1382,7 @@ async function runRemoteBash(
 	endpoint: SshEndpoint,
 	controlPath: string | undefined,
 	script: string,
-	opts?: { streaming?: boolean; onChild?: (kill: () => void) => void },
+	opts?: { streaming?: boolean; onChild?: (kill: () => void) => void; logPrefix?: string },
 ): Promise<CommandResult> {
 	const args = [
 		...buildSshBaseArgs(endpoint, controlPath),
@@ -1191,7 +1390,10 @@ async function runRemoteBash(
 		`bash -c ${quotePosix(script)}`,
 	];
 	if (opts?.streaming) {
-		const res = await runner.runStreaming("ssh", args, { onChild: opts.onChild });
+		const res = await runner.runStreaming("ssh", args, {
+			onChild: opts.onChild,
+			logPrefix: opts.logPrefix,
+		});
 		return { exitCode: res.exitCode, stdout: "", stderr: "" };
 	}
 	return runner.run("ssh", args, { stdin: "ignore" });
@@ -1229,23 +1431,33 @@ export function buildTnrCreateArgs(options: CliOptions): string[] {
 	return args;
 }
 
-async function persistCreatedThunderKey(rawCreateStdout: string): Promise<void> {
+async function persistCreatedThunderKey(
+	rawCreateStdout: string,
+): Promise<{ uuid?: string; id?: string }> {
 	try {
-		const parsed = extractJsonValue(rawCreateStdout) as { uuid?: unknown; key?: unknown } | null;
-		if (
-			parsed &&
-			typeof parsed.uuid === "string" &&
-			parsed.uuid.trim() &&
-			typeof parsed.key === "string" &&
-			parsed.key.includes("PRIVATE KEY")
-		) {
+		const parsed = extractJsonValue(rawCreateStdout) as {
+			uuid?: unknown;
+			identifier?: unknown;
+			id?: unknown;
+			key?: unknown;
+		} | null;
+		const uuid =
+			typeof parsed?.uuid === "string" && parsed.uuid.trim() ? parsed.uuid.trim() : undefined;
+		const rawId = parsed?.identifier ?? parsed?.id;
+		const id =
+			typeof rawId === "number" || (typeof rawId === "string" && rawId.trim())
+				? String(rawId).trim()
+				: undefined;
+		if (uuid && typeof parsed?.key === "string" && parsed.key.includes("PRIVATE KEY")) {
 			const keysDir = join(homedir(), ".thunder", "keys");
 			await mkdir(keysDir, { recursive: true, mode: 0o700 });
-			const keyPath = join(keysDir, parsed.uuid.trim());
+			const keyPath = join(keysDir, uuid);
 			await writeFile(keyPath, parsed.key, { mode: 0o600 });
 		}
+		return { uuid, id };
 	} catch {
 		// ignore if non-JSON or key already managed via tnr connect
+		return {};
 	}
 }
 
@@ -1253,7 +1465,7 @@ async function createThunderInstance(
 	tnrBin: string,
 	options: CliOptions,
 	runner: CommandRunner,
-): Promise<ThunderInstanceInfo[]> {
+): Promise<{ instances: ThunderInstanceInfo[]; createdHint: { uuid?: string; id?: string } }> {
 	const args = buildTnrCreateArgs(options);
 
 	console.log(`Provisioning Thunder Compute instance: tnr ${args.join(" ")}`);
@@ -1263,14 +1475,61 @@ async function createThunderInstance(
 			`\`tnr create\` failed (exit ${created.exitCode}): ${created.stderr.trim() || created.stdout.trim()}`,
 		);
 	}
-	await persistCreatedThunderKey(created.stdout);
+	const createdHint = await persistCreatedThunderKey(created.stdout);
 	const after = await runner.run(tnrBin, ["--json", "status", "--no-wait"], { stdin: "ignore" });
 	if (after.exitCode !== 0) {
 		throw new Error(
 			`\`tnr status\` failed after create: ${after.stderr.trim() || after.stdout.trim()}`,
 		);
 	}
-	return parseThunderStatusOutput(after.stdout);
+	return { instances: parseThunderStatusOutput(after.stdout), createdHint };
+}
+
+async function fetchThunderInstances(
+	tnrBin: string,
+	runner: CommandRunner,
+): Promise<ThunderInstanceInfo[]> {
+	const res = await runner.run(tnrBin, ["--json", "status", "--no-wait"], { stdin: "ignore" });
+	if (res.exitCode !== 0) {
+		const msg = res.stderr.trim() || res.stdout.trim();
+		throw new Error(
+			`\`tnr --json status --no-wait\` failed (exit ${res.exitCode}): ${msg}\nRun \`tnr login\` if you are not signed in.`,
+		);
+	}
+	return parseThunderStatusOutput(res.stdout);
+}
+
+async function waitForThunderInstancesRunning(
+	tnrBin: string,
+	initialTargets: ThunderInstanceInfo[],
+	runner: CommandRunner,
+): Promise<ThunderInstanceInfo[]> {
+	let targets = [...initialTargets];
+	const deadline = Date.now() + 240_000;
+	while (targets.some((t) => t.status !== "RUNNING" || !t.ip) && Date.now() < deadline) {
+		const pending = targets
+			.filter((t) => t.status !== "RUNNING" || !t.ip)
+			.map((t) => `${t.id}(${t.status})`)
+			.join(", ");
+		console.log(`Waiting for Thunder instance(s) to become RUNNING: ${pending}...`);
+		await Bun.sleep(4_000);
+		const latest = await fetchThunderInstances(tnrBin, runner);
+		targets = targets.map(
+			(t) =>
+				(t.uuid ? findMatchingInstance(latest, t.uuid) : undefined) ??
+				findMatchingInstance(latest, t.id) ??
+				t,
+		);
+	}
+
+	const unready = targets.filter((t) => t.status !== "RUNNING" || !t.ip);
+	if (unready.length > 0) {
+		const summary = unready
+			.map((t) => `${t.id} (status=${t.status}, ip=${t.ip ?? "none"})`)
+			.join(", ");
+		throw new Error(`Thunder instance(s) did not become ready in time: ${summary}.`);
+	}
+	return targets;
 }
 
 async function resolveThunderInstance(
@@ -1278,20 +1537,10 @@ async function resolveThunderInstance(
 	options: CliOptions,
 	runner: CommandRunner,
 ): Promise<ThunderInstanceInfo> {
-	const fetchStatus = async (): Promise<ThunderInstanceInfo[]> => {
-		const res = await runner.run(tnrBin, ["--json", "status", "--no-wait"], { stdin: "ignore" });
-		if (res.exitCode !== 0) {
-			const msg = res.stderr.trim() || res.stdout.trim();
-			throw new Error(
-				`\`tnr --json status --no-wait\` failed (exit ${res.exitCode}): ${msg}\nRun \`tnr login\` if you are not signed in.`,
-			);
-		}
-		return parseThunderStatusOutput(res.stdout);
-	};
-
-	let instances = await fetchStatus();
+	let instances = await fetchThunderInstances(tnrBin, runner);
 	if (options.create && (!options.thunder || !findMatchingInstance(instances, options.thunder))) {
-		instances = await createThunderInstance(tnrBin, options, runner);
+		const created = await createThunderInstance(tnrBin, options, runner);
+		instances = created.instances;
 	}
 
 	if (instances.length === 0) {
@@ -1326,24 +1575,106 @@ async function resolveThunderInstance(
 		}
 	}
 
-	// Wait if instance is still starting/provisioning.
-	const deadline = Date.now() + 180_000;
-	while ((target.status !== "RUNNING" || !target.ip) && Date.now() < deadline) {
-		console.log(
-			`Waiting for Thunder instance ${target.id} (status=${target.status}) to become RUNNING...`,
-		);
-		await Bun.sleep(4_000);
-		instances = await fetchStatus();
-		target = findMatchingInstance(instances, target.id) ?? target;
+	const [ready] = await waitForThunderInstancesRunning(tnrBin, [target], runner);
+	return ready;
+}
+
+async function resolveThunderShards(
+	tnrBin: string,
+	options: CliOptions,
+	neededCount: number,
+	runner: CommandRunner,
+): Promise<{ instances: ThunderInstanceInfo[]; createdIds: Set<string> }> {
+	let instances = await fetchThunderInstances(tnrBin, runner);
+	const explicitSelectors = options.thunder ? parseCommaList(options.thunder) : [];
+	const selected: ThunderInstanceInfo[] = [];
+	const seenKeys = new Set<string>();
+	const createdIds = new Set<string>();
+
+	const instanceKey = (inst: ThunderInstanceInfo) => inst.uuid || inst.id;
+
+	for (const selector of explicitSelectors) {
+		const match = findMatchingInstance(instances, selector);
+		if (!match) {
+			const available = instances
+				.map((i) => `${i.id} (${i.status}${i.gpuType ? `, ${i.gpuType}` : ""})`)
+				.join(", ");
+			throw new Error(
+				`Thunder instance "${selector}" not found. Available: ${available || "none"}`,
+			);
+		}
+		const key = instanceKey(match);
+		if (seenKeys.has(key)) {
+			throw new Error(`Duplicate Thunder instance "${selector}" in --thunder list.`);
+		}
+		seenKeys.add(key);
+		selected.push(match);
 	}
 
-	if (target.status !== "RUNNING" || !target.ip) {
-		throw new Error(
-			`Thunder instance ${target.id} is not ready (status=${target.status}, ip=${target.ip ?? "none"}).`,
-		);
+	const shortfall = neededCount - selected.length;
+	if (shortfall > 0) {
+		if (options.create) {
+			const args = buildTnrCreateArgs(options);
+			const createdHints: Array<{ uuid?: string; id?: string }> = [];
+			const preExistingKeys = new Set(instances.map(instanceKey));
+
+			for (let i = 0; i < shortfall; i++) {
+				console.log(
+					`Provisioning Thunder Compute shard VM ${i + 1}/${shortfall}: tnr ${args.join(" ")}`,
+				);
+				const res = await runner.run(tnrBin, args, { stdin: "ignore" });
+				if (res.exitCode !== 0) {
+					throw new Error(
+						`\`tnr create\` failed for shard VM ${i + 1}/${shortfall} (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim()}`,
+					);
+				}
+				createdHints.push(await persistCreatedThunderKey(res.stdout));
+			}
+
+			instances = await fetchThunderInstances(tnrBin, runner);
+			for (const hint of createdHints) {
+				let match =
+					(hint.uuid ? findMatchingInstance(instances, hint.uuid) : undefined) ??
+					(hint.id ? findMatchingInstance(instances, hint.id) : undefined);
+				if (!match) {
+					match = instances.find(
+						(inst) => !preExistingKeys.has(instanceKey(inst)) && !seenKeys.has(instanceKey(inst)),
+					);
+				}
+				if (!match) {
+					throw new Error(
+						"Created a Thunder instance via `tnr create`, but could not locate it in `tnr --json status --no-wait`.",
+					);
+				}
+				seenKeys.add(instanceKey(match));
+				createdIds.add(match.id);
+				selected.push(match);
+			}
+		} else if (explicitSelectors.length === 0) {
+			const running = instances.filter((i) => i.status === "RUNNING");
+			if (running.length === neededCount) {
+				for (const inst of running) {
+					seenKeys.add(instanceKey(inst));
+					selected.push(inst);
+				}
+				console.log(
+					`Auto-selected ${running.length} running Thunder instance(s): ${running.map((i) => i.id).join(", ")}.`,
+				);
+			} else {
+				const available = instances.map((i) => `${i.id} (${i.status})`).join(", ") || "none";
+				throw new Error(
+					`--shards ${neededCount} needs ${neededCount} Thunder instance(s), found ${running.length} running (${available}). Pass --create to provision ${neededCount} VM(s) automatically, or pass --thunder id1,id2,...`,
+				);
+			}
+		} else {
+			throw new Error(
+				`Specified ${explicitSelectors.length} --thunder instance(s), but --shards ${neededCount} requires ${neededCount}. Pass --create to provision the remaining ${shortfall} VM(s).`,
+			);
+		}
 	}
 
-	return target;
+	const ready = await waitForThunderInstancesRunning(tnrBin, selected, runner);
+	return { instances: ready, createdIds };
 }
 
 async function resolveEndpointForRun(
@@ -1488,6 +1819,7 @@ async function bootstrapRemoteEnv(
 	requestedDevice: DevicePreference,
 	forceVerify = false,
 	verbose = false,
+	logPrefix = "",
 ): Promise<{ activeDevice: "cuda" | "cpu" }> {
 	const wantCuda = requestedDevice === "cuda" || (requestedDevice === "auto" && probe.hasNvidiaGpu);
 	if (requestedDevice === "cuda" && !probe.hasNvidiaGpu) {
@@ -1565,19 +1897,30 @@ fi
 `;
 
 	console.log(
-		`Bootstrapping remote environment at ${paths.remoteBaseDir} (${wantCuda ? `CUDA (${ortGpuSpec})` : "CPU"})...`,
+		`${logPrefix}Bootstrapping remote environment at ${paths.remoteBaseDir} (${wantCuda ? `CUDA (${ortGpuSpec})` : "CPU"})...`,
 	);
 	const res = await runRemoteBash(runner, endpoint, controlPath, bootstrapScript, {
 		streaming: true,
+		logPrefix: logPrefix || undefined,
 	});
 	if (res.exitCode !== 0) {
 		if (requestedDevice === "auto" && wantCuda) {
 			console.warn(
-				"CUDA bootstrap failed under --device auto; retrying remote environment in CPU mode...",
+				`${logPrefix}CUDA bootstrap failed under --device auto; retrying remote environment in CPU mode...`,
 			);
-			return bootstrapRemoteEnv(runner, endpoint, controlPath, paths, probe, "cpu");
+			return bootstrapRemoteEnv(
+				runner,
+				endpoint,
+				controlPath,
+				paths,
+				probe,
+				"cpu",
+				forceVerify,
+				verbose,
+				logPrefix,
+			);
 		}
-		throw new Error(`Remote bootstrap failed (exit ${res.exitCode}).`);
+		throw new Error(`${logPrefix}Remote bootstrap failed (exit ${res.exitCode}).`);
 	}
 
 	return { activeDevice: wantCuda ? "cuda" : "cpu" };
@@ -1811,6 +2154,7 @@ async function mergePulledOutputs(
 	pullRoot: string,
 	paths: OutputPaths,
 	allowedUsfms?: ReadonlySet<string>,
+	mergeExistingReport = false,
 ): Promise<{ mp3Count: number; timingCount: number; mergedReport: boolean }> {
 	let mp3Count = 0;
 	let timingCount = 0;
@@ -1885,7 +2229,7 @@ async function mergePulledOutputs(
 			unknown
 		>;
 		let existingReport: Record<string, unknown> | null = null;
-		if (paths.mode === "production") {
+		if (paths.mode === "production" || mergeExistingReport) {
 			try {
 				existingReport = JSON.parse(await readFile(paths.localReportPath, "utf8")) as Record<
 					string,
@@ -1962,6 +2306,7 @@ async function pullAndMergeOutputs(
 	paths: OutputPaths,
 	rootDir: string,
 	allowedUsfms: ReadonlySet<string>,
+	withMergeLock?: <T>(fn: () => Promise<T>) => Promise<T>,
 ): Promise<{ mp3Count: number; timingCount: number; mergedReport: boolean }> {
 	const cacheParent = join(rootDir, ".cache");
 	await mkdir(cacheParent, { recursive: true });
@@ -1997,7 +2342,8 @@ async function pullAndMergeOutputs(
 		if (reportRes.exitCode === 0 && reportRes.stdout.trim()) {
 			await writeFile(join(pullTmp, "report.json"), reportRes.stdout, "utf8");
 		}
-		return await mergePulledOutputs(pullTmp, paths, allowedUsfms);
+		const doMerge = () => mergePulledOutputs(pullTmp, paths, allowedUsfms, Boolean(withMergeLock));
+		return withMergeLock ? await withMergeLock(doMerge) : await doMerge();
 	} finally {
 		await rm(pullTmp, { recursive: true, force: true }).catch(() => {});
 	}
@@ -2074,44 +2420,118 @@ async function printStagingComparison(
 	}
 }
 
-export async function runRemoteWorkflow(
-	options: CliOptions,
-	rootDir: string,
-	runner: CommandRunner = createDefaultCommandRunner(),
-): Promise<number> {
-	const paths = resolveOutputPaths(options, rootDir);
-	const tnrBin = resolveTnrBinary(runner);
-
-	if ((options.thunder || options.create) && !tnrBin) {
-		throw new Error(
-			"Thunder Compute CLI (`tnr`) not found in PATH.\nInstall it with `brew tap Thunder-Compute/tnr && brew install tnr` and run `tnr login`, or use `--ssh <target>` directly.",
+async function deleteThunderInstance(
+	tnrBin: string,
+	instanceId: string,
+	runner: CommandRunner,
+): Promise<boolean> {
+	console.log(`Deleting Thunder Compute instance ${instanceId} (--delete-after)...`);
+	const delRes = await runner.run(tnrBin, ["--json", "-y", "delete", instanceId], {
+		stdin: "ignore",
+	});
+	if (delRes.exitCode !== 0) {
+		console.error(
+			`Warning: \`tnr delete ${instanceId}\` failed: ${delRes.stderr.trim() || delRes.stdout.trim()}`,
 		);
+		return false;
 	}
+	return true;
+}
 
-	let instance: ThunderInstanceInfo | undefined;
-	const useThunderCli = Boolean(options.thunder || options.create || (!options.ssh && tnrBin));
-	if (useThunderCli && tnrBin) {
-		instance = await resolveThunderInstance(tnrBin, options, runner);
+interface ShardExecutionResult {
+	exitCode: number;
+	pullCompletedCleanly: boolean;
+	synthesisErrors: boolean;
+	mp3Count: number;
+	timingCount: number;
+	mergedReport: boolean;
+}
+
+async function openSshControlMasterWithRetry(
+	runner: CommandRunner,
+	endpoint: SshEndpoint,
+	controlPath: string,
+	instance: ThunderInstanceInfo | undefined,
+	maxAttempts: number,
+	logPrefix: string,
+): Promise<void> {
+	let lastErr = "";
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const masterRes = await runner.run(
+			"ssh",
+			[
+				...buildSshBaseArgs(endpoint),
+				"-M",
+				"-N",
+				"-f",
+				"-o",
+				`ControlPath=${controlPath}`,
+				"-o",
+				"ControlPersist=60",
+				endpoint.target,
+			],
+			{ stdin: "ignore" },
+		);
+		if (masterRes.exitCode === 0) return;
+		lastErr = masterRes.stderr.trim() || masterRes.stdout.trim();
+		const retryable =
+			attempt < maxAttempts &&
+			/Connection refused|Connection closed|Operation timed out|Connection reset/i.test(lastErr);
+		if (!retryable) break;
+		console.log(
+			`${logPrefix}SSH not ready yet on ${endpoint.target} (attempt ${attempt}/${maxAttempts}), retrying in 4s...`,
+		);
+		await Bun.sleep(4_000);
 	}
-
-	const endpoint = await resolveEndpointForRun(options, tnrBin, instance);
-
-	if (options.shell) {
-		if (!options.ssh && tnrBin && instance) {
-			console.log(`Opening Thunder interactive shell for instance ${instance.id}...`);
-			return runner.runInteractive(tnrBin, ["connect", instance.id]);
-		}
-		console.log(`Opening SSH shell to ${endpoint.target}...`);
-		const args = [...buildSshBaseArgs(endpoint), "-o", "BatchMode=no", endpoint.target];
-		return runner.runInteractive("ssh", args);
-	}
-
-	const jobPlan = await buildPendingJobPlan(options, paths);
-	console.log(
-		`Plan [${paths.mode}${paths.stagingName ? `:${paths.stagingName}` : ""}]: ` +
-			`${jobPlan.books.length} book(s), ${jobPlan.totalSelectedChapters} chapter(s) ` +
-			`(${jobPlan.pendingChapters} pending, ${jobPlan.skippedChapters} already local).`,
+	const hint = instance
+		? ` If using tnr, run \`tnr connect ${instance.id}\` once or attach your SSH key via \`tnr ssh-keys add\`.`
+		: "";
+	throw new Error(
+		`${logPrefix}Failed to establish SSH connection to ${endpoint.target}: ${lastErr}.${hint}`,
 	);
+}
+
+function deriveShardOutputPaths(basePaths: OutputPaths, shardNumber: number): OutputPaths {
+	const remoteRunDir = `${basePaths.remoteRunDir}/shard-${shardNumber}`;
+	return {
+		...basePaths,
+		remoteRunDir,
+		remoteAudioDir: `${remoteRunDir}/out/audio`,
+		remoteTimingsDir: `${remoteRunDir}/out/timings`,
+		remoteReportPath: `${remoteRunDir}/out/report.json`,
+	};
+}
+
+async function executeRemoteShard(params: {
+	options: CliOptions;
+	paths: OutputPaths;
+	jobPlan: JobPlan;
+	rootDir: string;
+	runner: CommandRunner;
+	tnrBin: string | null;
+	instance: ThunderInstanceInfo | undefined;
+	endpoint: SshEndpoint;
+	logPrefix?: string;
+	registerKill?: (kill: () => void) => () => void;
+	isInterrupted?: () => boolean;
+	withMergeLock?: <T>(fn: () => Promise<T>) => Promise<T>;
+	freshVm?: boolean;
+}): Promise<ShardExecutionResult> {
+	const {
+		options,
+		paths,
+		jobPlan,
+		rootDir,
+		runner,
+		tnrBin,
+		instance,
+		endpoint,
+		logPrefix = "",
+		registerKill,
+		isInterrupted,
+		withMergeLock,
+		freshVm = false,
+	} = params;
 
 	// Short socket path under /tmp to stay well within macOS 104-byte Unix socket limit.
 	const socketParent = await mkdtemp("/tmp/l2r-ssh-");
@@ -2130,31 +2550,16 @@ export async function runRemoteWorkflow(
 
 	try {
 		console.log(
-			`Opening SSH ControlMaster to ${endpoint.target}${endpoint.port ? `:${endpoint.port}` : ""}...`,
+			`${logPrefix}Opening SSH ControlMaster to ${endpoint.target}${endpoint.port ? `:${endpoint.port}` : ""}...`,
 		);
-		const masterRes = await runner.run(
-			"ssh",
-			[
-				...buildSshBaseArgs(endpoint),
-				"-M",
-				"-N",
-				"-f",
-				"-o",
-				`ControlPath=${controlPath}`,
-				"-o",
-				"ControlPersist=60",
-				endpoint.target,
-			],
-			{ stdin: "ignore" },
+		await openSshControlMasterWithRetry(
+			runner,
+			endpoint,
+			controlPath,
+			instance,
+			freshVm ? 5 : 1,
+			logPrefix,
 		);
-		if (masterRes.exitCode !== 0) {
-			const hint = instance
-				? ` If using tnr, run \`tnr connect ${instance.id}\` once or attach your SSH key via \`tnr ssh-keys add\`.`
-				: "";
-			throw new Error(
-				`Failed to establish SSH connection to ${endpoint.target}: ${masterRes.stderr.trim() || masterRes.stdout.trim()}.${hint}`,
-			);
-		}
 		controlOpen = true;
 
 		const probe = await probeRemoteHost(runner, endpoint, controlPath);
@@ -2162,7 +2567,7 @@ export async function runRemoteWorkflow(
 			? `${probe.gpuCount > 1 ? `${probe.gpuCount}x ` : ""}${probe.gpuName}`
 			: "none";
 		console.log(
-			`Remote host: ${probe.os} ${probe.arch}, ${probe.cpuCount} vCPU(s), ` +
+			`${logPrefix}Remote host: ${probe.os} ${probe.arch}, ${probe.cpuCount} vCPU(s), ` +
 				`GPU=${gpuLabel}${probe.cudaMajor ? ` (CUDA ${probe.cudaMajor}.x)` : ""}, ` +
 				`rsync=${probe.hasRsync ? "yes" : "no"}`,
 		);
@@ -2177,10 +2582,17 @@ export async function runRemoteWorkflow(
 
 		if (options.dryRun && !options.setupOnly && !options.pullOnly) {
 			console.log(
-				`Dry-run complete. Transport=${endpoint.target}, transfer=${transferMethod}, ` +
+				`${logPrefix}Dry-run complete. Transport=${endpoint.target}, transfer=${transferMethod}, ` +
 					`remoteDir=${paths.remoteRunDir}, localAudioDir=${paths.localAudioDir}.`,
 			);
-			return 0;
+			return {
+				exitCode: 0,
+				pullCompletedCleanly: true,
+				synthesisErrors: false,
+				mp3Count: 0,
+				timingCount: 0,
+				mergedReport: false,
+			};
 		}
 
 		if (options.pullOnly) {
@@ -2195,18 +2607,19 @@ export async function runRemoteWorkflow(
 				paths,
 				rootDir,
 				allowedUsfms,
+				withMergeLock,
 			);
 			console.log(
-				`Pulled ${merged.mp3Count} MP3(s), ${merged.timingCount} timing file(s)` +
+				`${logPrefix}Pulled ${merged.mp3Count} MP3(s), ${merged.timingCount} timing file(s)` +
 					`${merged.mergedReport ? ", and report" : ""} into ${paths.localAudioDir}.`,
 			);
 			pullCompletedCleanly = true;
-			const verified = await verifyAndSummarizeOutputs(jobPlan, paths, rootDir);
-			if (!verified.ok) {
-				for (const err of verified.errors) console.error(`Verification error: ${err}`);
-				return 1;
-			}
-			return 0;
+			return {
+				exitCode: 0,
+				pullCompletedCleanly,
+				synthesisErrors: false,
+				...merged,
+			};
 		}
 
 		const { activeDevice } = await bootstrapRemoteEnv(
@@ -2218,17 +2631,32 @@ export async function runRemoteWorkflow(
 			options.device,
 			options.setupOnly,
 			options.verbose,
+			logPrefix,
 		);
 		if (options.setupOnly) {
-			console.log(`Remote environment ready (device=${activeDevice}).`);
-			return 0;
+			console.log(`${logPrefix}Remote environment ready (device=${activeDevice}).`);
+			return {
+				exitCode: 0,
+				pullCompletedCleanly: true,
+				synthesisErrors: false,
+				mp3Count: 0,
+				timingCount: 0,
+				mergedReport: false,
+			};
 		}
 
 		if (jobPlan.pendingChapters === 0) {
 			console.log(
-				"All selected chapters are already generated locally. Use --force to regenerate.",
+				`${logPrefix}All selected chapters are already generated locally. Use --force to regenerate.`,
 			);
-			return 0;
+			return {
+				exitCode: 0,
+				pullCompletedCleanly: true,
+				synthesisErrors: false,
+				mp3Count: 0,
+				timingCount: 0,
+				mergedReport: false,
+			};
 		}
 
 		// Stage minimal inputs locally and push to remoteRunDir
@@ -2261,7 +2689,7 @@ export async function runRemoteWorkflow(
 			);
 
 			console.log(
-				`Uploading ${Object.keys(jobPlan.chaptersByBook).length} book JSON(s) + generator to ${paths.remoteRunDir} (${transferMethod})...`,
+				`${logPrefix}Uploading ${Object.keys(jobPlan.chaptersByBook).length} book JSON(s) + generator to ${paths.remoteRunDir} (${transferMethod})...`,
 			);
 			await uploadPayload(
 				runner,
@@ -2329,24 +2757,14 @@ export PYTHONUNBUFFERED=1
 exec ${baseExpr}/.venv/bin/python -u ${pythonArgs.join(" ")}
 `;
 
-		let interrupted = false;
-		let killRemote: (() => void) | undefined;
-		const onSignal = () => {
-			if (!interrupted) {
-				interrupted = true;
-				console.warn("\nInterrupted — stopping remote synthesis and pulling completed chapters...");
-				killRemote?.();
-			}
-		};
-		process.on("SIGINT", onSignal);
-		process.on("SIGTERM", onSignal);
-
 		let runExit = 0;
+		let unregisterKill: (() => void) | undefined;
 		try {
 			const res = await runRemoteBash(runner, endpoint, controlPath, remoteRunScript, {
 				streaming: true,
+				logPrefix: logPrefix || undefined,
 				onChild: (kill) => {
-					killRemote = kill;
+					unregisterKill = registerKill?.(kill);
 				},
 			});
 			runExit = res.exitCode;
@@ -2354,12 +2772,11 @@ exec ${baseExpr}/.venv/bin/python -u ${pythonArgs.join(" ")}
 				synthesisErrors = true;
 			}
 		} finally {
-			process.off("SIGINT", onSignal);
-			process.off("SIGTERM", onSignal);
+			unregisterKill?.();
 		}
 
 		// Pull outputs even on partial/interrupted runs so finished chapters aren't lost.
-		console.log(`Pulling generated MP3s and timings from ${paths.remoteRunDir}...`);
+		console.log(`${logPrefix}Pulling generated MP3s and timings from ${paths.remoteRunDir}...`);
 		const allowedUsfms = new Set(Object.keys(jobPlan.chaptersByBook));
 		const merged = await pullAndMergeOutputs(
 			runner,
@@ -2371,15 +2788,108 @@ exec ${baseExpr}/.venv/bin/python -u ${pythonArgs.join(" ")}
 			paths,
 			rootDir,
 			allowedUsfms,
+			withMergeLock,
 		);
 		console.log(
-			`Synced ${merged.mp3Count} MP3(s), ${merged.timingCount} timing file(s)` +
+			`${logPrefix}Synced ${merged.mp3Count} MP3(s), ${merged.timingCount} timing file(s)` +
 				`${merged.mergedReport ? ", and report" : ""} to ${paths.localAudioDir}.`,
 		);
 		pullCompletedCleanly = true;
 
-		if (interrupted || runExit !== 0) {
-			return runExit || 1;
+		const interruptedNow = Boolean(isInterrupted?.());
+		return {
+			exitCode: interruptedNow || runExit !== 0 ? runExit || 1 : 0,
+			pullCompletedCleanly,
+			synthesisErrors: synthesisErrors || interruptedNow,
+			...merged,
+		};
+	} finally {
+		await closeControlSocket().catch(() => {});
+		await rm(socketParent, { recursive: true, force: true }).catch(() => {});
+	}
+}
+
+export async function runRemoteWorkflow(
+	options: CliOptions,
+	rootDir: string,
+	runner: CommandRunner = createDefaultCommandRunner(),
+): Promise<number> {
+	const paths = resolveOutputPaths(options, rootDir);
+	const tnrBin = resolveTnrBinary(runner);
+
+	if ((options.thunder || options.create) && !tnrBin) {
+		throw new Error(
+			"Thunder Compute CLI (`tnr`) not found in PATH.\nInstall it with `brew tap Thunder-Compute/tnr && brew install tnr` and run `tnr login`, or use `--ssh <target>` directly.",
+		);
+	}
+
+	if (options.shards > 1) {
+		return runShardedRemoteWorkflow(options, paths, rootDir, runner, tnrBin);
+	}
+
+	let instance: ThunderInstanceInfo | undefined;
+	const useThunderCli = Boolean(options.thunder || options.create || (!options.ssh && tnrBin));
+	if (useThunderCli && tnrBin) {
+		instance = await resolveThunderInstance(tnrBin, options, runner);
+	}
+
+	const endpoint = await resolveEndpointForRun(options, tnrBin, instance);
+
+	if (options.shell) {
+		if (!options.ssh && tnrBin && instance) {
+			console.log(`Opening Thunder interactive shell for instance ${instance.id}...`);
+			return runner.runInteractive(tnrBin, ["connect", instance.id]);
+		}
+		console.log(`Opening SSH shell to ${endpoint.target}...`);
+		const args = [...buildSshBaseArgs(endpoint), "-o", "BatchMode=no", endpoint.target];
+		return runner.runInteractive("ssh", args);
+	}
+
+	const jobPlan = await buildPendingJobPlan(options, paths);
+	console.log(
+		`Plan [${paths.mode}${paths.stagingName ? `:${paths.stagingName}` : ""}]: ` +
+			`${jobPlan.books.length} book(s), ${jobPlan.totalSelectedChapters} chapter(s) ` +
+			`(${jobPlan.pendingChapters} pending, ${jobPlan.skippedChapters} already local).`,
+	);
+
+	let interrupted = false;
+	let activeKill: (() => void) | undefined;
+	const onSignal = () => {
+		if (!interrupted) {
+			interrupted = true;
+			console.warn("\nInterrupted — stopping remote synthesis and pulling completed chapters...");
+			activeKill?.();
+		}
+	};
+	process.on("SIGINT", onSignal);
+	process.on("SIGTERM", onSignal);
+
+	let shardResult: ShardExecutionResult | undefined;
+	try {
+		shardResult = await executeRemoteShard({
+			options,
+			paths,
+			jobPlan,
+			rootDir,
+			runner,
+			tnrBin,
+			instance,
+			endpoint,
+			freshVm: options.create,
+			registerKill: (kill) => {
+				activeKill = kill;
+				return () => {
+					if (activeKill === kill) activeKill = undefined;
+				};
+			},
+			isInterrupted: () => interrupted,
+		});
+
+		if (options.dryRun || options.setupOnly || jobPlan.pendingChapters === 0) {
+			return shardResult.exitCode;
+		}
+		if (shardResult.exitCode !== 0) {
+			return shardResult.exitCode;
 		}
 
 		const verification = await verifyAndSummarizeOutputs(jobPlan, paths, rootDir);
@@ -2393,24 +2903,255 @@ exec ${baseExpr}/.venv/bin/python -u ${pythonArgs.join(" ")}
 		console.log("Integrity verification passed.");
 		return 0;
 	} finally {
-		await closeControlSocket().catch(() => {});
-		await rm(socketParent, { recursive: true, force: true }).catch(() => {});
+		process.off("SIGINT", onSignal);
+		process.off("SIGTERM", onSignal);
 
 		if (options.deleteAfter && instance && tnrBin) {
-			if (pullCompletedCleanly && !synthesisErrors) {
-				console.log(`Deleting Thunder Compute instance ${instance.id} (--delete-after)...`);
-				const delRes = await runner.run(tnrBin, ["--json", "-y", "delete", instance.id], {
-					stdin: "ignore",
-				});
-				if (delRes.exitCode !== 0) {
-					console.error(
-						`Warning: \`tnr delete ${instance.id}\` failed: ${delRes.stderr.trim() || delRes.stdout.trim()}`,
-					);
-				}
+			if (shardResult?.pullCompletedCleanly && !shardResult.synthesisErrors) {
+				await deleteThunderInstance(tnrBin, instance.id, runner);
 			} else {
 				console.warn(
 					`Skipping \`tnr delete ${instance.id}\` because synthesis/sync did not complete cleanly. Delete manually when ready: \`tnr delete ${instance.id}\`.`,
 				);
+			}
+		}
+	}
+}
+
+async function runShardedRemoteWorkflow(
+	options: CliOptions,
+	paths: OutputPaths,
+	rootDir: string,
+	runner: CommandRunner,
+	tnrBin: string | null,
+): Promise<number> {
+	const startedAt = Date.now();
+	const jobPlan = await buildPendingJobPlan(options, paths);
+	console.log(
+		`Plan [${paths.mode}${paths.stagingName ? `:${paths.stagingName}` : ""}]: ` +
+			`${jobPlan.books.length} book(s), ${jobPlan.totalSelectedChapters} chapter(s) ` +
+			`(${jobPlan.pendingChapters} pending, ${jobPlan.skippedChapters} already local).`,
+	);
+
+	if (jobPlan.pendingChapters === 0 && !options.setupOnly && !options.pullOnly && !options.dryRun) {
+		console.log("All selected chapters are already generated locally. Use --force to regenerate.");
+		return 0;
+	}
+
+	const shardPlans =
+		options.setupOnly || options.pullOnly
+			? Array.from({ length: options.shards }, () => jobPlan)
+			: await partitionJobPlan(jobPlan, options.shards, rootDir);
+
+	if (shardPlans.length === 0) {
+		console.log("No chapters to process.");
+		return 0;
+	}
+
+	if (shardPlans.length < options.shards) {
+		console.log(
+			`Capping parallel shards from ${options.shards} to ${shardPlans.length} to match pending chapter count.`,
+		);
+	}
+
+	console.log(`Shard plan (${shardPlans.length} parallel VM shard(s)):`);
+	for (let i = 0; i < shardPlans.length; i++) {
+		console.log(`  Shard ${i + 1}/${shardPlans.length}: ${formatShardSummary(shardPlans[i])}`);
+	}
+
+	// Never create/bill N VMs on a dry-run when --create is passed without existing targets.
+	if (options.dryRun && options.create && !options.thunder && !options.ssh) {
+		console.log(`Dry-run complete (skipped provisioning ${shardPlans.length} Thunder VM(s)).`);
+		return 0;
+	}
+
+	const shardTargets: Array<{
+		instance: ThunderInstanceInfo | undefined;
+		endpoint: SshEndpoint;
+		freshVm: boolean;
+		eligibleForDelete: boolean;
+	}> = [];
+	const explicitThunderSelectors = options.thunder ? parseCommaList(options.thunder) : [];
+
+	if (options.ssh) {
+		const rawSshTargets = parseCommaList(options.ssh);
+		for (let i = 0; i < shardPlans.length; i++) {
+			const endpoint = parseSshTarget(
+				rawSshTargets[i],
+				options.sshPort,
+				options.sshKey,
+				options.sshOptions,
+			);
+			shardTargets.push({
+				instance: undefined,
+				endpoint,
+				freshVm: false,
+				eligibleForDelete: false,
+			});
+		}
+	} else {
+		if (!tnrBin) {
+			throw new Error(
+				"Thunder Compute CLI (`tnr`) not found in PATH.\nInstall it with `brew tap Thunder-Compute/tnr && brew install tnr` and run `tnr login`, or pass comma-separated `--ssh host1,host2`.",
+			);
+		}
+		const { instances, createdIds } = await resolveThunderShards(
+			tnrBin,
+			options,
+			shardPlans.length,
+			runner,
+		);
+		for (const inst of instances) {
+			const endpoint = await resolveEndpointForRun(options, tnrBin, inst);
+			const isNewlyCreated = createdIds.has(inst.id);
+			shardTargets.push({
+				instance: inst,
+				endpoint,
+				freshVm: isNewlyCreated,
+				eligibleForDelete: isNewlyCreated || explicitThunderSelectors.length > 0,
+			});
+		}
+	}
+
+	let mergeChain = Promise.resolve();
+	const withMergeLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+		const prev = mergeChain;
+		let release!: () => void;
+		mergeChain = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await prev;
+		try {
+			return await fn();
+		} finally {
+			release();
+		}
+	};
+
+	let interrupted = false;
+	const activeKills = new Set<() => void>();
+	const onSignal = () => {
+		if (!interrupted) {
+			interrupted = true;
+			console.warn(
+				`\nInterrupted — stopping synthesis on ${activeKills.size} shard VM(s) and pulling completed chapters...`,
+			);
+			for (const kill of activeKills) kill();
+		}
+	};
+	process.on("SIGINT", onSignal);
+	process.on("SIGTERM", onSignal);
+
+	const results: Array<{
+		shardIndex: number;
+		target: (typeof shardTargets)[number];
+		result?: ShardExecutionResult;
+		error?: unknown;
+	}> = [];
+
+	try {
+		const settled = await Promise.allSettled(
+			shardPlans.map(async (shardPlan, idx) => {
+				const target = shardTargets[idx];
+				const shardPaths = deriveShardOutputPaths(paths, idx + 1);
+				const label = target.instance ? `tnr-${target.instance.id}` : target.endpoint.target;
+				const logPrefix = `[shard ${idx + 1}/${shardPlans.length} · ${label}] `;
+				return executeRemoteShard({
+					options,
+					paths: shardPaths,
+					jobPlan: shardPlan,
+					rootDir,
+					runner,
+					tnrBin,
+					instance: target.instance,
+					endpoint: target.endpoint,
+					logPrefix,
+					freshVm: target.freshVm,
+					withMergeLock,
+					registerKill: (kill) => {
+						activeKills.add(kill);
+						return () => activeKills.delete(kill);
+					},
+					isInterrupted: () => interrupted,
+				});
+			}),
+		);
+
+		for (let i = 0; i < settled.length; i++) {
+			const entry = settled[i];
+			if (entry.status === "fulfilled") {
+				results.push({ shardIndex: i, target: shardTargets[i], result: entry.value });
+			} else {
+				const msg = entry.reason instanceof Error ? entry.reason.message : String(entry.reason);
+				console.error(`[shard ${i + 1}/${shardPlans.length}] ERROR: ${msg}`);
+				results.push({ shardIndex: i, target: shardTargets[i], error: entry.reason });
+			}
+		}
+
+		const totalMp3s = results.reduce((sum, r) => sum + (r.result?.mp3Count ?? 0), 0);
+		const totalTimings = results.reduce((sum, r) => sum + (r.result?.timingCount ?? 0), 0);
+		const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+		const allClean = results.every((r) => !r.error && r.result?.exitCode === 0);
+
+		if (options.dryRun || options.setupOnly) {
+			return allClean ? 0 : 1;
+		}
+
+		console.log(
+			`\nCompleted ${shardPlans.length} parallel shard(s) in ${elapsedSec}s ` +
+				`(synced ${totalMp3s} MP3(s), ${totalTimings} timing file write(s)).`,
+		);
+
+		if (!allClean) {
+			return 1;
+		}
+
+		const verification = await verifyAndSummarizeOutputs(jobPlan, paths, rootDir);
+		if (!verification.ok) {
+			for (const err of verification.errors) {
+				console.error(`Verification error: ${err}`);
+			}
+			return 1;
+		}
+
+		console.log("Integrity verification passed across all shards.");
+		return 0;
+	} finally {
+		process.off("SIGINT", onSignal);
+		process.off("SIGTERM", onSignal);
+
+		const remainingInstanceIds: string[] = [];
+		if (tnrBin) {
+			for (const entry of results) {
+				const inst = entry.target.instance;
+				if (!inst) continue;
+				const cleanSync =
+					!entry.error &&
+					Boolean(entry.result?.pullCompletedCleanly) &&
+					!entry.result?.synthesisErrors;
+				if (options.deleteAfter && entry.target.eligibleForDelete && cleanSync) {
+					const deleted = await deleteThunderInstance(tnrBin, inst.id, runner);
+					if (!deleted) remainingInstanceIds.push(inst.id);
+				} else {
+					remainingInstanceIds.push(inst.id);
+				}
+			}
+			if (results.length === 0) {
+				for (const t of shardTargets) {
+					if (t.instance) remainingInstanceIds.push(t.instance.id);
+				}
+			}
+			if (remainingInstanceIds.length > 0) {
+				const deleteCmds = remainingInstanceIds.map((id) => `tnr delete ${id}`).join(" && ");
+				if (options.deleteAfter) {
+					console.warn(
+						`Some shard VM(s) were kept because synthesis/sync did not finish cleanly. Delete manually when ready: \`${deleteCmds}\``,
+					);
+				} else {
+					console.log(
+						`Thunder shard VM(s) still running (${remainingInstanceIds.join(", ")}). Stop billing when done: \`${deleteCmds}\``,
+					);
+				}
 			}
 		}
 	}
