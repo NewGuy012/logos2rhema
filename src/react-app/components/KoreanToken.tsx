@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { romanizeHangul } from "../../shared/hangul";
 import type { GlossToken, HighlightItem } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
-import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
+import { type AnchorPos, anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { renderHighlightedText } from "./HighlightText";
-import { Volume2 } from "./Icons";
+import { SpeakButton } from "./RailShared";
 
 interface KoreanTokenProps {
 	token: GlossToken;
@@ -15,34 +15,104 @@ interface KoreanTokenProps {
 	onSelectFootnote?: (footnoteId: string) => void;
 }
 
-function SpeakButton({
-	label,
-	title,
-	speaking,
-	small = false,
-	onSpeak,
+function KoreanTokenTooltip({
+	token,
+	pos,
+	buttonRef,
+	tooltipRef,
+	onMouseEnter,
+	onMouseLeave,
+	onSelectFootnote,
 }: {
-	label: string;
-	title: string;
-	speaking: boolean;
-	small?: boolean;
-	onSpeak: () => void;
+	token: GlossToken;
+	pos: AnchorPos;
+	buttonRef: RefObject<HTMLButtonElement | null>;
+	tooltipRef: RefObject<HTMLDivElement | null>;
+	onMouseEnter: () => void;
+	onMouseLeave: () => void;
+	onSelectFootnote?: (footnoteId: string) => void;
 }) {
-	return (
-		<button
-			type="button"
-			className={`ko-tooltip-speak-btn ${small ? "ko-tooltip-speak-btn-sm" : ""} ${speaking ? "speaking" : ""}`.trim()}
-			onMouseDown={(e) => e.preventDefault()}
-			onPointerDown={(e) => e.stopPropagation()}
-			onClick={(e) => {
-				e.stopPropagation();
-				onSpeak();
+	const {
+		speakingKey: speakingTarget,
+		speechErrorKey,
+		speak: handleSpeak,
+	} = useKoreanSpeech<"word" | "lemma">();
+	const wordRomanized = useMemo(() => romanizeHangul(token.word), [token.word]);
+	const lemmaRomanized = useMemo(
+		() => (token.lemma && token.lemma !== token.word ? romanizeHangul(token.lemma) : ""),
+		[token.lemma, token.word],
+	);
+
+	return createPortal(
+		<div
+			ref={tooltipRef}
+			role="tooltip"
+			className={`ko-tooltip ${pos.placeBelow ? "place-below" : "place-above"}`}
+			style={anchorPosStyle(pos)}
+			onMouseEnter={onMouseEnter}
+			onMouseLeave={onMouseLeave}
+			onBlur={(e) => {
+				const nextFocused = e.relatedTarget as Node | null;
+				if (
+					nextFocused &&
+					(nextFocused === buttonRef.current || tooltipRef.current?.contains(nextFocused))
+				) {
+					return;
+				}
+				onMouseLeave();
 			}}
-			aria-label={label}
-			title={title}
 		>
-			<Volume2 size={small ? 11 : 13} />
-		</button>
+			<div className="ko-tooltip-head">
+				<div className="ko-tooltip-title-group">
+					<span className="ko-tooltip-word" lang="ko">
+						{token.word}
+						{token.hanja ? ` (${token.hanja})` : ""}
+					</span>
+					<SpeakButton
+						label={`Pronounce ${token.word}`}
+						className="ko-tooltip-speak-btn"
+						speaking={speakingTarget === "word"}
+						preventFocus={true}
+						onSpeak={() => handleSpeak(token.word, "word")}
+					/>
+				</div>
+				{token.pos && <span className="ko-tooltip-pos">{token.pos}</span>}
+			</div>
+			{wordRomanized && <div className="ko-tooltip-phonetics">[{wordRomanized}]</div>}
+			<div className="ko-tooltip-gloss">{token.gloss}</div>
+			{(token.lemma !== token.word || token.grammarNote) && (
+				<div className="ko-tooltip-meta">
+					{token.lemma !== token.word && (
+						<span className="ko-tooltip-root">
+							<span>
+								Root: <span lang="ko">{token.lemma}</span>
+							</span>
+							{lemmaRomanized && (
+								<span className="ko-tooltip-root-phonetics"> [{lemmaRomanized}]</span>
+							)}
+							<SpeakButton
+								label={`Pronounce root ${token.lemma}`}
+								title={`Pronounce root (${token.lemma})`}
+								className="ko-tooltip-speak-btn ko-tooltip-speak-btn-sm"
+								size={11}
+								speaking={speakingTarget === "lemma"}
+								preventFocus={true}
+								onSpeak={() => handleSpeak(token.lemma, "lemma")}
+							/>
+						</span>
+					)}
+					{token.lemma !== token.word && token.grammarNote && <span> · </span>}
+					{token.grammarNote && <span>{token.grammarNote}</span>}
+				</div>
+			)}
+			{speechErrorKey !== null && (
+				<div className="ko-tooltip-speech-note">Korean voice unavailable in this browser.</div>
+			)}
+			{token.footnoteId && onSelectFootnote && (
+				<div className="ko-tooltip-hint">Click to view in dictionary</div>
+			)}
+		</div>,
+		document.body,
 	);
 }
 
@@ -55,19 +125,6 @@ export function KoreanToken({
 	const pointerDownRef = useRef(false);
 	const closeTimerRef = useRef<number | null>(null);
 	const [open, setOpen] = useState(false);
-	const {
-		speakingKey: speakingTarget,
-		speechErrorKey,
-		speak: handleSpeak,
-		clearSpeechError,
-	} = useKoreanSpeech<"word" | "lemma">();
-	const speechError = speechErrorKey !== null;
-
-	const wordRomanized = useMemo(() => romanizeHangul(token.word), [token.word]);
-	const lemmaRomanized = useMemo(
-		() => (token.lemma && token.lemma !== token.word ? romanizeHangul(token.lemma) : ""),
-		[token.lemma, token.word],
-	);
 
 	const cancelClose = useCallback(() => {
 		if (closeTimerRef.current !== null) {
@@ -106,8 +163,7 @@ export function KoreanToken({
 
 	useEffect(() => {
 		if (open) updatePosition();
-		else clearSpeechError();
-	}, [open, updatePosition, clearSpeechError]);
+	}, [open, updatePosition]);
 
 	if (!token.word || !token.gloss) {
 		return <span>{renderHighlightedText(token.raw, tokenOffset, highlights)}</span>;
@@ -164,82 +220,21 @@ export function KoreanToken({
 						setOpen((prev) => !prev);
 					}
 				}}
-				aria-label={`${token.word}: ${token.gloss}`}
 			>
 				{renderHighlightedText(token.word, wordOffset, highlights)}
 			</button>
 			{renderHighlightedText(token.trailPunct, trailOffset, highlights)}
-			{open &&
-				pos &&
-				typeof document !== "undefined" &&
-				createPortal(
-					<div
-						ref={tooltipRef}
-						role="tooltip"
-						className={`ko-tooltip ${pos.placeBelow ? "place-below" : "place-above"}`}
-						style={anchorPosStyle(pos)}
-						onMouseEnter={cancelClose}
-						onMouseLeave={scheduleClose}
-						onBlur={(e) => {
-							const nextFocused = e.relatedTarget as Node | null;
-							if (
-								nextFocused &&
-								(nextFocused === buttonRef.current || tooltipRef.current?.contains(nextFocused))
-							) {
-								return;
-							}
-							scheduleClose();
-						}}
-					>
-						<div className="ko-tooltip-head">
-							<div className="ko-tooltip-title-group">
-								<span className="ko-tooltip-word">
-									{token.word}
-									{token.hanja ? ` (${token.hanja})` : ""}
-								</span>
-								<SpeakButton
-									label={`Pronounce ${token.word}`}
-									title={`Pronounce ${token.word}`}
-									speaking={speakingTarget === "word"}
-									onSpeak={() => handleSpeak(token.word, "word")}
-								/>
-							</div>
-							{token.pos && <span className="ko-tooltip-pos">{token.pos}</span>}
-						</div>
-						{wordRomanized && <div className="ko-tooltip-phonetics">[{wordRomanized}]</div>}
-						<div className="ko-tooltip-gloss">{token.gloss}</div>
-						{(token.lemma !== token.word || token.grammarNote) && (
-							<div className="ko-tooltip-meta">
-								{token.lemma !== token.word && (
-									<span className="ko-tooltip-root">
-										<span>Root: {token.lemma}</span>
-										{lemmaRomanized && (
-											<span className="ko-tooltip-root-phonetics"> [{lemmaRomanized}]</span>
-										)}
-										<SpeakButton
-											label={`Pronounce root ${token.lemma}`}
-											title={`Pronounce root (${token.lemma})`}
-											speaking={speakingTarget === "lemma"}
-											small={true}
-											onSpeak={() => handleSpeak(token.lemma, "lemma")}
-										/>
-									</span>
-								)}
-								{token.lemma !== token.word && token.grammarNote && <span> · </span>}
-								{token.grammarNote && <span>{token.grammarNote}</span>}
-							</div>
-						)}
-						{speechError && (
-							<div className="ko-tooltip-speech-note">
-								Korean voice unavailable in this browser.
-							</div>
-						)}
-						{token.footnoteId && onSelectFootnote && (
-							<div className="ko-tooltip-hint">Click to view in dictionary</div>
-						)}
-					</div>,
-					document.body,
-				)}
+			{open && pos && typeof document !== "undefined" && (
+				<KoreanTokenTooltip
+					token={token}
+					pos={pos}
+					buttonRef={buttonRef}
+					tooltipRef={tooltipRef}
+					onMouseEnter={cancelClose}
+					onMouseLeave={scheduleClose}
+					onSelectFootnote={onSelectFootnote}
+				/>
+			)}
 		</span>
 	);
 }

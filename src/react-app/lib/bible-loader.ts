@@ -97,11 +97,25 @@ function cachedFetch<T>(
 		if (oldestKey) cache.delete(oldestKey);
 	}
 	const promise = loader().catch((err) => {
-		cache.delete(key);
+		if (cache.get(key) === promise) cache.delete(key);
 		throw err;
 	});
 	cache.set(key, promise);
 	return promise;
+}
+
+function isCommentaryResponse(value: unknown): value is ChapterCommentaryResponse {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const rec = value as Record<string, unknown>;
+	if (!Array.isArray(rec.entries)) return false;
+	return rec.entries.every(
+		(entry) =>
+			Boolean(entry) &&
+			typeof entry === "object" &&
+			typeof (entry as Record<string, unknown>).id === "string" &&
+			typeof (entry as Record<string, unknown>).verseStart === "number" &&
+			Array.isArray((entry as Record<string, unknown>).paragraphs),
+	);
 }
 
 async function readApiError(res: Response, fallback: string): Promise<string> {
@@ -134,6 +148,7 @@ export async function loadTranslationChapter(
 	translationId: string,
 	bookNumber: number,
 	chapter: number,
+	signal?: AbortSignal,
 ): Promise<VerseEntry[]> {
 	const book = getBookByNumber(bookNumber);
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
@@ -149,7 +164,10 @@ export async function loadTranslationChapter(
 		const existing = esvInFlightCache.get(key);
 		if (existing) return existing;
 
-		const promise = fetch(`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`)
+		const promise = fetch(
+			`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`,
+			signal ? { signal } : undefined,
+		)
 			.then(async (res) => {
 				if (!res.ok) {
 					throw new Error(
@@ -162,7 +180,7 @@ export async function loadTranslationChapter(
 				return verses;
 			})
 			.finally(() => {
-				esvInFlightCache.delete(key);
+				if (esvInFlightCache.get(key) === promise) esvInFlightCache.delete(key);
 			});
 
 		esvInFlightCache.set(key, promise);
@@ -174,9 +192,13 @@ export async function loadTranslationChapter(
 			`/data/bibles/${encodeURIComponent(translationId)}/${encodeURIComponent(book.usfm)}.json`,
 		);
 		if (!res.ok) throw new Error(`Failed to load ${translationId} ${book.usfm}`);
-		return (await res.json()) as BookBibleData;
+		const parsed = (await res.json()) as Partial<BookBibleData>;
+		if (!parsed || typeof parsed !== "object" || !parsed.chapters) {
+			throw new Error(`Invalid chapter data for ${translationId} ${book.usfm}`);
+		}
+		return parsed as BookBibleData;
 	});
-	const verses = data?.chapters?.[String(chapter)];
+	const verses = data.chapters[String(chapter)];
 	return Array.isArray(verses) ? verses : [];
 }
 
@@ -197,9 +219,13 @@ function fetchStaticBookTimings(
 export async function loadSyncedChapterAudio(options: {
 	usfm: string;
 	chapter: number;
+	signal?: AbortSignal;
 }): Promise<ChapterAudioResponse> {
 	try {
-		const res = await fetch(`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`);
+		const res = await fetch(
+			`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`,
+			options.signal ? { signal: options.signal } : undefined,
+		);
 		if (!res.ok) return { tracks: [] };
 		const payload = (await res.json()) as Partial<ChapterAudioResponse>;
 		const rawTracks = Array.isArray(payload?.tracks) ? payload.tracks : [];
@@ -226,6 +252,7 @@ export function loadChapterCommentary(options: {
 	commentaryId: CommentaryId;
 	usfm: string;
 	chapter: number;
+	signal?: AbortSignal;
 }): Promise<ChapterCommentaryResponse> {
 	const key = `${options.commentaryId}:${options.usfm}:${options.chapter}`;
 	const url = `/api/commentary/${encodeURIComponent(options.commentaryId)}/${encodeURIComponent(options.usfm)}/${options.chapter}`;
@@ -233,11 +260,15 @@ export function loadChapterCommentary(options: {
 		commentaryCache,
 		key,
 		async () => {
-			const res = await fetch(url);
+			const res = await fetch(url, options.signal ? { signal: options.signal } : undefined);
 			if (!res.ok) {
 				throw new Error(await readApiError(res, "Unable to load commentary."));
 			}
-			return (await res.json()) as ChapterCommentaryResponse;
+			const parsed: unknown = await res.json();
+			if (!isCommentaryResponse(parsed)) {
+				throw new Error("Invalid commentary response.");
+			}
+			return parsed;
 		},
 		MAX_COMMENTARY_CACHE_ENTRIES,
 	);

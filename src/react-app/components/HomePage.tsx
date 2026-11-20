@@ -1,10 +1,9 @@
-import { Fragment, useId, useMemo, useState } from "react";
+import { type FormEvent, Fragment, useId, useMemo, useState } from "react";
 
 import { filterBooks, getBookOrDefault } from "../../shared/books";
 import { DEFAULT_COMMENTARY_ID } from "../../shared/commentaries";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { BookMeta, CommentaryId, RightRailTab } from "../../shared/types";
-import { useIsDesktopLayout } from "../hooks/useMediaQuery";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
 import { HomeAudioBrowser } from "./HomeAudioBrowser";
@@ -20,6 +19,7 @@ import {
 	Search,
 } from "./Icons";
 import { LegalFooter } from "./LegalFooter";
+import { SegmentedControl, type SegmentedOption } from "./RailShared";
 
 interface HomePageProps extends SavedItemsProps {
 	lastBookNumber: number;
@@ -37,13 +37,20 @@ interface HomePageProps extends SavedItemsProps {
 
 type BrowseSection = "scripture" | "genres" | "audio" | "dictionary" | "commentary";
 
-const BROWSE_SECTIONS: ReadonlyArray<{ id: BrowseSection; label: string }> = [
-	{ id: "scripture", label: "Scripture" },
-	{ id: "genres", label: "Genres" },
-	{ id: "audio", label: "Audio" },
-	{ id: "dictionary", label: "Dictionary" },
-	{ id: "commentary", label: "Commentary" },
-];
+const BROWSE_SECTIONS: ReadonlyArray<SegmentedOption<BrowseSection>> = (
+	[
+		["scripture", "Scripture"],
+		["genres", "Genres"],
+		["audio", "Audio"],
+		["dictionary", "Dictionary"],
+		["commentary", "Commentary"],
+	] as const
+).map(([id, label]) => ({
+	value: id,
+	label,
+	id: `home-browse-tab-${id}`,
+	controls: `home-browse-panel-${id}`,
+}));
 
 export function HomePage({
 	lastBookNumber,
@@ -66,8 +73,6 @@ export function HomePage({
 		useState<CommentaryId>(DEFAULT_COMMENTARY_ID);
 	const [favoritesOpen, setFavoritesOpen] = useState(false);
 	const favoritesPanelId = useId();
-	const isDesktop = useIsDesktopLayout();
-	const testamentBookColumns = isDesktop ? 3 : 2;
 
 	const activeCommentarySource = commentarySource ?? localCommentarySource;
 	const handleChangeCommentarySource = onChangeCommentarySource ?? setLocalCommentarySource;
@@ -84,7 +89,7 @@ export function HomePage({
 		};
 	}, [query]);
 
-	const handleSearchSubmit = (e: React.FormEvent) => {
+	const handleSearchSubmit = (e: FormEvent) => {
 		e.preventDefault();
 		submitPassageQuery(
 			query,
@@ -215,32 +220,17 @@ export function HomePage({
 							<span>All Books</span>
 						</button>
 					) : (
-						<div
-							className="segmented-row home-grouping-toggle"
+						<SegmentedControl
+							value={browseSection}
+							options={BROWSE_SECTIONS}
+							onChange={(next) => {
+								setSelectedBook(null);
+								setBrowseSection(next);
+							}}
+							className="home-grouping-toggle"
 							role="tablist"
-							aria-label="Browse sections"
-						>
-							{BROWSE_SECTIONS.map((option) => {
-								const active = browseSection === option.id;
-								return (
-									<button
-										key={option.id}
-										id={`home-browse-tab-${option.id}`}
-										type="button"
-										role="tab"
-										aria-selected={active}
-										aria-controls={`home-browse-panel-${option.id}`}
-										className={`segmented-btn ${active ? "active" : ""}`.trim()}
-										onClick={() => {
-											setSelectedBook(null);
-											setBrowseSection(option.id);
-										}}
-									>
-										{option.label}
-									</button>
-								);
-							})}
-						</div>
+							ariaLabel="Browse sections"
+						/>
 					)}
 				</div>
 
@@ -331,7 +321,7 @@ export function HomePage({
 														currentBookNumber={lastBook.number}
 														currentChapter={lastChapter}
 														showChapterCount={true}
-														verticalColumns={testamentBookColumns}
+														verticalLayout={true}
 														onSelectBook={setSelectedBook}
 														onSelectChapter={onOpenPassage}
 													/>

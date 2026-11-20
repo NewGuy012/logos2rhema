@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { filterBooks, getBookByNumber } from "../../shared/books";
 import type { BookMeta, Testament } from "../../shared/types";
@@ -32,7 +32,8 @@ export function PassagePicker({
 		setTestament(book?.testament ?? "OT");
 		setActiveBook(null);
 		setQuery("");
-		requestAnimationFrame(() => inputRef.current?.focus());
+		const rafId = requestAnimationFrame(() => inputRef.current?.focus());
+		return () => cancelAnimationFrame(rafId);
 	}, [isOpen, currentBookNumber]);
 
 	useDismissListeners(isOpen, { onDismiss: onClose });
@@ -46,7 +47,7 @@ export function PassagePicker({
 		onClose();
 	};
 
-	const handleSubmitReference = (e: React.FormEvent) => {
+	const handleSubmitReference = (e: FormEvent) => {
 		e.preventDefault();
 		submitPassageQuery(
 			query,

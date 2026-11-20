@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import { memo, type MouseEvent } from "react";
 
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, HighlightItem } from "../../shared/types";
@@ -42,7 +42,7 @@ interface VerseBlockProps {
 	onSelectFootnote: (footnoteId: string) => void;
 }
 
-export function VerseBlock({
+export const VerseBlock = memo(function VerseBlock({
 	verse,
 	stackOrder,
 	studyMask,
@@ -171,4 +171,4 @@ export function VerseBlock({
 			</div>
 		</article>
 	);
-}
+});

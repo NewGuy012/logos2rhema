@@ -5,21 +5,23 @@ import type {
 	KrvGrammarNote,
 	RightRailTab,
 } from "../../shared/types";
-import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
 import { CommentaryPanel } from "./CommentaryPanel";
 import { FootnotesGuide } from "./FootnotesGuide";
 import { BookOpen, BookText, ChevronDown, ChevronRight } from "./Icons";
-import { PanelHeaderText, PanelSnapBackButton } from "./RailShared";
+import {
+	type DraggableRailProps,
+	DraggableRailShell,
+	PanelHeaderText,
+	PanelSnapBackButton,
+	SegmentedControl,
+	type SegmentedOption,
+} from "./RailShared";
 
-interface StudyRightRailProps {
+interface StudyRightRailProps extends DraggableRailProps {
 	activeTab: RightRailTab;
 	onChangeTab: (tab: RightRailTab) => void;
 	variant?: "sidebar" | "sheet";
 	onMinimize?: () => void;
-	floatingPosition?: PanelPosition | null;
-	onFloatingPositionChange?: (pos: PanelPosition | null) => void;
-	isActiveFloating?: boolean;
-	onActivateFloating?: () => void;
 	bookEn: string;
 	bookKo: string;
 	chapter: number;
@@ -37,6 +39,31 @@ interface StudyRightRailProps {
 	onRetryCommentary: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
 }
+
+const RIGHT_RAIL_TAB_OPTIONS: ReadonlyArray<SegmentedOption<RightRailTab>> = [
+	{
+		value: "dictionary",
+		id: "right-rail-tab-dictionary",
+		controls: "right-rail-panel-dictionary",
+		label: (
+			<>
+				<BookOpen size={13} />
+				<span>Dictionary</span>
+			</>
+		),
+	},
+	{
+		value: "commentary",
+		id: "right-rail-tab-commentary",
+		controls: "right-rail-panel-commentary",
+		label: (
+			<>
+				<BookText size={13} />
+				<span>Commentary</span>
+			</>
+		),
+	},
+];
 
 export function StudyRightRail({
 	activeTab,
@@ -66,125 +93,103 @@ export function StudyRightRail({
 }: StudyRightRailProps) {
 	const isDictionary = activeTab === "dictionary";
 	const canDrag = variant === "sidebar";
-	const { panelProps, isFloating, isDragging, resetPosition } = useDraggablePanel<HTMLElement>({
-		enabled: canDrag,
-		position: floatingPosition,
-		onPositionChange: onFloatingPositionChange,
-		onActivate: onActivateFloating,
-		isActive: isActiveFloating,
-		ignoreSelector: ".right-rail-tabpanel",
-	});
 
 	return (
-		<aside
-			{...panelProps}
+		<DraggableRailShell
 			id="footnotes"
-			className={`dict-panel dict-panel-${variant} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
-			aria-label={isDictionary ? "Korean Dictionary & Grammar Guide" : "Bible Commentary"}
+			className={`dict-panel dict-panel-${variant}`}
+			ariaLabel={isDictionary ? "Korean Dictionary & Grammar Guide" : "Bible Commentary"}
+			draggable={canDrag}
+			ignoreSelector=".right-rail-tabpanel"
+			floatingPosition={floatingPosition}
+			onFloatingPositionChange={onFloatingPositionChange}
+			isActiveFloating={isActiveFloating}
+			onActivateFloating={onActivateFloating}
 		>
-			<div className={`dict-panel-header ${canDrag ? "panel-drag-handle" : ""}`.trim()}>
-				{isFloating ? (
-					<PanelSnapBackButton
-						onClick={resetPosition}
-						ariaLabel={
-							isDictionary
-								? "Snap dictionary back to original position"
-								: "Snap commentary back to original position"
+			{({ isFloating, resetPosition }) => (
+				<>
+					<div className={`dict-panel-header ${canDrag ? "panel-drag-handle" : ""}`.trim()}>
+						{isFloating ? (
+							<PanelSnapBackButton
+								onClick={resetPosition}
+								ariaLabel={
+									isDictionary
+										? "Snap dictionary back to original position"
+										: "Snap commentary back to original position"
+								}
+							/>
+						) : (
+							<span aria-hidden="true" />
+						)}
+						<PanelHeaderText
+							title={isDictionary ? "Dictionary" : "Commentary"}
+							bookEn={bookEn}
+							bookKo={bookKo}
+							chapter={chapter}
+						/>
+						{onMinimize && (
+							<button
+								type="button"
+								className="pill-nav-btn dict-minimize-btn"
+								onClick={onMinimize}
+								aria-expanded={true}
+								aria-label={isDictionary ? "Minimize dictionary" : "Minimize commentary"}
+								title={isDictionary ? "Minimize dictionary" : "Minimize commentary"}
+							>
+								{variant === "sheet" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+							</button>
+						)}
+					</div>
+
+					<div className="right-rail-tabs-wrap">
+						<SegmentedControl
+							value={activeTab}
+							options={RIGHT_RAIL_TAB_OPTIONS}
+							onChange={onChangeTab}
+							className="right-rail-tabs"
+							buttonClassName="right-rail-tab"
+							role="tablist"
+							ariaLabel="Study panel"
+							ariaOrientation="vertical"
+						/>
+					</div>
+
+					<div
+						id={isDictionary ? "right-rail-panel-dictionary" : "right-rail-panel-commentary"}
+						role="tabpanel"
+						aria-labelledby={
+							isDictionary ? "right-rail-tab-dictionary" : "right-rail-tab-commentary"
 						}
-					/>
-				) : (
-					<span aria-hidden="true" />
-				)}
-				<PanelHeaderText
-					title={isDictionary ? "Dictionary" : "Commentary"}
-					bookEn={bookEn}
-					bookKo={bookKo}
-					chapter={chapter}
-				/>
-				{onMinimize && (
-					<button
-						type="button"
-						className="pill-nav-btn dict-minimize-btn"
-						onClick={onMinimize}
-						aria-expanded={true}
-						aria-label={isDictionary ? "Minimize dictionary" : "Minimize commentary"}
-						title={isDictionary ? "Minimize dictionary" : "Minimize commentary"}
+						className="right-rail-tabpanel"
 					>
-						{variant === "sheet" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-					</button>
-				)}
-			</div>
-
-			<div className="right-rail-tabs-wrap">
-				<div
-					className="segmented-row right-rail-tabs"
-					role="tablist"
-					aria-label="Study panel"
-					aria-orientation="vertical"
-				>
-					<button
-						id="right-rail-tab-dictionary"
-						type="button"
-						role="tab"
-						aria-selected={isDictionary}
-						aria-controls="right-rail-panel-dictionary"
-						className={`segmented-btn right-rail-tab ${isDictionary ? "active" : ""}`.trim()}
-						onClick={() => {
-							if (!isDictionary) onChangeTab("dictionary");
-						}}
-					>
-						<BookOpen size={13} />
-						<span>Dictionary</span>
-					</button>
-					<button
-						id="right-rail-tab-commentary"
-						type="button"
-						role="tab"
-						aria-selected={!isDictionary}
-						aria-controls="right-rail-panel-commentary"
-						className={`segmented-btn right-rail-tab ${!isDictionary ? "active" : ""}`.trim()}
-						onClick={() => {
-							if (isDictionary) onChangeTab("commentary");
-						}}
-					>
-						<BookText size={13} />
-						<span>Commentary</span>
-					</button>
-				</div>
-			</div>
-
-			<div
-				id={isDictionary ? "right-rail-panel-dictionary" : "right-rail-panel-commentary"}
-				role="tabpanel"
-				aria-labelledby={isDictionary ? "right-rail-tab-dictionary" : "right-rail-tab-commentary"}
-				className="right-rail-tabpanel"
-			>
-				{isDictionary ? (
-					<FootnotesGuide
-						bookEn={bookEn}
-						chapter={chapter}
-						footnotes={footnotes}
-						grammarNotes={grammarNotes}
-						highlightedFootnoteId={highlightedFootnoteId}
-						highlightSeq={highlightSeq}
-						onJumpToVerse={onJumpToVerse}
-					/>
-				) : (
-					<CommentaryPanel
-						bookEn={bookEn}
-						chapter={chapter}
-						maxVerseInChapter={maxVerseInChapter}
-						source={commentarySource}
-						data={commentaryData}
-						loading={commentaryLoading}
-						error={commentaryError}
-						selectedVerse={selectedVerse}
-						onChangeSource={onChangeCommentarySource}
-						onRetry={onRetryCommentary}
-						onJumpToVerse={onJumpToVerse}
-					/>
-				)}
-			</div>
-		</aside>
+						{isDictionary ? (
+							<FootnotesGuide
+								bookEn={bookEn}
+								chapter={chapter}
+								footnotes={footnotes}
+								grammarNotes={grammarNotes}
+								highlightedFootnoteId={highlightedFootnoteId}
+								highlightSeq={highlightSeq}
+								onJumpToVerse={onJumpToVerse}
+							/>
+						) : (
+							<CommentaryPanel
+								bookEn={bookEn}
+								chapter={chapter}
+								maxVerseInChapter={maxVerseInChapter}
+								source={commentarySource}
+								data={commentaryData}
+								loading={commentaryLoading}
+								error={commentaryError}
+								selectedVerse={selectedVerse}
+								onChangeSource={onChangeCommentarySource}
+								onRetry={onRetryCommentary}
+								onJumpToVerse={onJumpToVerse}
+							/>
+						)}
+					</div>
+				</>
+			)}
+		</DraggableRailShell>
 	);
 }

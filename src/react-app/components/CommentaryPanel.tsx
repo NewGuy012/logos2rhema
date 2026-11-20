@@ -11,7 +11,13 @@ import {
 import type { ChapterCommentaryResponse, CommentaryId, CommentaryMeta } from "../../shared/types";
 import { loadChapterCommentary } from "../lib/bible-loader";
 import { scrollChildIntoContainer } from "../lib/scroll";
-import { PanelDisclosure, PanelSearchInput, PanelStatus, toggleSetItem } from "./RailShared";
+import {
+	PanelDisclosure,
+	PanelSearchInput,
+	PanelStatus,
+	SegmentedControl,
+	toggleSetItem,
+} from "./RailShared";
 
 export function useChapterCommentary({
 	commentaryId,
@@ -45,30 +51,52 @@ export function useChapterCommentary({
 			return;
 		}
 
-		let cancelled = false;
+		const controller = new AbortController();
 		setLoading(!matchesCurrent);
-		loadChapterCommentary({ commentaryId, usfm, chapter })
+		loadChapterCommentary({ commentaryId, usfm, chapter, signal: controller.signal })
 			.then((res) => {
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				loadedKeyRef.current = targetKey;
 				setData(res);
 				setLoading(false);
 			})
 			.catch((err: unknown) => {
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				loadedKeyRef.current = null;
 				setError(err instanceof Error ? err.message : "Unable to load commentary.");
 				setLoading(false);
 			});
 
-		return () => {
-			cancelled = true;
-		};
+		return () => controller.abort();
 	}, [commentaryId, usfm, chapter, enabled, retrySeq]);
 
 	const retry = useCallback(() => setRetrySeq((seq) => seq + 1), []);
 	return { data, loading, error, retry };
 }
+
+export function useFilteredCommentary(
+	data: ChapterCommentaryResponse | null,
+	source: CommentaryId,
+	query: string,
+	maxVerseInChapter?: number,
+) {
+	const sourceMeta = useMemo(() => getCommentaryMeta(source), [source]);
+	const indexedEntries = useMemo(
+		() => indexCommentaryEntries(data?.entries ?? [], source, maxVerseInChapter),
+		[data?.entries, source, maxVerseInChapter],
+	);
+	const visibleEntries = useMemo(
+		() => filterCommentaryEntries(indexedEntries, query.trim().toLowerCase()),
+		[indexedEntries, query],
+	);
+	return { sourceMeta, visibleEntries };
+}
+
+const COMMENTARY_SOURCE_OPTIONS = COMMENTARY_SOURCES.map((item) => ({
+	value: item.id,
+	label: item.shortName,
+	title: item.description,
+}));
 
 export function CommentarySourceToggle({
 	source,
@@ -80,29 +108,13 @@ export function CommentarySourceToggle({
 	className?: string;
 }) {
 	return (
-		<div
-			className={`segmented-row ${className}`.trim()}
-			role="group"
-			aria-label="Commentary source"
-		>
-			{COMMENTARY_SOURCES.map((item) => {
-				const active = source === item.id;
-				return (
-					<button
-						key={item.id}
-						type="button"
-						className={`segmented-btn ${active ? "active" : ""}`.trim()}
-						aria-pressed={active}
-						title={item.description}
-						onClick={() => {
-							if (!active) onChangeSource(item.id);
-						}}
-					>
-						{item.shortName}
-					</button>
-				);
-			})}
-		</div>
+		<SegmentedControl
+			value={source}
+			options={COMMENTARY_SOURCE_OPTIONS}
+			onChange={onChangeSource}
+			className={className}
+			ariaLabel="Commentary source"
+		/>
 	);
 }
 
@@ -308,16 +320,11 @@ export function CommentaryPanel({
 }: CommentaryPanelProps) {
 	const [query, setQuery] = useState("");
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const sourceMeta = useMemo(() => getCommentaryMeta(source), [source]);
-
-	const indexedEntries = useMemo(
-		() => indexCommentaryEntries(data?.entries ?? [], source, maxVerseInChapter),
-		[data?.entries, source, maxVerseInChapter],
-	);
-
-	const visibleEntries = useMemo(
-		() => filterCommentaryEntries(indexedEntries, query.trim().toLowerCase()),
-		[indexedEntries, query],
+	const { sourceMeta, visibleEntries } = useFilteredCommentary(
+		data,
+		source,
+		query,
+		maxVerseInChapter,
 	);
 
 	const matchedEntryId = useMemo(() => {

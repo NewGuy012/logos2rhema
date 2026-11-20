@@ -1,16 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-import {
-	filterCommentaryEntries,
-	getCommentaryMeta,
-	indexCommentaryEntries,
-} from "../../shared/commentaries";
 import type { CommentaryId, RightRailTab } from "../../shared/types";
 import {
 	CommentaryAttribution,
 	CommentaryBody,
 	CommentarySourceToggle,
 	useChapterCommentary,
+	useFilteredCommentary,
 } from "./CommentaryPanel";
 import { HomePassageBar, usePassageSelection } from "./HomeStudyShared";
 import { PanelSearchInput } from "./RailShared";
@@ -41,22 +37,13 @@ export function HomeCommentaryBrowser({
 		selectPassage,
 	} = usePassageSelection(initialBookNumber, initialChapter);
 	const [query, setQuery] = useState("");
-	const sourceMeta = useMemo(() => getCommentaryMeta(source), [source]);
 
 	const { data, loading, error, retry } = useChapterCommentary({
 		commentaryId: source,
 		usfm: currentBook.usfm,
 		chapter,
 	});
-
-	const indexedEntries = useMemo(
-		() => indexCommentaryEntries(data?.entries ?? [], source),
-		[data?.entries, source],
-	);
-	const visibleEntries = useMemo(
-		() => filterCommentaryEntries(indexedEntries, query.trim().toLowerCase()),
-		[indexedEntries, query],
-	);
+	const { sourceMeta, visibleEntries } = useFilteredCommentary(data, source, query);
 
 	return (
 		<div className="home-study-browser">

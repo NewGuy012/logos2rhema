@@ -7,7 +7,7 @@ import {
 	useState,
 } from "react";
 
-interface AnchorPos {
+export interface AnchorPos {
 	left: number;
 	top: number;
 	placeBelow: boolean;
@@ -61,7 +61,7 @@ export function useDismissListeners(
 	useEffect(() => {
 		if (!active) return;
 		const hasRefs = Boolean(refsRef.current && refsRef.current.length > 0);
-		const handleOutside = (event: MouseEvent) => {
+		const handleOutside = (event: Event) => {
 			const target = event.target as Node | null;
 			if (!target) return;
 			const inside = refsRef.current?.some((ref) => ref.current?.contains(target));
@@ -70,17 +70,28 @@ export function useDismissListeners(
 		const handleKey = (event: KeyboardEvent) => {
 			if (event.key === "Escape") onDismissRef.current();
 		};
-		const handleViewport = () => onDismissRef.current();
+		const handleViewport = (event: Event) => {
+			const target = event.target as Node | null;
+			if (target && refsRef.current?.some((ref) => ref.current?.contains(target))) return;
+			onDismissRef.current();
+		};
 
-		if (hasRefs) document.addEventListener("mousedown", handleOutside);
+		if (hasRefs) {
+			document.addEventListener("mousedown", handleOutside);
+			document.addEventListener("touchstart", handleOutside, { passive: true });
+		}
 		document.addEventListener("keydown", handleKey);
-		if (options.onScroll) window.addEventListener("scroll", handleViewport, { passive: true });
+		if (options.onScroll)
+			window.addEventListener("scroll", handleViewport, { capture: true, passive: true });
 		if (options.onResize) window.addEventListener("resize", handleViewport);
 
 		return () => {
-			if (hasRefs) document.removeEventListener("mousedown", handleOutside);
+			if (hasRefs) {
+				document.removeEventListener("mousedown", handleOutside);
+				document.removeEventListener("touchstart", handleOutside);
+			}
 			document.removeEventListener("keydown", handleKey);
-			if (options.onScroll) window.removeEventListener("scroll", handleViewport);
+			if (options.onScroll) window.removeEventListener("scroll", handleViewport, { capture: true });
 			if (options.onResize) window.removeEventListener("resize", handleViewport);
 		};
 	}, [active, options.onScroll, options.onResize]);

@@ -1,12 +1,4 @@
-import {
-	type CSSProperties,
-	type RefObject,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
@@ -26,7 +18,6 @@ interface VerseRefSelectProps {
 	lemma: string;
 	verses: number[];
 	isOpen: boolean;
-	scrollContainerRef: RefObject<HTMLDivElement | null>;
 	onToggle: () => void;
 	onClose: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
@@ -36,7 +27,6 @@ function VerseRefSelect({
 	lemma,
 	verses,
 	isOpen,
-	scrollContainerRef,
 	onToggle,
 	onClose,
 	onJumpToVerse,
@@ -49,14 +39,6 @@ function VerseRefSelect({
 		onScroll: true,
 		onResize: true,
 	});
-
-	useEffect(() => {
-		if (!isOpen) return;
-		const scrollEl = scrollContainerRef.current;
-		if (!scrollEl) return;
-		scrollEl.addEventListener("scroll", onClose, { passive: true });
-		return () => scrollEl.removeEventListener("scroll", onClose);
-	}, [isOpen, onClose, scrollContainerRef]);
 
 	if (verses.length === 0) return null;
 
@@ -105,10 +87,7 @@ function VerseRefSelect({
 						style={anchorPosStyle(pos)}
 					>
 						<div className="verse-ref-menu-title">{verses.length} verses</div>
-						<div
-							className="verse-ref-menu-grid"
-							style={{ "--verse-cols": Math.min(verses.length, 4) } as CSSProperties}
-						>
+						<div className="verse-ref-menu-grid" data-cols={Math.min(verses.length, 4)}>
 							{verses.map((v) => (
 								<button
 									key={v}
@@ -172,14 +151,13 @@ export function FootnotesGuide({
 		setOpenVerseId(null);
 	}, [bookEn, chapter, wordsOpen, query, footnotes]);
 
-	// Automatically expand Words and clear search filter when tapping a verse word
 	useEffect(() => {
 		if (!highlightedFootnoteId) return;
 		setWordsOpen(true);
 		setQuery((prev) => (prev ? "" : prev));
 	}, [highlightedFootnoteId, highlightSeq]);
 
-	// Scroll only inside the dictionary container so the Scripture column stays on the active verse
+	// Scroll inside the dictionary container so the Scripture column stays put.
 	useEffect(() => {
 		if (!highlightedFootnoteId || !wordsOpen) return;
 		scrollChildIntoContainer(scrollContainerRef.current, "data-footnote-id", highlightedFootnoteId);
@@ -242,7 +220,6 @@ export function FootnotesGuide({
 													lemma={entry.lemma}
 													verses={entry.verses}
 													isOpen={openVerseId === entry.id}
-													scrollContainerRef={scrollContainerRef}
 													onToggle={() =>
 														setOpenVerseId((prev) => (prev === entry.id ? null : entry.id))
 													}

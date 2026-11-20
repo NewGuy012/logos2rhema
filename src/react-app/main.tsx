@@ -8,6 +8,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 	static getDerivedStateFromError() {
 		return { hasError: true };
 	}
+	componentDidCatch(error: Error) {
+		console.error("App render error:", error);
+	}
 	render() {
 		if (!this.state.hasError) return this.props.children;
 		return (
@@ -16,7 +19,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 				<button
 					type="button"
 					className="quick-inline-chip active"
-					onClick={() => window.location.reload()}
+					onClick={() => {
+						window.location.hash = "#/";
+						window.location.reload();
+					}}
 				>
 					Reload
 				</button>

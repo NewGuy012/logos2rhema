@@ -14,6 +14,7 @@ import {
 	PanelDisclosure,
 	PanelSearchInput,
 	PanelStatus,
+	SegmentedControl,
 	toggleSetItem,
 	VocabEntryBody,
 } from "./RailShared";
@@ -23,10 +24,10 @@ type GlossaryFilter = "all" | "biblical" | "noun" | "verb" | "adj" | "adv" | "na
 
 const PAGE_SIZE = 60;
 
-const DICTIONARY_MODES: ReadonlyArray<{ id: DictionaryMode; label: string }> = [
-	{ id: "glossary", label: "Glossary & Lexicon" },
-	{ id: "chapter", label: "By Chapter" },
-	{ id: "grammar", label: "KRV Grammar" },
+const DICTIONARY_MODES: ReadonlyArray<{ value: DictionaryMode; label: string }> = [
+	{ value: "glossary", label: "Glossary & Lexicon" },
+	{ value: "chapter", label: "By Chapter" },
+	{ value: "grammar", label: "KRV Grammar" },
 ];
 
 const GLOSSARY_FILTERS: ReadonlyArray<{ id: GlossaryFilter; label: string }> = [
@@ -50,7 +51,12 @@ interface MergedDictEntry {
 	isBiblical: boolean;
 }
 
+const mergedEntriesCache = new WeakMap<LexiconMap, MergedDictEntry[]>();
+
 function buildMergedEntries(lexicon: LexiconMap): MergedDictEntry[] {
+	const cached = mergedEntriesCache.get(lexicon);
+	if (cached) return cached;
+
 	const entries: MergedDictEntry[] = [];
 	const sources: ReadonlyArray<readonly [LexiconMap, boolean]> = [
 		[BIBLICAL_GLOSSARY, true],
@@ -74,6 +80,7 @@ function buildMergedEntries(lexicon: LexiconMap): MergedDictEntry[] {
 		}
 	}
 
+	mergedEntriesCache.set(lexicon, entries);
 	return entries;
 }
 
@@ -172,24 +179,22 @@ export function HomeDictionaryBrowser({
 
 	useEffect(() => {
 		if (mode !== "chapter") return;
-		let cancelled = false;
+		const controller = new AbortController();
 		setChapterLoading(true);
 		setChapterError(null);
-		loadTranslationChapter(CANONICAL_BIBLES.ko.id, currentBook.number, chapter)
+		loadTranslationChapter(CANONICAL_BIBLES.ko.id, currentBook.number, chapter, controller.signal)
 			.then((verses) => {
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				setChapterVerses(verses);
 				setChapterLoading(false);
 			})
 			.catch((err: unknown) => {
-				if (cancelled) return;
+				if (controller.signal.aborted) return;
 				setChapterVerses([]);
 				setChapterError(err instanceof Error ? err.message : "Unable to load chapter vocabulary.");
 				setChapterLoading(false);
 			});
-		return () => {
-			cancelled = true;
-		};
+		return () => controller.abort();
 	}, [mode, currentBook.number, chapter, chapterRetrySeq]);
 
 	const allEntries = useMemo(() => buildMergedEntries(lexicon), [lexicon]);
@@ -275,27 +280,14 @@ export function HomeDictionaryBrowser({
 		<div className="home-study-browser">
 			<div className="home-study-card home-study-toolbar">
 				<div className="home-dict-header-row">
-					<div
-						className="segmented-row home-dict-mode-toggle"
+					<SegmentedControl
+						value={mode}
+						options={DICTIONARY_MODES}
+						onChange={setMode}
+						className="home-dict-mode-toggle"
 						role="tablist"
-						aria-label="Dictionary browse mode"
-					>
-						{DICTIONARY_MODES.map((item) => {
-							const active = mode === item.id;
-							return (
-								<button
-									key={item.id}
-									type="button"
-									role="tab"
-									aria-selected={active}
-									className={`segmented-btn ${active ? "active" : ""}`.trim()}
-									onClick={() => setMode(item.id)}
-								>
-									{item.label}
-								</button>
-							);
-						})}
-					</div>
+						ariaLabel="Dictionary browse mode"
+					/>
 
 					<span className="home-dict-count">
 						{allEntries.length.toLocaleString()} words

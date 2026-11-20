@@ -2,7 +2,150 @@ import type { ReactNode } from "react";
 
 import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, LexiconEntry } from "../../shared/types";
+import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
 import { ChevronDown, ChevronRight, Loader2, Pin, Search, Volume2, X } from "./Icons";
+
+export interface SegmentedOption<T extends string | number> {
+	value: T;
+	label: ReactNode;
+	id?: string;
+	controls?: string;
+	title?: string;
+}
+
+export function SegmentedControl<T extends string | number>({
+	value,
+	options,
+	onChange,
+	className = "",
+	buttonClassName = "",
+	role = "group",
+	ariaLabel,
+	ariaOrientation,
+}: {
+	value: T;
+	options: ReadonlyArray<SegmentedOption<T>>;
+	onChange: (value: T) => void;
+	className?: string;
+	buttonClassName?: string;
+	role?: "group" | "tablist";
+	ariaLabel?: string;
+	ariaOrientation?: "horizontal" | "vertical";
+}) {
+	const isTabs = role === "tablist";
+	return (
+		<div
+			className={`segmented-row ${className}`.trim()}
+			role={ariaLabel || isTabs ? role : undefined}
+			aria-label={ariaLabel}
+			aria-orientation={ariaOrientation}
+		>
+			{options.map((opt) => {
+				const active = value === opt.value;
+				return (
+					<button
+						key={String(opt.value)}
+						id={opt.id}
+						type="button"
+						role={isTabs ? "tab" : undefined}
+						aria-selected={isTabs ? active : undefined}
+						aria-pressed={!isTabs ? active : undefined}
+						aria-controls={opt.controls}
+						title={opt.title}
+						className={`segmented-btn ${buttonClassName} ${active ? "active" : ""}`.trim()}
+						onClick={() => {
+							if (!active) onChange(opt.value);
+						}}
+					>
+						{opt.label}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+export function SpeakButton({
+	label,
+	title = label,
+	speaking,
+	className,
+	size = 13,
+	preventFocus = false,
+	onSpeak,
+}: {
+	label: string;
+	title?: string;
+	speaking: boolean;
+	className: string;
+	size?: number;
+	preventFocus?: boolean;
+	onSpeak: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={`${className} ${speaking ? "speaking" : ""}`.trim()}
+			onMouseDown={preventFocus ? (e) => e.preventDefault() : undefined}
+			onPointerDown={preventFocus ? (e) => e.stopPropagation() : undefined}
+			onClick={(e) => {
+				if (preventFocus) e.stopPropagation();
+				onSpeak();
+			}}
+			aria-label={label}
+			title={title}
+		>
+			<Volume2 size={size} />
+		</button>
+	);
+}
+
+export interface DraggableRailProps {
+	floatingPosition?: PanelPosition | null;
+	onFloatingPositionChange?: (pos: PanelPosition | null) => void;
+	isActiveFloating?: boolean;
+	onActivateFloating?: () => void;
+}
+
+export function DraggableRailShell({
+	id,
+	className,
+	ariaLabel,
+	draggable = true,
+	ignoreSelector,
+	floatingPosition,
+	onFloatingPositionChange,
+	isActiveFloating = false,
+	onActivateFloating,
+	children,
+}: DraggableRailProps & {
+	id?: string;
+	className: string;
+	ariaLabel: string;
+	draggable?: boolean;
+	ignoreSelector?: string;
+	children: (state: { isFloating: boolean; resetPosition: () => void }) => ReactNode;
+}) {
+	const { panelProps, isFloating, isDragging, resetPosition } = useDraggablePanel<HTMLElement>({
+		enabled: draggable,
+		position: floatingPosition,
+		onPositionChange: onFloatingPositionChange,
+		onActivate: onActivateFloating,
+		isActive: isActiveFloating,
+		ignoreSelector,
+	});
+
+	return (
+		<aside
+			{...panelProps}
+			id={id}
+			className={`${className} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
+			aria-label={ariaLabel}
+		>
+			{children({ isFloating, resetPosition })}
+		</aside>
+	);
+}
 
 export function toggleSetItem(prev: Set<string>, id: string): Set<string> {
 	const next = new Set(prev);
@@ -50,7 +193,7 @@ export function PanelStatus({
 	}
 	if (error) {
 		return (
-			<div className="commentary-status commentary-error">
+			<div className="commentary-status">
 				<p className="commentary-status-text">{error}</p>
 				{onRetry && (
 					<button type="button" className="quick-inline-chip active" onClick={onRetry}>
@@ -219,15 +362,12 @@ export function VocabEntryBody({
 						{lemma}
 						{hanja && <span className="vocab-hanja">{hanja}</span>}
 					</div>
-					<button
-						type="button"
-						className={`vocab-speak-btn ${isSpeaking ? "speaking" : ""}`.trim()}
-						onClick={onSpeak}
-						aria-label={`Pronounce ${lemma}`}
-						title={`Pronounce ${lemma}`}
-					>
-						<Volume2 size={13} />
-					</button>
+					<SpeakButton
+						label={`Pronounce ${lemma}`}
+						className="vocab-speak-btn"
+						speaking={isSpeaking}
+						onSpeak={onSpeak}
+					/>
 				</div>
 				<div className="vocab-head-meta">
 					{metaPrefix}

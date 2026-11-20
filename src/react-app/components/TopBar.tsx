@@ -5,11 +5,12 @@ import { CANONICAL_BIBLES } from "../../shared/translations";
 import { useDismissListeners } from "../hooks/usePopover";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
 import { Bible, Bookmark, BookOpen, ChevronDown, Home, Search, Settings } from "./Icons";
+import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
-export type ReaderTheme = "paper" | "sepia" | "dark";
-export type EnglishFontStyle = "newsreader" | "lora" | "inter";
-export type KoreanFontStyle = "serif" | "sans";
+type ReaderTheme = "paper" | "sepia" | "dark";
+type EnglishFontStyle = "newsreader" | "lora" | "inter";
+type KoreanFontStyle = "serif" | "sans";
 
 export interface TopBarDisplayPrefs {
 	stackOrder: StackOrder;
@@ -44,35 +45,19 @@ function SegmentedSetting<T extends string | number>({
 }: {
 	title: string;
 	value: T;
-	options: ReadonlyArray<{ label: string; val: T }>;
+	options: ReadonlyArray<SegmentedOption<T>>;
 	onChange: (val: T) => void;
 	groupAriaLabel?: string;
 }) {
 	return (
 		<div className="settings-group">
 			<p className="popover-title">{title}</p>
-			<div
-				className="segmented-row"
-				role={groupAriaLabel ? "group" : undefined}
-				aria-label={groupAriaLabel}
-			>
-				{options.map((opt) => {
-					const active = value === opt.val;
-					return (
-						<button
-							key={String(opt.val)}
-							type="button"
-							className={`segmented-btn ${active ? "active" : ""}`}
-							aria-pressed={active}
-							onClick={() => {
-								if (!active) onChange(opt.val);
-							}}
-						>
-							{opt.label}
-						</button>
-					);
-				})}
-			</div>
+			<SegmentedControl
+				value={value}
+				options={options}
+				onChange={onChange}
+				ariaLabel={groupAriaLabel}
+			/>
 		</div>
 	);
 }
@@ -254,9 +239,9 @@ export function TopBar({
 										value={prefs.theme}
 										onChange={(theme) => onChangePref({ theme })}
 										options={[
-											{ label: "Paper", val: "paper" },
-											{ label: "Sepia", val: "sepia" },
-											{ label: "Dark", val: "dark" },
+											{ label: "Paper", value: "paper" },
+											{ label: "Sepia", value: "sepia" },
+											{ label: "Dark", value: "dark" },
 										]}
 									/>
 									<SegmentedSetting
@@ -264,10 +249,10 @@ export function TopBar({
 										value={prefs.fontScale}
 										onChange={(fontScale) => onChangePref({ fontScale })}
 										options={[
-											{ label: "S", val: 0.9 },
-											{ label: "M", val: 1 },
-											{ label: "L", val: 1.12 },
-											{ label: "XL", val: 1.24 },
+											{ label: "S", value: 0.9 },
+											{ label: "M", value: 1 },
+											{ label: "L", value: 1.12 },
+											{ label: "XL", value: 1.24 },
 										]}
 									/>
 									<SegmentedSetting
@@ -275,9 +260,9 @@ export function TopBar({
 										value={prefs.enFontStyle}
 										onChange={(enFontStyle) => onChangePref({ enFontStyle })}
 										options={[
-											{ label: "Newsreader", val: "newsreader" },
-											{ label: "Lora", val: "lora" },
-											{ label: "Inter", val: "inter" },
+											{ label: "Newsreader", value: "newsreader" },
+											{ label: "Lora", value: "lora" },
+											{ label: "Inter", value: "inter" },
 										]}
 									/>
 									<SegmentedSetting
@@ -285,8 +270,8 @@ export function TopBar({
 										value={prefs.koFontStyle}
 										onChange={(koFontStyle) => onChangePref({ koFontStyle })}
 										options={[
-											{ label: "Serif (명조)", val: "serif" },
-											{ label: "Sans (고딕)", val: "sans" },
+											{ label: "Serif (명조)", value: "serif" },
+											{ label: "Sans (고딕)", value: "sans" },
 										]}
 									/>
 									<SegmentedSetting
@@ -295,8 +280,8 @@ export function TopBar({
 										onChange={(stackOrder) => onChangePref({ stackOrder })}
 										groupAriaLabel="Flip language stack order"
 										options={[
-											{ label: "EN / 한", val: "en-first" },
-											{ label: "한 / EN", val: "ko-first" },
+											{ label: "EN / 한", value: "en-first" },
+											{ label: "한 / EN", value: "ko-first" },
 										]}
 									/>
 									<SegmentedSetting
@@ -304,9 +289,9 @@ export function TopBar({
 										value={prefs.studyMask}
 										onChange={(studyMask) => onChangePref({ studyMask })}
 										options={[
-											{ label: "Both", val: "none" },
-											{ label: "Blur EN", val: "mask-en" },
-											{ label: "Blur KO", val: "mask-ko" },
+											{ label: "Both", value: "none" },
+											{ label: "Blur EN", value: "mask-en" },
+											{ label: "Blur KO", value: "mask-ko" },
 										]}
 									/>
 								</div>

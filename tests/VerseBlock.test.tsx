@@ -583,20 +583,6 @@ describe("Reader UI & audio hooks", () => {
 		expect(browseSection.querySelector(".home-testaments")).not.toBeNull();
 		const bookGrids = browseSection.querySelectorAll<HTMLElement>(".books-grid-vertical");
 		expect(bookGrids).toHaveLength(2);
-		expect(bookGrids[0]?.style.getPropertyValue("--book-cols")).toBe("3");
-		expect(bookGrids[0]?.style.getPropertyValue("--book-rows")).toBe("13");
-
-		const restoreNarrow = mockMatchMedia(false);
-		try {
-			const narrowHome = render(
-				<HomePage lastBookNumber={8} lastChapter={4} lastVerse={12} onOpenPassage={noop} />,
-			);
-			const narrowGrid = narrowHome.container.querySelector<HTMLElement>(".books-grid-vertical");
-			expect(narrowGrid?.style.getPropertyValue("--book-cols")).toBe("2");
-			expect(narrowGrid?.style.getPropertyValue("--book-rows")).toBe("20");
-		} finally {
-			restoreNarrow();
-		}
 		expect(getButton(browseSection, "Scripture").getAttribute("aria-selected")).toBe("true");
 		expect(getButton(browseSection, "Genres").getAttribute("aria-selected")).toBe("false");
 
@@ -757,11 +743,11 @@ describe("Reader UI & audio hooks", () => {
 					fireClick(getButton(container, "Dictionary"));
 
 					const appShell = container.querySelector(".app-shell") as HTMLElement;
-					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en)");
+					expect(appShell.getAttribute("data-en-font")).toBe("newsreader");
 					fireClick(getButton(container, "Reader appearance settings"));
 					const settingsPopover = container.querySelector(".settings-popover") as ParentNode;
 					fireClick(getButton(settingsPopover, "Lora"));
-					expect(appShell.style.getPropertyValue("--reader-en-font")).toBe("var(--font-en-lora)");
+					expect(appShell.getAttribute("data-en-font")).toBe("lora");
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
 						'"enFontStyle":"lora"',
 					);

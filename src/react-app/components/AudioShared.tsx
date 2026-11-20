@@ -40,6 +40,10 @@ export function formatTime(totalSeconds: number): string {
 	return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+export function formatDuration(duration: number): string {
+	return duration > 0 ? formatTime(duration) : "--:--";
+}
+
 export function formatTrackTooltip(track: AudioTrackOption | null, langCode: string): string {
 	if (!track) return `No audio available for ${langCode}`;
 	return track.label.includes(langCode) ? track.label : `${track.label} (${langCode})`;
@@ -57,7 +61,9 @@ export function AudioLanguageToggle({
 			<button
 				type="button"
 				className={`quick-lang-btn ${preferredLang === "ko" ? "active" : ""}`}
-				onClick={() => onSelectLanguage("ko")}
+				onClick={() => {
+					if (preferredLang !== "ko") onSelectLanguage("ko");
+				}}
 				title={`Korean AI audio (${CANONICAL_BIBLES.ko.code} · ${SUPERTONIC_COMPACT_BADGE})`}
 			>
 				한
@@ -65,7 +71,9 @@ export function AudioLanguageToggle({
 			<button
 				type="button"
 				className={`quick-lang-btn ${preferredLang === "en" ? "active" : ""}`}
-				onClick={() => onSelectLanguage("en")}
+				onClick={() => {
+					if (preferredLang !== "en") onSelectLanguage("en");
+				}}
 				title={`English audio (${CANONICAL_BIBLES.en.code})`}
 			>
 				EN

@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import { hasVerseTimings, SUPERTONIC_COMPACT_BADGE } from "../../shared/audio-timings";
 import { getAdjacentChapter } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { AudioTrackOption } from "../../shared/types";
-import { useHumanAudio } from "../hooks/useHumanAudio";
-import { loadSyncedChapterAudio } from "../lib/bible-loader";
+import { useChapterAudioTracks, useHumanAudio } from "../hooks/useHumanAudio";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
 	AudioScrubber,
 	AudioSpeedSelect,
 	AudioTransportControls,
+	formatDuration,
 	formatTime,
 } from "./AudioShared";
 import { HomePassageBar, usePassageSelection } from "./HomeStudyShared";
@@ -33,28 +32,7 @@ export function HomeAudioBrowser({
 		chapter,
 		selectPassage,
 	} = usePassageSelection(initialBookNumber, initialChapter);
-	const [tracks, setTracks] = useState<AudioTrackOption[]>([]);
-	const [loadingTracks, setLoadingTracks] = useState(true);
-
-	useEffect(() => {
-		let cancelled = false;
-		setLoadingTracks(true);
-		setTracks([]);
-		loadSyncedChapterAudio({ usfm: currentBook.usfm, chapter })
-			.then((res) => {
-				if (cancelled) return;
-				setTracks(res.tracks);
-				setLoadingTracks(false);
-			})
-			.catch(() => {
-				if (cancelled) return;
-				setTracks([]);
-				setLoadingTracks(false);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [currentBook.usfm, chapter]);
+	const { tracks, loadingTracks } = useChapterAudioTracks(currentBook.usfm, chapter);
 
 	const handleChapterEnded = useCallback(() => {
 		const next = getAdjacentChapter(currentBook.number, chapter, 1);
@@ -65,6 +43,7 @@ export function HomeAudioBrowser({
 
 	const audio = useHumanAudio({
 		tracks,
+		isLoadingTracks: loadingTracks,
 		visibleVerse: 1,
 		autoSync: false,
 		onChapterEnded: handleChapterEnded,
@@ -131,9 +110,7 @@ export function HomeAudioBrowser({
 								playbackRate={audio.playbackRate}
 								onChangeSpeed={audio.setPlaybackRate}
 							/>
-							<span className="quick-time">
-								{audio.duration > 0 ? formatTime(audio.duration) : "--:--"}
-							</span>
+							<span className="quick-time">{formatDuration(audio.duration)}</span>
 						</div>
 					</div>
 

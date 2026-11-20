@@ -8,6 +8,7 @@ import {
 	AudioLanguageToggle,
 	AudioScrubber,
 	AudioSpeedSelect,
+	formatDuration,
 	formatTime,
 	formatTrackTooltip,
 	type SharedAudioControlProps,
@@ -108,7 +109,7 @@ export function FloatingBottomBar({
 							<>
 								<span className="quick-time">{formatTime(currentTime)}</span>
 								<AudioScrubber currentTime={currentTime} duration={duration} onSeek={onSeek} />
-								<span className="quick-time">{duration > 0 ? formatTime(duration) : "--:--"}</span>
+								<span className="quick-time">{formatDuration(duration)}</span>
 								{activeTrack?.isAiGenerated && (
 									<span className="quick-strip-ai-badge" lang="ko" title={activeTrack.label}>
 										{SUPERTONIC_MOBILE_BADGE}

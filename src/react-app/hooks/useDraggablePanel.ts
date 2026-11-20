@@ -49,9 +49,6 @@ function clampPosition(
 	};
 }
 
-/**
- * Enables mouse dragging for floating side panels with viewport clamping and snap-back reset.
- */
 export function useDraggablePanel<T extends HTMLElement>({
 	enabled,
 	position,

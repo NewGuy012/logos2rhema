@@ -4,7 +4,6 @@ import type { BookMeta } from "../../shared/types";
 export const MAX_STORED_ITEMS = 200;
 
 export function readJsonStorage(key: string): unknown {
-	if (typeof localStorage === "undefined") return null;
 	try {
 		const raw = localStorage.getItem(key);
 		return raw ? JSON.parse(raw) : null;
@@ -14,13 +13,12 @@ export function readJsonStorage(key: string): unknown {
 }
 
 export function writeJsonStorage(key: string, value: unknown): void {
-	if (typeof localStorage === "undefined") return;
 	try {
 		localStorage.setItem(key, JSON.stringify(value));
 	} catch {}
 }
 
-function parseStoredBookChapter(
+export function parseStoredBookChapter(
 	rec: Record<string, unknown>,
 ): { book: BookMeta; chapter: number } | null {
 	const book = typeof rec.bookNumber === "number" ? getBookByNumber(rec.bookNumber) : undefined;

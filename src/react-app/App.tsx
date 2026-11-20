@@ -1,10 +1,9 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { hasVerseTimings } from "../shared/audio-timings";
 import {
 	clampChapter,
 	getAdjacentChapter,
-	getBookByNumber,
 	getBookByUsfm,
 	getBookOrDefault,
 	resolveBookChapter,
@@ -13,7 +12,6 @@ import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
 	AlignedVerse,
-	AudioTrackOption,
 	CommentaryId,
 	FavoriteItem,
 	HighlightItem,
@@ -36,20 +34,16 @@ import {
 } from "./components/Icons";
 import { LegalFooter } from "./components/LegalFooter";
 import { PassagePicker } from "./components/PassagePicker";
+import { PanelStatus } from "./components/RailShared";
 import { StudyRightRail } from "./components/StudyRightRail";
 import { TopBar, type TopBarDisplayPrefs } from "./components/TopBar";
 import { VerseBlock } from "./components/VerseBlock";
 import type { PanelPosition } from "./hooks/useDraggablePanel";
-import { useHumanAudio } from "./hooks/useHumanAudio";
+import { useChapterAudioTracks, useHumanAudio } from "./hooks/useHumanAudio";
 import { useIsDesktopLayout } from "./hooks/useMediaQuery";
 import { anchorPosStyle, computeAnchorPos } from "./hooks/usePopover";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
-import {
-	alignChapterVerses,
-	loadLexicon,
-	loadSyncedChapterAudio,
-	loadTranslationChapter,
-} from "./lib/bible-loader";
+import { alignChapterVerses, loadLexicon, loadTranslationChapter } from "./lib/bible-loader";
 import {
 	makeFavoriteId,
 	readStoredFavorites,
@@ -64,9 +58,11 @@ import {
 	toggleHighlightSpans,
 	writeStoredHighlights,
 } from "./lib/highlights";
-import { readJsonStorage, writeJsonStorage } from "./lib/storage";
+import { parseStoredBookChapter, readJsonStorage, writeJsonStorage } from "./lib/storage";
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
+const FONT_SCALES = [0.9, 1, 1.12, 1.24] as const;
+const MAX_VERSE_NUMBER = 200;
 
 interface DisplayPrefs extends TopBarDisplayPrefs {
 	autoSync: boolean;
@@ -90,12 +86,6 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	autoSync: true,
 	rightRailTab: "dictionary",
 	commentarySource: DEFAULT_COMMENTARY_ID,
-};
-
-const EN_FONT_VARS: Record<TopBarDisplayPrefs["enFontStyle"], string> = {
-	newsreader: "var(--font-en)",
-	lora: "var(--font-en-lora)",
-	inter: "var(--font-ui)",
 };
 
 const DEFAULT_PREFS: StoredPrefs = {
@@ -127,7 +117,10 @@ function parseLocationHash(): AppRoute {
 		view: "reader",
 		bookNumber: book.number,
 		chapter: clampChapter(book, chapter),
-		verse: verse !== undefined && Number.isSafeInteger(verse) && verse >= 1 ? verse : undefined,
+		verse:
+			verse !== undefined && Number.isSafeInteger(verse) && verse >= 1 && verse <= MAX_VERSE_NUMBER
+				? verse
+				: undefined,
 	};
 }
 
@@ -139,19 +132,17 @@ function readStoredPrefs(): StoredPrefs {
 	const raw = readJsonStorage(STORAGE_KEY);
 	if (!raw || typeof raw !== "object") return DEFAULT_PREFS;
 	const parsed = raw as Record<string, unknown>;
-	const book =
-		typeof parsed.bookNumber === "number" ? getBookByNumber(parsed.bookNumber) : undefined;
-	const chapter =
-		book && typeof parsed.chapter === "number" && Number.isInteger(parsed.chapter)
-			? clampChapter(book, parsed.chapter)
-			: DEFAULT_PREFS.chapter;
+	const ref = parseStoredBookChapter(parsed);
 	const verse =
-		typeof parsed.verse === "number" && Number.isInteger(parsed.verse) && parsed.verse >= 1
+		typeof parsed.verse === "number" &&
+		Number.isInteger(parsed.verse) &&
+		parsed.verse >= 1 &&
+		parsed.verse <= MAX_VERSE_NUMBER
 			? parsed.verse
 			: DEFAULT_PREFS.verse;
 	return {
-		bookNumber: book ? book.number : DEFAULT_PREFS.bookNumber,
-		chapter,
+		bookNumber: ref ? ref.book.number : DEFAULT_PREFS.bookNumber,
+		chapter: ref ? ref.chapter : DEFAULT_PREFS.chapter,
 		verse,
 		stackOrder: isOneOf(parsed.stackOrder, ["en-first", "ko-first"])
 			? parsed.stackOrder
@@ -159,9 +150,7 @@ function readStoredPrefs(): StoredPrefs {
 		theme: isOneOf(parsed.theme, ["paper", "sepia", "dark"]) ? parsed.theme : DEFAULT_PREFS.theme,
 		fontScale:
 			typeof parsed.fontScale === "number" &&
-			Number.isFinite(parsed.fontScale) &&
-			parsed.fontScale >= 0.75 &&
-			parsed.fontScale <= 1.5
+			(FONT_SCALES as readonly number[]).includes(parsed.fontScale)
 				? parsed.fontScale
 				: DEFAULT_PREFS.fontScale,
 		enFontStyle: isOneOf(parsed.enFontStyle, ["newsreader", "lora", "inter"])
@@ -268,12 +257,12 @@ export default function App() {
 	const [lexicon, setLexicon] = useState<LexiconMap>({});
 	const [rawEnVerses, setRawEnVerses] = useState<VerseEntry[]>([]);
 	const [rawKoVerses, setRawKoVerses] = useState<VerseEntry[]>([]);
+	const [loadedChapterKey, setLoadedChapterKey] = useState<string | null>(null);
 	const [loadingChapter, setLoadingChapter] = useState(false);
 	const [chapterError, setChapterError] = useState<string | null>(null);
 	const [enChapterError, setEnChapterError] = useState<string | null>(null);
 	const [chapterRetrySeq, setChapterRetrySeq] = useState(0);
 
-	const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
 	const [audioRailOpen, setAudioRailOpen] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [sheetOpen, setSheetOpen] = useState(false);
@@ -340,7 +329,17 @@ export default function App() {
 		}
 	}, [view, loadingChapter, verseNumbers.length, visibleVerse, pendingScrollVerse]);
 
+	const initialPrefsSnapRef = useRef({ bookNumber, chapter, lastVerse, prefs });
 	useEffect(() => {
+		const init = initialPrefsSnapRef.current;
+		if (
+			init.bookNumber === bookNumber &&
+			init.chapter === chapter &&
+			init.lastVerse === lastVerse &&
+			init.prefs === prefs
+		) {
+			return;
+		}
 		writeJsonStorage(STORAGE_KEY, {
 			bookNumber,
 			chapter,
@@ -349,12 +348,14 @@ export default function App() {
 		} satisfies StoredPrefs);
 	}, [bookNumber, chapter, lastVerse, prefs]);
 
+	const initialFavoritesRef = useRef(favorites);
 	useEffect(() => {
-		writeStoredFavorites(favorites);
+		if (favorites !== initialFavoritesRef.current) writeStoredFavorites(favorites);
 	}, [favorites]);
 
+	const initialHighlightsRef = useRef(highlights);
 	useEffect(() => {
-		writeStoredHighlights(highlights);
+		if (highlights !== initialHighlightsRef.current) writeStoredHighlights(highlights);
 	}, [highlights]);
 
 	const favoriteIds = useMemo(() => new Set(favorites.map((item) => item.id)), [favorites]);
@@ -535,20 +536,23 @@ export default function App() {
 		};
 	}, []);
 
+	const chapterKey = `${bookNumber}:${chapter}`;
+
 	useEffect(() => {
 		if (view !== "reader") return;
-		let cancelled = false;
+		const controller = new AbortController();
 		setRawEnVerses([]);
 		setRawKoVerses([]);
+		setLoadedChapterKey(null);
 		setLoadingChapter(true);
 		setChapterError(null);
 		setEnChapterError(null);
 
 		Promise.allSettled([
-			loadTranslationChapter(CANONICAL_BIBLES.en.id, bookNumber, chapter),
-			loadTranslationChapter(CANONICAL_BIBLES.ko.id, bookNumber, chapter),
+			loadTranslationChapter(CANONICAL_BIBLES.en.id, bookNumber, chapter, controller.signal),
+			loadTranslationChapter(CANONICAL_BIBLES.ko.id, bookNumber, chapter, controller.signal),
 		]).then(([enResult, koResult]) => {
-			if (cancelled) return;
+			if (controller.signal.aborted) return;
 			const enOk = enResult.status === "fulfilled";
 			const koOk = koResult.status === "fulfilled";
 
@@ -571,25 +575,18 @@ export default function App() {
 						: "Could not load English (ESV) text.",
 				);
 			}
+			setLoadedChapterKey(chapterKey);
 			setLoadingChapter(false);
 		});
 
-		return () => {
-			cancelled = true;
-		};
-	}, [view, bookNumber, chapter, chapterRetrySeq]);
+		return () => controller.abort();
+	}, [view, bookNumber, chapter, chapterKey, chapterRetrySeq]);
 
-	useEffect(() => {
-		if (view !== "reader") return;
-		let cancelled = false;
-		setAudioTracks([]);
-		loadSyncedChapterAudio({ usfm: currentBook.usfm, chapter }).then((res) => {
-			if (!cancelled) setAudioTracks(res.tracks);
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [view, currentBook.usfm, chapter]);
+	const { tracks: audioTracks, loadingTracks } = useChapterAudioTracks(
+		currentBook.usfm,
+		chapter,
+		view === "reader",
+	);
 
 	const navigateTo = useCallback(
 		(targetBook: number, targetChapter: number, verse?: number) => {
@@ -608,10 +605,10 @@ export default function App() {
 	);
 
 	useEffect(() => {
-		if (!pendingScrollVerse || loadingChapter) return;
+		if (!pendingScrollVerse || loadingChapter || loadedChapterKey !== chapterKey) return;
 		scrollToVerse(pendingScrollVerse);
 		setPendingScrollVerse(null);
-	}, [pendingScrollVerse, loadingChapter]);
+	}, [pendingScrollVerse, loadingChapter, loadedChapterKey, chapterKey]);
 
 	const handleChapterEnded = useCallback(() => {
 		if (!nextChapterTarget) return false;
@@ -621,6 +618,7 @@ export default function App() {
 
 	const audio = useHumanAudio({
 		tracks: audioTracks,
+		isLoadingTracks: loadingTracks,
 		visibleVerse,
 		autoSync: prefs.autoSync,
 		onChapterEnded: handleChapterEnded,
@@ -822,16 +820,7 @@ export default function App() {
 		scrollToVerse(verseNum);
 	}, []);
 
-	const readerStyle = useMemo(
-		() =>
-			({
-				"--reader-scale": prefs.fontScale,
-				"--reader-en-font": EN_FONT_VARS[prefs.enFontStyle],
-				"--reader-ko-font":
-					prefs.koFontStyle === "serif" ? "var(--font-ko-serif)" : "var(--font-ko-sans)",
-			}) as CSSProperties,
-		[prefs.fontScale, prefs.enFontStyle, prefs.koFontStyle],
-	);
+	const handleRetryChapter = useCallback(() => setChapterRetrySeq((seq) => seq + 1), []);
 
 	const dictionaryOpen = isDesktop ? sidebarOpen : sheetOpen;
 	const showDictionary = !loadingChapter && !chapterError;
@@ -959,7 +948,13 @@ export default function App() {
 	);
 
 	return (
-		<div id="top" className="app-shell" style={readerStyle}>
+		<div
+			id="top"
+			className="app-shell"
+			data-font-scale={prefs.fontScale}
+			data-en-font={prefs.enFontStyle}
+			data-ko-font={prefs.koFontStyle}
+		>
 			<TopBar
 				isHome={view === "home"}
 				lastBookNumber={bookNumber}
@@ -1093,20 +1088,13 @@ export default function App() {
 								)}
 							</header>
 
-							{loadingChapter ? (
-								<p className="footnotes-subtitle">Loading chapter...</p>
-							) : chapterError ? (
-								<div className="grammar-card">
-									<div className="grammar-pattern">Unable to load passage</div>
-									<p className="grammar-desc">{chapterError}</p>
-									<button
-										type="button"
-										className="quick-inline-chip active"
-										onClick={() => setChapterRetrySeq((seq) => seq + 1)}
-									>
-										Try again
-									</button>
-								</div>
+							{loadingChapter || chapterError ? (
+								<PanelStatus
+									loading={loadingChapter}
+									loadingText="Loading chapter..."
+									error={chapterError}
+									onRetry={handleRetryChapter}
+								/>
 							) : (
 								<>
 									{enChapterError && (
@@ -1118,7 +1106,7 @@ export default function App() {
 											<button
 												type="button"
 												className="quick-inline-chip active"
-												onClick={() => setChapterRetrySeq((seq) => seq + 1)}
+												onClick={handleRetryChapter}
 											>
 												Retry
 											</button>
