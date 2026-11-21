@@ -9,15 +9,14 @@ import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
 type ReaderTheme = "paper" | "sepia" | "dark";
-type EnglishFontStyle = "newsreader" | "lora" | "inter";
-type KoreanFontStyle = "serif" | "sans";
+type FontStyle = "serif" | "sans";
 
 export interface TopBarDisplayPrefs {
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
 	fontScale: number;
-	enFontStyle: EnglishFontStyle;
-	koFontStyle: KoreanFontStyle;
+	enFontStyle: FontStyle;
+	koFontStyle: FontStyle;
 	studyMask: StudyMaskMode;
 }
 
@@ -260,9 +259,8 @@ export function TopBar({
 										value={prefs.enFontStyle}
 										onChange={(enFontStyle) => onChangePref({ enFontStyle })}
 										options={[
-											{ label: "Newsreader", value: "newsreader" },
-											{ label: "Lora", value: "lora" },
-											{ label: "Inter", value: "inter" },
+											{ label: "Serif", value: "serif" },
+											{ label: "Sans", value: "sans" },
 										]}
 									/>
 									<SegmentedSetting

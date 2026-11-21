@@ -309,7 +309,7 @@ describe("Reader UI & Audio Hooks", () => {
 				stackOrder: "en-first",
 				theme: "paper",
 				fontScale: 1,
-				enFontStyle: "newsreader",
+				enFontStyle: "serif",
 				koFontStyle: "serif",
 				studyMask: "none",
 			},
@@ -321,8 +321,8 @@ describe("Reader UI & Audio Hooks", () => {
 		};
 		const topBar = render(<TopBar {...topBarProps} />);
 		fireClick(getButton(topBar.container, "Reader appearance settings"));
-		fireClick(getButton(topBar.container, "Lora"));
-		expect(onChangePref).toHaveBeenCalledWith({ enFontStyle: "lora" });
+		fireClick(getButton(topBar.container, /^\s*Sans\s*$/));
+		expect(onChangePref).toHaveBeenCalledWith({ enFontStyle: "sans" });
 		topBar.rerender(<TopBar isHome={true} {...topBarProps} />);
 		expect(topBar.container.querySelector(".appearance-btn")).toBeNull();
 
@@ -458,12 +458,12 @@ describe("Reader UI & Audio Hooks", () => {
 
 					// Appearance setting persists via data attribute
 					const appShell = container.querySelector(".app-shell") as HTMLElement;
-					expect(appShell.getAttribute("data-en-font")).toBe("newsreader");
+					expect(appShell.getAttribute("data-en-font")).toBe("serif");
 					fireClick(getButton(container, "Reader appearance settings"));
-					fireClick(getButton(container.querySelector(".settings-popover")!, "Lora"));
-					expect(appShell.getAttribute("data-en-font")).toBe("lora");
+					fireClick(getButton(container.querySelector(".settings-popover")!, /^\s*Sans\s*$/));
+					expect(appShell.getAttribute("data-en-font")).toBe("sans");
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
-						'"enFontStyle":"lora"',
+						'"enFontStyle":"sans"',
 					);
 					fireClick(getButton(container, "Reader appearance settings"));
 

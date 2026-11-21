@@ -123,11 +123,12 @@
 }
 
 :root {
-	--font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	--font-en: "Newsreader", "Georgia", "Times New Roman", serif;
-	--font-en-lora: "Lora", "Georgia", "Times New Roman", serif;
-	--font-ko-serif: "Noto Serif KR", "Batang", "AppleMyungjo", serif;
-	--font-ko-sans: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+	--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	--font-en: ui-serif, "Iowan Old Style", Georgia, Cambria, "Times New Roman", serif;
+	--font-ko-serif: "AppleMyungjo", "Batang", "Noto Serif CJK KR", "Noto Serif KR", serif;
+	--font-ko-sans:
+		"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "Noto Sans KR", system-ui,
+		sans-serif;
 	--reader-scale: 1;
 	--reader-en-font: var(--font-en);
 	--reader-ko-font: var(--font-ko-serif);
@@ -147,10 +148,7 @@
 .app-shell[data-font-scale="1.24"] {
 	--reader-scale: 1.24;
 }
-.app-shell[data-en-font="lora"] {
-	--reader-en-font: var(--font-en-lora);
-}
-.app-shell[data-en-font="inter"] {
+.app-shell[data-en-font="sans"] {
 	--reader-en-font: var(--font-ui);
 }
 .app-shell[data-ko-font="sans"] {

@@ -80,7 +80,7 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	stackOrder: "en-first",
 	theme: "paper",
 	fontScale: 1,
-	enFontStyle: "newsreader",
+	enFontStyle: "serif",
 	koFontStyle: "serif",
 	studyMask: "none",
 	autoSync: true,
@@ -153,9 +153,10 @@ function readStoredPrefs(): StoredPrefs {
 			(FONT_SCALES as readonly number[]).includes(parsed.fontScale)
 				? parsed.fontScale
 				: DEFAULT_PREFS.fontScale,
-		enFontStyle: isOneOf(parsed.enFontStyle, ["newsreader", "lora", "inter"])
-			? parsed.enFontStyle
-			: DEFAULT_PREFS.enFontStyle,
+		enFontStyle:
+			parsed.enFontStyle === "sans" || parsed.enFontStyle === "inter"
+				? "sans"
+				: DEFAULT_PREFS.enFontStyle,
 		koFontStyle: isOneOf(parsed.koFontStyle, ["serif", "sans"])
 			? parsed.koFontStyle
 			: DEFAULT_PREFS.koFontStyle,
