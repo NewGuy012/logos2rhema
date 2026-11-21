@@ -1,19 +1,23 @@
-import { afterEach, expect } from "bun:test";
+import "./dom";
 
 import { act, createElement, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 
+import { clearLoaderCaches } from "../src/react-app/lib/bible-loader";
 import {
-	SUPERTONIC_LICENSE_NAME,
-	SUPERTONIC_LICENSE_URL,
 	SUPERTONIC_TRACK_ATTRIBUTION,
 	SUPERTONIC_TRACK_ID,
 	SUPERTONIC_TRACK_LABEL,
 } from "../src/shared/audio-timings";
+import { clearPendingAnimationFrames } from "./dom";
+
+// Load react-dom/client after ./dom installs global document/window (CJS static imports link before ESM bodies).
+const { createRoot } = await import("react-dom/client");
 
 const activeRoots = new Set<{ root: Root; container: HTMLElement }>();
 
-afterEach(() => {
+export function cleanupDom(): void {
+	clearPendingAnimationFrames();
 	act(() => {
 		for (const entry of activeRoots) {
 			entry.root.unmount();
@@ -21,14 +25,17 @@ afterEach(() => {
 		}
 		activeRoots.clear();
 	});
-});
+	window.getSelection()?.removeAllRanges();
+	window.location.hash = "";
+	localStorage.clear();
+	clearLoaderCaches();
+}
 
 export function render(ui: ReactNode) {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	const root = createRoot(container);
-	const entry = { root, container };
-	activeRoots.add(entry);
+	activeRoots.add({ root, container });
 
 	act(() => {
 		root.render(ui);
@@ -41,24 +48,23 @@ export function render(ui: ReactNode) {
 				root.render(nextUi);
 			});
 		},
-		unmount() {
-			act(() => {
-				root.unmount();
-			});
-			container.remove();
-			activeRoots.delete(entry);
-		},
 	};
 }
 
-export function renderHook<T>(useHook: () => T): { result: { current: T } } {
+export function renderHook<T, P = void>(
+	useHook: (props: P) => T,
+	initialProps?: P,
+): { result: { current: T }; rerender: (nextProps: P) => void } {
 	const result = { current: undefined as T };
-	function Harness() {
-		result.current = useHook();
+	function Harness({ hookProps }: { hookProps: P }) {
+		result.current = useHook(hookProps);
 		return null;
 	}
-	render(createElement(Harness));
-	return { result };
+	const rendered = render(createElement(Harness, { hookProps: initialProps as P }));
+	return {
+		result,
+		rerender: (nextProps: P) => rendered.rerender(createElement(Harness, { hookProps: nextProps })),
+	};
 }
 
 export const noop = () => {};
@@ -85,11 +91,11 @@ export function makeChapterResponse(
 export function createReaderFetchHandler(
 	options: {
 		lexicon?: Record<string, unknown>;
-		esv?: (url: string) => Response;
-		krv?: (url: string) => Response;
-		audio?: (url: string) => Response;
-		timings?: (url: string) => Response;
-		commentary?: (url: string) => Response;
+		esv?: (url: string) => Response | Promise<Response>;
+		krv?: (url: string) => Response | Promise<Response>;
+		audio?: (url: string) => Response | Promise<Response>;
+		timings?: (url: string) => Response | Promise<Response>;
+		commentary?: (url: string) => Response | Promise<Response>;
 	} = {},
 ) {
 	return (url: string) => {
@@ -109,12 +115,6 @@ export function createReaderFetchHandler(
 	};
 }
 
-export function flushAsync(ms = 10): Promise<void> {
-	return act(async () => {
-		await new Promise((r) => setTimeout(r, ms));
-	});
-}
-
 export async function waitUntil(assertion: () => void, timeoutMs = 1500): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	let lastError: unknown;
@@ -124,7 +124,9 @@ export async function waitUntil(assertion: () => void, timeoutMs = 1500): Promis
 			return;
 		} catch (err) {
 			lastError = err;
-			await flushAsync();
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 8));
+			});
 		}
 	}
 	throw lastError;
@@ -161,32 +163,48 @@ export async function withMockFetch(
 	}
 }
 
+export interface MockAudioInstance {
+	preload: string;
+	src: string;
+	duration: number;
+	readyState: number;
+	paused: boolean;
+	playbackRate: number;
+	defaultPlaybackRate: number;
+	preservesPitch: boolean;
+	error: { code: number } | null;
+	currentTime: number;
+	playCalls: number;
+	emit(type: string): void;
+}
+
 export function installMockAudio(options?: {
 	readyState?: number;
 	initialTime?: number;
 	emitTimeUpdateOnPlay?: boolean;
 }) {
 	const original = globalThis.Audio;
-	let currentTime = options?.initialTime ?? 0;
-	const readyState = options?.readyState ?? 4;
-	const listeners = new Map<string, Array<() => void>>();
-	const emit = (type: string) => {
-		for (const fn of listeners.get(type) ?? []) fn();
-	};
+	const instances: MockAudioInstance[] = [];
 
-	class MockAudio {
+	class MockAudio implements MockAudioInstance {
 		preload = "metadata";
 		src = "";
 		duration = 120;
-		readyState = readyState;
+		readyState = options?.readyState ?? 4;
 		paused = true;
 		playbackRate = 1;
+		defaultPlaybackRate = 1;
 		preservesPitch = true;
-		get currentTime() {
-			return currentTime;
+		error: { code: number } | null = null;
+		currentTime = options?.initialTime ?? 0;
+		playCalls = 0;
+		private listeners = new Map<string, Set<() => void>>();
+
+		constructor() {
+			instances.push(this);
 		}
-		set currentTime(val: number) {
-			currentTime = val;
+		emit(type: string) {
+			for (const fn of [...(this.listeners.get(type) ?? [])]) fn();
 		}
 		load() {}
 		getAttribute(name: string) {
@@ -196,28 +214,36 @@ export function installMockAudio(options?: {
 			if (name === "src") this.src = "";
 		}
 		addEventListener(type: string, fn: () => void) {
-			listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+			let set = this.listeners.get(type);
+			if (!set) {
+				set = new Set();
+				this.listeners.set(type, set);
+			}
+			set.add(fn);
 		}
-		removeEventListener() {}
+		removeEventListener(type: string, fn: () => void) {
+			this.listeners.get(type)?.delete(fn);
+		}
 		pause() {
 			this.paused = true;
-			emit("pause");
+			this.emit("pause");
 		}
 		play() {
+			this.playCalls++;
 			this.paused = false;
-			emit("play");
-			if (options?.emitTimeUpdateOnPlay) emit("timeupdate");
+			this.emit("play");
+			if (options?.emitTimeUpdateOnPlay) this.emit("timeupdate");
 			return Promise.resolve();
 		}
 	}
 
 	globalThis.Audio = MockAudio as unknown as typeof Audio;
+	const latest = () => instances[instances.length - 1];
 	return {
-		getCurrentTime: () => currentTime,
-		setCurrentTime: (val: number) => {
-			currentTime = val;
-		},
-		emit,
+		instances,
+		latest,
+		getCurrentTime: () => latest()?.currentTime ?? 0,
+		emit: (type: string) => latest()?.emit(type),
 		restore: () => {
 			globalThis.Audio = original;
 		},
@@ -301,23 +327,4 @@ export function makeSupertonicTrack(url: string, verseTimings?: Record<number, n
 		attribution: SUPERTONIC_TRACK_ATTRIBUTION,
 		...(verseTimings ? { verseTimings } : {}),
 	};
-}
-
-export function assertLegalFooter(container: ParentNode): void {
-	const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
-	expect(footer).not.toBeNull();
-	const lines = Array.from(footer.querySelectorAll(".copyright-footer-line")).map((el) =>
-		(el.textContent ?? "").trim(),
-	);
-	expect(lines).toHaveLength(3);
-	expect(lines[0]).toContain("대한성서공회");
-	expect(lines[1]).toContain("AI 낭독");
-	expect(lines[1]).toContain("Supertonic 3");
-	expect(lines[2]).toContain("ESV® Bible");
-	expect(footer.textContent).not.toContain("Public Domain");
-	expect(footer.textContent).not.toContain("KRDICT");
-	expect(footer.querySelector(`a[href="${SUPERTONIC_LICENSE_URL}"]`)?.textContent).toBe(
-		SUPERTONIC_LICENSE_NAME,
-	);
-	expect(footer.querySelector('a[href="https://www.esv.org"]')).not.toBeNull();
 }

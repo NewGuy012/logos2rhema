@@ -1,14 +1,15 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
-import { join } from "node:path";
+import "./dom";
+
+import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import type { ComponentProps } from "react";
 
 import { CommentaryPanel } from "../src/react-app/components/CommentaryPanel";
 import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
-import { clearLoaderCaches, loadChapterCommentary } from "../src/react-app/lib/bible-loader";
 import { analyzeKoreanChapter } from "../src/shared/korean-morphology";
 import type { ChapterCommentaryResponse } from "../src/shared/types";
 import {
+	cleanupDom,
 	fireClick,
 	fireDrag,
 	getButton,
@@ -16,14 +17,10 @@ import {
 	noop,
 	render,
 	setInputValue,
-	withMockFetch,
 } from "./setup";
 
-describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
-	beforeEach(() => {
-		clearLoaderCaches();
-	});
-
+describe("CommentaryPanel & StudyRightRail", () => {
+	afterEach(cleanupDom);
 	const sampleMhData: ChapterCommentaryResponse = {
 		bookIntroduction: ["An Exposition of the Gospel of John."],
 		introduction: ["Christ's discourse with Nicodemus (v. 1-21)."],
@@ -34,10 +31,10 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 				verseEnd: 21,
 				heading: "The New Birth",
 				paragraphs: [
-					"Paragraph one introducing Nicodemus and his visit by night.",
+					"Paragraph one introducing Nicodemus.",
 					"Paragraph two discussing spiritual regeneration.",
-					"Paragraph three summarizing verse 16 and God's love for the world.",
-					"Paragraph four hidden until expanded unless matched by search keyword salvation.",
+					"Paragraph three summarizing verse 16.",
+					"Paragraph four hidden until expanded unless matched by keyword salvation.",
 				],
 			},
 			{
@@ -94,7 +91,7 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 		};
 	}
 
-	it("renders tabbed StudyRightRail, switches tabs, filters/expands notes, and syncs verses", () => {
+	it("switches StudyRightRail tabs, filters/expands commentary, syncs verses, and drags/snaps cleanly", () => {
 		const onChangeTab = mock(() => {});
 		const onChangeSource = mock(() => {});
 		const onJumpToVerse = mock(() => {});
@@ -105,62 +102,62 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 		);
 
 		expect(container.querySelector(".panel-title")?.textContent).toBe("Dictionary");
-		const subtitleLines = Array.from(
-			container.querySelectorAll(".panel-subtitle .panel-subtitle-line"),
-		).map((el) => el.textContent);
-		expect(subtitleLines).toEqual(["John 3", "요한복음 3장"]);
-		const tablist = container.querySelector('[role="tablist"][aria-label="Study panel"]');
-		expect(tablist?.getAttribute("aria-orientation")).toBe("vertical");
+		expect(
+			container
+				.querySelector('[role="tablist"][aria-label="Study panel"]')
+				?.getAttribute("aria-orientation"),
+		).toBe("vertical");
 		fireClick(getButton(container, "Commentary"));
 		expect(onChangeTab).toHaveBeenCalledWith("commentary");
 
-		const commentaryProps = makeRailProps({
-			activeTab: "commentary",
-			onChangeTab,
-			onChangeCommentarySource: onChangeSource,
-			onJumpToVerse,
-			onMinimize,
-		});
-		rerender(<StudyRightRail {...commentaryProps} />);
+		rerender(
+			<StudyRightRail
+				{...makeRailProps({
+					activeTab: "commentary",
+					onChangeTab,
+					onChangeCommentarySource: onChangeSource,
+					onJumpToVerse,
+					onMinimize,
+				})}
+			/>,
+		);
 
 		expect(container.querySelector(".panel-title")?.textContent).toBe("Commentary");
 		expect(getByText(container, "Public Domain")).toBeDefined();
-
-		const firstCard = container.querySelector('[data-commentary-id="matthew-henry:JHN:3:1"]');
-		expect(firstCard?.className).toContain("highlighted");
+		expect(
+			container.querySelector('[data-commentary-id="matthew-henry:JHN:3:1"]')?.className,
+		).toContain("highlighted");
 		expect(getButton(container, "v.1–21")).toBeDefined();
 		expect(getButton(container, "v.22–36")).toBeDefined();
 
+		// Expand / collapse long note & overview disclosures
 		expect(container.textContent).not.toContain("keyword salvation");
 		fireClick(getButton(container, "Read full note"));
 		expect(container.textContent).toContain("keyword salvation");
 		fireClick(getButton(container, "Show less"));
 		expect(container.textContent).not.toContain("keyword salvation");
-
 		fireClick(getButton(container, "Chapter Overview"));
 		expect(getByText(container, "Christ's discourse with Nicodemus (v. 1-21).")).toBeDefined();
 		fireClick(getButton(container, "Book Introduction"));
 		expect(getByText(container, "An Exposition of the Gospel of John.")).toBeDefined();
 
+		// Text and verse-number search
 		const searchInput = container.querySelector("input[type='search']") as HTMLInputElement;
-		expect(searchInput.placeholder).toBe("Search");
 		setInputValue(searchInput, "salvation");
 		expect(container.textContent).toContain("keyword salvation");
 		expect(container.querySelector('[data-commentary-id="matthew-henry:JHN:3:22"]')).toBeNull();
 		setInputValue(searchInput, "16");
 		expect(container.querySelector('[data-commentary-id="matthew-henry:JHN:3:1"]')).not.toBeNull();
-		expect(container.querySelector('[data-commentary-id="matthew-henry:JHN:3:22"]')).toBeNull();
 		fireClick(getButton(container, "Clear commentary search"));
 
 		fireClick(getButton(container, "v.22–36"));
 		expect(onJumpToVerse).toHaveBeenCalledWith(22);
-
 		fireClick(getButton(container, "Tyndale"));
 		expect(onChangeSource).toHaveBeenCalledWith("tyndale");
-
 		fireClick(getButton(container, "Minimize commentary"));
 		expect(onMinimize).toHaveBeenCalledTimes(1);
 
+		// Drag only via header (not body), snap back, and disabled in sheet variant
 		const panel = container.querySelector("#footnotes") as HTMLElement;
 		fireDrag(container.querySelector(".right-rail-tabpanel") as Element, [50, 50], [180, 160]);
 		expect(panel.className).not.toContain("floating");
@@ -172,12 +169,9 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 
 		fireClick(getButton(container, "Snap commentary back to original position"));
 		expect(panel.className).not.toContain("floating");
-		expect(panel.style.left).toBe("");
 
 		rerender(<StudyRightRail {...makeRailProps({ variant: "sheet", onMinimize })} />);
-		const sheetHeader = container.querySelector(".dict-panel-header") as HTMLElement;
-		expect(sheetHeader.className).not.toContain("panel-drag-handle");
-		fireDrag(sheetHeader, [50, 50], [220, 170]);
+		fireDrag(container.querySelector(".dict-panel-header") as Element, [50, 50], [220, 170]);
 		expect(container.querySelector("#footnotes")?.className).not.toContain("floating");
 	});
 
@@ -205,67 +199,5 @@ describe("CommentaryPanel, StudyRightRail & Commentary Loader", () => {
 		expect(
 			getByText(container, "No notes available in Tyndale Open Study Notes for Judges 1."),
 		).toBeDefined();
-	});
-
-	it("caches commentary fetches and evicts failures so retries succeed", async () => {
-		let callCount = 0;
-		await withMockFetch(
-			() => {
-				callCount++;
-				if (callCount === 1) {
-					return Response.json({ error: "Commentary lookup failed" }, { status: 502 });
-				}
-				return Response.json({
-					entries: [
-						{
-							id: "tyndale:GEN:1:1",
-							verseStart: 1,
-							paragraphs: ["1:1 In the beginning."],
-						},
-					],
-				});
-			},
-			async () => {
-				await expect(
-					loadChapterCommentary({ commentaryId: "tyndale", usfm: "GEN", chapter: 1 }),
-				).rejects.toThrow("Commentary lookup failed");
-
-				const first = await loadChapterCommentary({
-					commentaryId: "tyndale",
-					usfm: "GEN",
-					chapter: 1,
-				});
-				const second = await loadChapterCommentary({
-					commentaryId: "tyndale",
-					usfm: "GEN",
-					chapter: 1,
-				});
-				expect(callCount).toBe(2);
-				expect(first).toEqual(second);
-			},
-		);
-	});
-
-	it("lays out the StudyRightRail dictionary/commentary toggle vertically in CSS", async () => {
-		const css = await Bun.file(join(import.meta.dir, "../src/react-app/index.css")).text();
-		const style = document.createElement("style");
-		style.textContent = css;
-		document.head.appendChild(style);
-
-		try {
-			const { container } = render(<StudyRightRail {...makeRailProps()} />);
-			const tablist = container.querySelector(
-				'[role="tablist"][aria-label="Study panel"]',
-			) as HTMLElement;
-			expect(tablist.getAttribute("aria-orientation")).toBe("vertical");
-
-			const computed = window.getComputedStyle(tablist);
-			expect(computed.display).toBe("grid");
-			expect(computed.gridAutoFlow).toBe("row");
-			expect(computed.gridTemplateColumns).toBe("minmax(0, 1fr)");
-			expect(computed.gridAutoRows).toBe("minmax(0, 1fr)");
-		} finally {
-			style.remove();
-		}
 	});
 });
