@@ -9,27 +9,80 @@ export const MIN_PLAYBACK_SPEED = 0.1;
 export const MAX_PLAYBACK_SPEED = 2.0;
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 1.75, 2] as const;
 
-export function useChapterAudioTracks(usfm: string, chapter: number, enabled = true) {
-	const [tracks, setTracks] = useState<AudioTrackOption[]>([]);
-	const [loading, setLoading] = useState(enabled);
+const EMPTY_TRACKS: AudioTrackOption[] = [];
+const EMPTY_LANGS: ReadonlySet<TranslationLanguage> = new Set();
+
+interface ChapterTracksState {
+	chapterKey: string;
+	tracks: AudioTrackOption[];
+	fetchedLangs: ReadonlySet<TranslationLanguage>;
+}
+
+function mergeChapterTracks(
+	existing: AudioTrackOption[],
+	incoming: AudioTrackOption[],
+	requestedLang?: TranslationLanguage,
+): AudioTrackOption[] {
+	if (!requestedLang) return incoming;
+	const replacedLangs = new Set<TranslationLanguage>([
+		requestedLang,
+		...incoming.map((t) => t.language),
+	]);
+	return [...existing.filter((t) => !replacedLangs.has(t.language)), ...incoming];
+}
+
+export function useChapterAudioTracks(
+	usfm: string,
+	chapter: number,
+	enabled = true,
+	preferredLang: TranslationLanguage = "ko",
+) {
+	const [state, setState] = useState<ChapterTracksState>({
+		chapterKey: "",
+		tracks: EMPTY_TRACKS,
+		fetchedLangs: EMPTY_LANGS,
+	});
+
+	const chapterKey = `${usfm}:${chapter}`;
+	const isCurrentChapter = state.chapterKey === chapterKey;
+	const tracks = isCurrentChapter ? state.tracks : EMPTY_TRACKS;
+	const fetchedLangs = isCurrentChapter ? state.fetchedLangs : EMPTY_LANGS;
+	const isValidChapter = Boolean(usfm) && Number.isInteger(chapter) && chapter >= 1;
+	const needsFetch = enabled && isValidChapter && !fetchedLangs.has(preferredLang);
+	const requestedLang: TranslationLanguage | undefined =
+		preferredLang === "ko" ? "ko" : fetchedLangs.has("ko") ? "en" : undefined;
 
 	useEffect(() => {
-		if (!enabled) {
-			setLoading(false);
-			return;
-		}
+		if (!needsFetch) return;
 		const controller = new AbortController();
-		setLoading(true);
-		setTracks([]);
-		loadSyncedChapterAudio({ usfm, chapter, signal: controller.signal }).then((res) => {
+		loadSyncedChapterAudio({
+			usfm,
+			chapter,
+			language: requestedLang,
+			signal: controller.signal,
+		}).then((res) => {
 			if (controller.signal.aborted) return;
-			setTracks(res.tracks);
-			setLoading(false);
+			setState((prev) => {
+				const prevTracks = prev.chapterKey === chapterKey ? prev.tracks : EMPTY_TRACKS;
+				const prevLangs = prev.chapterKey === chapterKey ? prev.fetchedLangs : EMPTY_LANGS;
+				const nextLangs = new Set(prevLangs);
+				if (requestedLang) {
+					nextLangs.add(requestedLang);
+				} else {
+					nextLangs.add("ko");
+					nextLangs.add("en");
+				}
+				return {
+					chapterKey,
+					tracks: mergeChapterTracks(prevTracks, res.tracks, requestedLang),
+					fetchedLangs: nextLangs,
+				};
+			});
 		});
 		return () => controller.abort();
-	}, [enabled, usfm, chapter]);
+	}, [needsFetch, usfm, chapter, chapterKey, requestedLang]);
 
-	return { tracks, loadingTracks: loading };
+	return { tracks, loadingTracks: needsFetch };
 }
 
 function roundPlaybackRate(rate: number): number {
@@ -118,6 +171,8 @@ function clearAudioSource(audio: HTMLAudioElement): void {
 interface UseHumanAudioOptions {
 	tracks: AudioTrackOption[];
 	isLoadingTracks?: boolean;
+	preferredLang?: TranslationLanguage;
+	onPreferredLangChange?: (lang: TranslationLanguage) => void;
 	visibleVerse?: number;
 	autoSync?: boolean;
 	onChapterEnded?: () => boolean;
@@ -126,6 +181,8 @@ interface UseHumanAudioOptions {
 export function useHumanAudio({
 	tracks,
 	isLoadingTracks = false,
+	preferredLang: controlledLang,
+	onPreferredLangChange,
 	visibleVerse = 1,
 	autoSync = true,
 	onChapterEnded,
@@ -144,7 +201,8 @@ export function useHumanAudio({
 	const isLoadingTracksRef = useRef(isLoadingTracks);
 	isLoadingTracksRef.current = isLoadingTracks;
 
-	const [preferredLang, setPreferredLang] = useState<TranslationLanguage>("ko");
+	const [uncontrolledLang, setUncontrolledLang] = useState<TranslationLanguage>("ko");
+	const preferredLang = controlledLang ?? uncontrolledLang;
 	const preferredLangRef = useRef(preferredLang);
 	preferredLangRef.current = preferredLang;
 
@@ -273,10 +331,10 @@ export function useHumanAudio({
 		if (!track?.url || !isSafeAudioSrc(track.url)) {
 			if (!isLoadingTracksRef.current) {
 				shouldAutoPlayOnTrackSwapRef.current = false;
+				pendingSyncVerseRef.current = null;
 			}
 			clearAudioSource(audio);
 			setIsPlaying(false);
-			pendingSyncVerseRef.current = null;
 			if (track?.url) {
 				setErrorMessage("Audio stream URL was rejected.");
 			}
@@ -300,6 +358,7 @@ export function useHumanAudio({
 	useEffect(() => {
 		if (!isLoadingTracks && !activeTrackRef.current) {
 			shouldAutoPlayOnTrackSwapRef.current = false;
+			pendingSyncVerseRef.current = null;
 		}
 	}, [isLoadingTracks]);
 
@@ -380,9 +439,13 @@ export function useHumanAudio({
 			pendingSyncVerseRef.current = autoSyncRef.current
 				? (activeVerse ?? visibleVerseRef.current)
 				: null;
-			setPreferredLang(lang);
+			if (onPreferredLangChange) {
+				onPreferredLangChange(lang);
+			} else {
+				setUncontrolledLang(lang);
+			}
 		},
-		[isPlaying, activeVerse],
+		[isPlaying, activeVerse, onPreferredLangChange],
 	);
 
 	const jumpToVerse = useCallback(

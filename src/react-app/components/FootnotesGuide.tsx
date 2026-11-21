@@ -5,7 +5,7 @@ import type { FootnoteVocabEntry, KrvGrammarNote } from "../../shared/types";
 import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
 import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
 import { scrollChildIntoContainer } from "../lib/scroll";
-import { ChevronDown } from "./Icons";
+import { ChevronDown, MessageSquareText } from "./Icons";
 import {
 	filterVocabEntries,
 	GrammarRuleCard,
@@ -118,6 +118,8 @@ interface FootnotesGuideProps {
 	grammarNotes: KrvGrammarNote[];
 	highlightedFootnoteId: string | null;
 	highlightSeq?: number;
+	wordTooltip?: boolean;
+	onToggleWordTooltip?: () => void;
 	onJumpToVerse: (verseNumber: number) => void;
 }
 
@@ -128,6 +130,8 @@ export function FootnotesGuide({
 	grammarNotes,
 	highlightedFootnoteId,
 	highlightSeq = 0,
+	wordTooltip = true,
+	onToggleWordTooltip,
 	onJumpToVerse,
 }: FootnotesGuideProps) {
 	const [query, setQuery] = useState("");
@@ -180,6 +184,26 @@ export function FootnotesGuide({
 					ariaLabel="Filter vocabulary footnotes"
 					clearAriaLabel="Clear search"
 				/>
+
+				<div className="rail-section-head">
+					<span className="rail-section-label">Word Tooltips</span>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={wordTooltip}
+						aria-label="Toggle word translation tooltips"
+						className={`rail-sync-toggle ${wordTooltip ? "active" : ""}`.trim()}
+						onClick={onToggleWordTooltip}
+						title={
+							wordTooltip
+								? "Turn off automatic word translation tooltips"
+								: "Turn on automatic word translation tooltips"
+						}
+					>
+						<MessageSquareText size={10} />
+						<span>{wordTooltip ? "On" : "Off"}</span>
+					</button>
+				</div>
 			</div>
 
 			<div

@@ -42,13 +42,18 @@ function assertSecurityHeaders(res: Response) {
 describe("Worker API & Security Boundaries", () => {
 	it("serves Supertonic KRV (R2 preferred over AUDIO_BASE_URL) and Crossway ESV tracks, and blocks untrusted redirects/leaks", async () => {
 		const secretKey = "esv-secret-key-123";
-		const captured = { authHeader: null as string | null, query: null as string | null };
+		const captured = {
+			authHeader: null as string | null,
+			query: null as string | null,
+			esvCalls: 0,
+		};
 
 		const mockFetch: FetchLike = async (input, init) => {
 			const url = String(input);
 			if (!url.startsWith("https://api.esv.org/v3/passage/audio/")) {
 				return new Response("Not Found", { status: 404 });
 			}
+			captured.esvCalls++;
 			captured.authHeader = new Headers(init?.headers).get("Authorization");
 			captured.query = new URL(url).searchParams.get("q");
 			if (captured.query === "John 3") {
@@ -88,6 +93,29 @@ describe("Worker API & Security Boundaries", () => {
 		const bucket = createMockAudioBucket({
 			"JHN/3.mp3": { data: "ID3-JHN3", contentType: "audio/mpeg", httpEtag: '"jhn-3"' },
 		});
+
+		// ?lang=ko returns only Korean track and never calls api.esv.org even when ESV_API_KEY is set
+		const koOnlyRes = await requestApp(app, "/api/audio/JHN/3?lang=ko", undefined, {
+			AUDIO_BUCKET: bucket,
+			ESV_API_KEY: secretKey,
+		});
+		expect(koOnlyRes.status).toBe(200);
+		expect(captured.esvCalls).toBe(0);
+		const koOnlyBody = (await koOnlyRes.json()) as ChapterAudioResponse;
+		expect(koOnlyBody.tracks).toHaveLength(1);
+		expect(koOnlyBody.tracks[0]?.language).toBe("ko");
+
+		// ?lang=en returns only English track and skips Korean track
+		const enOnlyRes = await requestApp(app, "/api/audio/JHN/3?lang=en", undefined, {
+			AUDIO_BUCKET: bucket,
+			ESV_API_KEY: secretKey,
+		});
+		expect(enOnlyRes.status).toBe(200);
+		expect(captured.esvCalls).toBe(1);
+		const enOnlyBody = (await enOnlyRes.json()) as ChapterAudioResponse;
+		expect(enOnlyBody.tracks).toHaveLength(1);
+		expect(enOnlyBody.tracks[0]?.language).toBe("en");
+		expect(enOnlyBody.tracks[0]?.url).toBe("https://audio.esv.org/hw/43003001-43003036.mp3");
 
 		// Prefers private R2 AUDIO_BUCKET over AUDIO_BASE_URL without touching R2 on metadata lookup
 		const boundRes = await requestApp(app, "/api/audio/JHN/3", undefined, {
@@ -198,6 +226,8 @@ describe("Worker API & Security Boundaries", () => {
 			"/api/audio/GEN/01",
 			"/api/audio/GEN/1abc",
 			"/api/audio/%E0%A4%A/1",
+			"/api/audio/GEN/1?lang=fr",
+			"/api/audio/GEN/1?lang=",
 		]) {
 			const res = await requestApp(app, badPath);
 			expect(res.status).toBe(400);

@@ -57,6 +57,7 @@ export function FloatingBottomBar({
 	activeTrack,
 	isPlaying,
 	isLoading,
+	isLoadingTracks = false,
 	currentTime,
 	duration,
 	playbackRate,
@@ -78,7 +79,7 @@ export function FloatingBottomBar({
 }: FloatingBottomBarProps) {
 	const activeLangCode = CANONICAL_BIBLES[preferredLang].code;
 	const showScrubber = Boolean(activeTrack && (isPlaying || currentTime > 0));
-	const showUnavailable = Boolean(!activeTrack);
+	const showUnavailable = Boolean(!activeTrack && !isLoadingTracks);
 	const hasTimestamps = hasVerseTimings(activeTrack?.verseTimings);
 	const syncActive = hasTimestamps && autoSync;
 	const showFollowChip = Boolean(
@@ -157,7 +158,7 @@ export function FloatingBottomBar({
 						aria-label={isPlaying ? "Pause audio" : "Play audio"}
 						title={formatTrackTooltip(activeTrack, activeLangCode)}
 					>
-						{isLoading ? (
+						{isLoading || isLoadingTracks ? (
 							<Loader2 size={14} className="spin" />
 						) : isPlaying ? (
 							<Pause size={14} />

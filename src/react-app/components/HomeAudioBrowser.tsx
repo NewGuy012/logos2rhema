@@ -1,8 +1,9 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { hasVerseTimings, SUPERTONIC_COMPACT_BADGE } from "../../shared/audio-timings";
 import { getAdjacentChapter } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
+import type { TranslationLanguage } from "../../shared/types";
 import { useChapterAudioTracks, useHumanAudio } from "../hooks/useHumanAudio";
 import {
 	AudioFallbackAction,
@@ -32,7 +33,13 @@ export function HomeAudioBrowser({
 		chapter,
 		selectPassage,
 	} = usePassageSelection(initialBookNumber, initialChapter);
-	const { tracks, loadingTracks } = useChapterAudioTracks(currentBook.usfm, chapter);
+	const [preferredLang, setPreferredLang] = useState<TranslationLanguage>("ko");
+	const { tracks, loadingTracks } = useChapterAudioTracks(
+		currentBook.usfm,
+		chapter,
+		true,
+		preferredLang,
+	);
 
 	const handleChapterEnded = useCallback(() => {
 		const next = getAdjacentChapter(currentBook.number, chapter, 1);
@@ -44,6 +51,8 @@ export function HomeAudioBrowser({
 	const audio = useHumanAudio({
 		tracks,
 		isLoadingTracks: loadingTracks,
+		preferredLang,
+		onPreferredLangChange: setPreferredLang,
 		visibleVerse: 1,
 		autoSync: false,
 		onChapterEnded: handleChapterEnded,

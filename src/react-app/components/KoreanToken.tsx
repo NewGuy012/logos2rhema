@@ -12,6 +12,7 @@ interface KoreanTokenProps {
 	token: GlossToken;
 	tokenOffset?: number;
 	highlights?: readonly HighlightItem[];
+	tooltipEnabled?: boolean;
 	onSelectFootnote?: (footnoteId: string) => void;
 }
 
@@ -120,6 +121,7 @@ export function KoreanToken({
 	token,
 	tokenOffset = 0,
 	highlights = [],
+	tooltipEnabled = true,
 	onSelectFootnote,
 }: KoreanTokenProps) {
 	const pointerDownRef = useRef(false);
@@ -143,17 +145,26 @@ export function KoreanToken({
 
 	useEffect(() => () => cancelClose(), [cancelClose]);
 
+	useEffect(() => {
+		if (!tooltipEnabled) {
+			cancelClose();
+			setOpen(false);
+		}
+	}, [tooltipEnabled, cancelClose]);
+
 	const dismiss = useCallback(() => {
 		cancelClose();
 		setOpen(false);
 	}, [cancelClose]);
+
+	const isTooltipOpen = tooltipEnabled && open;
 
 	const {
 		triggerRef: buttonRef,
 		menuRef: tooltipRef,
 		pos,
 		updatePosition,
-	} = useAnchoredPopover(open, {
+	} = useAnchoredPopover(isTooltipOpen, {
 		minSpace: 170,
 		halfWidth: 145,
 		gap: 8,
@@ -162,8 +173,8 @@ export function KoreanToken({
 	});
 
 	useEffect(() => {
-		if (open) updatePosition();
-	}, [open, updatePosition]);
+		if (isTooltipOpen) updatePosition();
+	}, [isTooltipOpen, updatePosition]);
 
 	if (!token.word || !token.gloss) {
 		return <span>{renderHighlightedText(token.raw, tokenOffset, highlights)}</span>;
@@ -178,8 +189,9 @@ export function KoreanToken({
 			<button
 				ref={buttonRef}
 				type="button"
-				className={`ko-word-btn ${token.matched ? "has-gloss" : ""} ${open ? "active" : ""}`}
+				className={`ko-word-btn ${token.matched ? "has-gloss" : ""} ${isTooltipOpen ? "active" : ""}`}
 				onMouseEnter={() => {
+					if (!tooltipEnabled) return;
 					cancelClose();
 					updatePosition();
 					setOpen(true);
@@ -189,6 +201,7 @@ export function KoreanToken({
 					pointerDownRef.current = true;
 				}}
 				onFocus={() => {
+					if (!tooltipEnabled) return;
 					cancelClose();
 					if (pointerDownRef.current) return;
 					updatePosition();
@@ -214,7 +227,7 @@ export function KoreanToken({
 					}
 					if (token.footnoteId && onSelectFootnote) {
 						onSelectFootnote(token.footnoteId);
-					} else {
+					} else if (tooltipEnabled) {
 						cancelClose();
 						updatePosition();
 						setOpen((prev) => !prev);
@@ -224,7 +237,7 @@ export function KoreanToken({
 				{renderHighlightedText(token.word, wordOffset, highlights)}
 			</button>
 			{renderHighlightedText(token.trailPunct, trailOffset, highlights)}
-			{open && pos && typeof document !== "undefined" && (
+			{isTooltipOpen && pos && typeof document !== "undefined" && (
 				<KoreanTokenTooltip
 					token={token}
 					pos={pos}

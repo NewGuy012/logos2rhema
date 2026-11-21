@@ -12,6 +12,7 @@ import type {
 	BookMeta,
 	ChapterAudioResponse,
 	ChapterTextResponse,
+	TranslationLanguage,
 	VerseEntry,
 } from "../shared/types";
 import { isSafeHttpsUrl } from "../shared/url";
@@ -300,6 +301,7 @@ async function handleEsvChapter(
 }
 
 async function handleAudioTracks(
+	request: Request,
 	usfmRaw: string,
 	chapterRaw: string,
 	env: WorkerBindings,
@@ -311,28 +313,42 @@ async function handleAudioTracks(
 	}
 	const { book, usfm, chapter } = parsed;
 
+	const url = new URL(request.url);
+	let requestedLang: TranslationLanguage | null = null;
+	if (url.searchParams.has("lang")) {
+		const rawLang = url.searchParams.get("lang");
+		if (rawLang !== "ko" && rawLang !== "en") {
+			return jsonError(400, "Unsupported audio language");
+		}
+		requestedLang = rawLang;
+	}
+	const includeKo = requestedLang === null || requestedLang === "ko";
+	const includeEn = requestedLang === null || requestedLang === "en";
+
 	const esvApiKey = env.ESV_API_KEY?.trim();
 	const customAudioBase = hasConfiguredAudioBase(env);
 	const tracks: AudioTrackOption[] = [];
 
-	const krvUrl = env.AUDIO_BUCKET
-		? `/api/audio/krv/${usfm}/${chapter}`
-		: customAudioBase
-			? `${customAudioBase}/${usfm}/${chapter}.mp3`
-			: null;
-	if (krvUrl) {
-		tracks.push({
-			id: SUPERTONIC_TRACK_ID,
-			label: SUPERTONIC_TRACK_LABEL,
-			language: "ko",
-			url: krvUrl,
-			isAiGenerated: true,
-			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-		});
+	if (includeKo) {
+		const krvUrl = env.AUDIO_BUCKET
+			? `/api/audio/krv/${usfm}/${chapter}`
+			: customAudioBase
+				? `${customAudioBase}/${usfm}/${chapter}.mp3`
+				: null;
+		if (krvUrl) {
+			tracks.push({
+				id: SUPERTONIC_TRACK_ID,
+				label: SUPERTONIC_TRACK_LABEL,
+				language: "ko",
+				url: krvUrl,
+				isAiGenerated: true,
+				attribution: SUPERTONIC_TRACK_ATTRIBUTION,
+			});
+		}
 	}
 
 	let esvDegraded = false;
-	if (esvApiKey) {
+	if (includeEn && esvApiKey) {
 		const esvTrack = await fetchEsvAudioTrack(
 			esvApiKey,
 			{ usfm, ...esvPassageOpts(book, chapter) },
@@ -542,7 +558,7 @@ export function createApp(deps: WorkerDeps = {}): WorkerApp {
 				return handleEsvChapter(parts[2], parts[3], env, fetcher, deps.localEsvLoader);
 			}
 			if (parts[1] === "audio") {
-				return handleAudioTracks(parts[2], parts[3], env, fetcher);
+				return handleAudioTracks(request, parts[2], parts[3], env, fetcher);
 			}
 		}
 

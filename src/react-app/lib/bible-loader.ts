@@ -16,6 +16,7 @@ import type {
 	ChapterTextResponse,
 	CommentaryId,
 	LexiconMap,
+	TranslationLanguage,
 	VerseEntry,
 } from "../../shared/types";
 
@@ -324,13 +325,15 @@ function fetchStaticBookTimings(
 export async function loadSyncedChapterAudio(options: {
 	usfm: string;
 	chapter: number;
+	language?: TranslationLanguage;
 	signal?: AbortSignal;
 }): Promise<ChapterAudioResponse> {
 	try {
-		const res = await fetch(
-			`/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`,
-			options.signal ? { signal: options.signal } : undefined,
-		);
+		const baseUrl = `/api/audio/${encodeURIComponent(options.usfm)}/${options.chapter}`;
+		const url = options.language
+			? `${baseUrl}?lang=${encodeURIComponent(options.language)}`
+			: baseUrl;
+		const res = await fetch(url, options.signal ? { signal: options.signal } : undefined);
 		if (!res.ok) return { tracks: [] };
 		const payload = (await res.json()) as Partial<ChapterAudioResponse>;
 		const rawTracks = Array.isArray(payload?.tracks) ? payload.tracks : [];

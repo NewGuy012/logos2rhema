@@ -17,6 +17,7 @@ import type {
 	HighlightItem,
 	LexiconMap,
 	RightRailTab,
+	TranslationLanguage,
 	VerseEntry,
 } from "../shared/types";
 import { AudioControlRail } from "./components/AudioControlRail";
@@ -66,6 +67,7 @@ const MAX_VERSE_NUMBER = 200;
 
 interface DisplayPrefs extends TopBarDisplayPrefs {
 	autoSync: boolean;
+	wordTooltip: boolean;
 	rightRailTab: RightRailTab;
 	commentarySource: CommentaryId;
 }
@@ -84,6 +86,7 @@ const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	koFontStyle: "serif",
 	studyMask: "none",
 	autoSync: true,
+	wordTooltip: true,
 	rightRailTab: "dictionary",
 	commentarySource: DEFAULT_COMMENTARY_ID,
 };
@@ -164,6 +167,8 @@ function readStoredPrefs(): StoredPrefs {
 			? parsed.studyMask
 			: DEFAULT_PREFS.studyMask,
 		autoSync: typeof parsed.autoSync === "boolean" ? parsed.autoSync : DEFAULT_PREFS.autoSync,
+		wordTooltip:
+			typeof parsed.wordTooltip === "boolean" ? parsed.wordTooltip : DEFAULT_PREFS.wordTooltip,
 		rightRailTab: isOneOf(parsed.rightRailTab, ["dictionary", "commentary"])
 			? parsed.rightRailTab
 			: DEFAULT_PREFS.rightRailTab,
@@ -583,10 +588,12 @@ export default function App() {
 		return () => controller.abort();
 	}, [view, bookNumber, chapter, chapterKey, chapterRetrySeq]);
 
+	const [audioLang, setAudioLang] = useState<TranslationLanguage>("ko");
 	const { tracks: audioTracks, loadingTracks } = useChapterAudioTracks(
 		currentBook.usfm,
 		chapter,
 		view === "reader",
+		audioLang,
 	);
 
 	const navigateTo = useCallback(
@@ -620,6 +627,8 @@ export default function App() {
 	const audio = useHumanAudio({
 		tracks: audioTracks,
 		isLoadingTracks: loadingTracks,
+		preferredLang: audioLang,
+		onPreferredLangChange: setAudioLang,
 		visibleVerse,
 		autoSync: prefs.autoSync,
 		onChapterEnded: handleChapterEnded,
@@ -878,6 +887,7 @@ export default function App() {
 		activeTrack: audio.activeTrack,
 		isPlaying,
 		isLoading: audio.isLoading,
+		isLoadingTracks: loadingTracks,
 		currentTime: audio.currentTime,
 		duration: audio.duration,
 		playbackRate: audio.playbackRate,
@@ -936,6 +946,8 @@ export default function App() {
 			grammarNotes={analysis.grammarNotes}
 			highlightedFootnoteId={highlightedFootnoteId}
 			highlightSeq={highlightSeq}
+			wordTooltip={prefs.wordTooltip}
+			onToggleWordTooltip={() => patchPrefs({ wordTooltip: !prefs.wordTooltip })}
 			commentarySource={prefs.commentarySource}
 			commentaryData={commentaryData}
 			commentaryLoading={commentaryLoading}
@@ -1135,6 +1147,7 @@ export default function App() {
 													koHighlights={verseHighlights?.ko}
 													enUnavailable={Boolean(enChapterError)}
 													hasVerseTimestamps={hasAudioTimings}
+													wordTooltip={prefs.wordTooltip}
 													onSelectVerse={handleSelectVerse}
 													onToggleFavorite={handleToggleVerseFavorite}
 													onSelectFootnote={handleSelectFootnote}

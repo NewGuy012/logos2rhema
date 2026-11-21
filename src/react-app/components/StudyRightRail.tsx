@@ -29,6 +29,8 @@ interface StudyRightRailProps extends DraggableRailProps {
 	grammarNotes: KrvGrammarNote[];
 	highlightedFootnoteId: string | null;
 	highlightSeq?: number;
+	wordTooltip?: boolean;
+	onToggleWordTooltip?: () => void;
 	commentarySource: CommentaryId;
 	commentaryData: ChapterCommentaryResponse | null;
 	commentaryLoading: boolean;
@@ -81,6 +83,8 @@ export function StudyRightRail({
 	grammarNotes,
 	highlightedFootnoteId,
 	highlightSeq = 0,
+	wordTooltip = true,
+	onToggleWordTooltip,
 	commentarySource,
 	commentaryData,
 	commentaryLoading,
@@ -170,6 +174,8 @@ export function StudyRightRail({
 								grammarNotes={grammarNotes}
 								highlightedFootnoteId={highlightedFootnoteId}
 								highlightSeq={highlightSeq}
+								wordTooltip={wordTooltip}
+								onToggleWordTooltip={onToggleWordTooltip}
 								onJumpToVerse={onJumpToVerse}
 							/>
 						) : (

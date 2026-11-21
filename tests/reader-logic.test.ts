@@ -256,6 +256,32 @@ describe("Reader pure logic (no DOM)", () => {
 		let commentaryCalls = 0;
 		await withMockFetch(
 			(url) => {
+				if (url === "/api/audio/JHN/3?lang=ko") {
+					return Response.json({
+						tracks: [
+							{
+								id: SUPERTONIC_TRACK_ID,
+								label: SUPERTONIC_TRACK_LABEL,
+								language: "ko",
+								url: "https://cdn.example.com/JHN/3.mp3",
+								isAiGenerated: true,
+								attribution: SUPERTONIC_TRACK_ATTRIBUTION,
+							},
+						],
+					});
+				}
+				if (url === "/api/audio/JHN/3?lang=en") {
+					return Response.json({
+						tracks: [
+							{
+								id: "esv-api:JHN:3",
+								label: "ESV",
+								language: "en",
+								url: "https://audio.esv.org/hw/jhn3.mp3",
+							},
+						],
+					});
+				}
 				if (url === "/api/audio/JHN/3") {
 					return Response.json({
 						tracks: [
@@ -309,6 +335,22 @@ describe("Reader pure logic (no DOM)", () => {
 				expect(
 					secondAudio.tracks.find((t) => t.id === "esv-api:JHN:3")?.verseTimings,
 				).toBeUndefined();
+
+				const koOnlyAudio = await loadSyncedChapterAudio({
+					usfm: "JHN",
+					chapter: 3,
+					language: "ko",
+				});
+				expect(koOnlyAudio.tracks.map((t) => t.language)).toEqual(["ko"]);
+				expect(koOnlyAudio.tracks[0]?.verseTimings).toEqual({ 1: 2.345, 16: 51.789 });
+
+				const enOnlyAudio = await loadSyncedChapterAudio({
+					usfm: "JHN",
+					chapter: 3,
+					language: "en",
+				});
+				expect(enOnlyAudio.tracks.map((t) => t.language)).toEqual(["en"]);
+				expect(enOnlyAudio.tracks[0]?.url).toBe("https://audio.esv.org/hw/jhn3.mp3");
 
 				await expect(
 					loadChapterCommentary({ commentaryId: "tyndale", usfm: "GEN", chapter: 1 }),

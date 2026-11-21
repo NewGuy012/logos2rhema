@@ -22,6 +22,7 @@ export interface SharedAudioControlProps {
 	activeTrack: AudioTrackOption | null;
 	isPlaying: boolean;
 	isLoading: boolean;
+	isLoadingTracks?: boolean;
 	currentTime: number;
 	duration: number;
 	playbackRate: number;

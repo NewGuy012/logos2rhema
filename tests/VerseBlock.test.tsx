@@ -222,6 +222,21 @@ describe("Reader UI & Audio Hooks", () => {
 				);
 			});
 			expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+
+			// Turning wordTooltip off hides any open tooltip and blocks hover/focus tooltips while keeping click lookup
+			fireHover(wordBtn, true);
+			expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+			rerender(<VerseBlock {...verseProps} wordTooltip={false} />);
+			expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+			fireHover(wordBtn, true);
+			act(() => {
+				wordBtn.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+			});
+			expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+			fireClick(getButton(container, "낯선말"));
+			expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+			fireClick(wordBtn);
+			expect(onSelectFootnote).toHaveBeenCalledWith("vocab-창조하다");
 		} finally {
 			restore();
 		}
@@ -515,6 +530,174 @@ describe("Reader UI & Audio Hooks", () => {
 		} finally {
 			window.HTMLElement.prototype.scrollIntoView = origScrollIntoView;
 			mockAudio.restore();
+			restoreMatchMedia();
+		}
+	});
+
+	it("defers ESV audio API fetch until EN is selected, preserves autoplay on swap, and keeps KO fallback", async () => {
+		window.location.hash = "#/GEN/1";
+		const restoreMatchMedia = mockMatchMedia(true);
+		const mockAudio = installMockAudio({ initialTime: 1.0, emitTimeUpdateOnPlay: true });
+		const audioUrls: string[] = [];
+		let resolveDeferredEn: ((res: Response) => void) | null = null;
+
+		try {
+			await withMockFetch(
+				createReaderFetchHandler({
+					krv: () =>
+						makeBookResponse("krv", 1, "GEN", {
+							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+							"2": [{ verse: 1, text: "천지와 만물이 다 이루니라" }],
+						}),
+					esv: (url) =>
+						makeChapterResponse("esv", 1, "GEN", url.endsWith("/2") ? 2 : 1, [
+							{ verse: 1, text: "In the beginning." },
+						]),
+					audio: (url) => {
+						audioUrls.push(url);
+						const parsed = new URL(url, "https://app.local");
+						const lang = parsed.searchParams.get("lang");
+						if (parsed.pathname === "/api/audio/GEN/1" && lang === "en") {
+							return new Promise<Response>((resolve) => {
+								resolveDeferredEn = resolve;
+							});
+						}
+						if (parsed.pathname === "/api/audio/GEN/2" && lang === "en") {
+							return Response.json({ tracks: [] });
+						}
+						return Response.json({
+							tracks: [makeSupertonicTrack(`/api/audio/krv/${parsed.pathname.slice(11)}`)],
+						});
+					},
+				}),
+				async () => {
+					const { container } = render(<App />);
+
+					await waitUntil(() => {
+						expect(getByText(container, "태초에")).toBeDefined();
+						expect(audioUrls).toEqual(["/api/audio/GEN/1?lang=ko"]);
+					});
+
+					// Play KO audio, then click EN -> shows loading without unavailable flash, then auto-plays ESV track
+					const audioPanel = container.querySelector(".audio-rail") as HTMLElement;
+					fireClick(getButton(audioPanel, "Play audio"));
+					await waitUntil(() => expect(getButton(audioPanel, "Pause audio")).toBeDefined());
+
+					fireClick(getButton(audioPanel, "EN"));
+					await waitUntil(() => {
+						expect(audioUrls).toEqual(["/api/audio/GEN/1?lang=ko", "/api/audio/GEN/1?lang=en"]);
+						expect(getByText(audioPanel, "Checking available audio tracks...")).toBeDefined();
+					});
+					expect(audioPanel.textContent).not.toContain("No ESV audio for this chapter.");
+					expect(container.querySelector(".quick-strip-unavailable")).toBeNull();
+
+					resolveDeferredEn!(
+						Response.json({
+							tracks: [
+								{
+									id: "esv-api:GEN:1",
+									label: "David Cochran Heath (ESV)",
+									language: "en",
+									url: "https://audio.esv.org/hw/gen1.mp3",
+								},
+							],
+						}),
+					);
+					await waitUntil(() => {
+						expect(getByText(audioPanel, "David Cochran Heath (ESV)")).toBeDefined();
+						expect(mockAudio.latest()?.src).toBe("https://audio.esv.org/hw/gen1.mp3");
+						expect(getButton(audioPanel, "Pause audio")).toBeDefined();
+					});
+
+					// Toggling 한 -> EN on the same chapter does not re-fetch lang=en
+					fireClick(getButton(audioPanel, "한"));
+					fireClick(getButton(audioPanel, "EN"));
+					expect(audioUrls.filter((u) => u === "/api/audio/GEN/1?lang=en")).toHaveLength(1);
+
+					// Switching back to 한 before navigating keeps GEN 2 KO-only; clicking EN on GEN 2 keeps KO fallback if ESV returns []
+					fireClick(getButton(audioPanel, "한"));
+					fireClick(getButton(container, "Next Chapter"));
+					await waitUntil(() => {
+						expect(audioUrls).toContain("/api/audio/GEN/2?lang=ko");
+						expect(getByText(container, "천지와 만물이 다 이루니라")).toBeDefined();
+						expect(getByText(audioPanel, SUPERTONIC_TRACK_ATTRIBUTION)).toBeDefined();
+					});
+					expect(
+						audioUrls.some((u) => u.startsWith("/api/audio/GEN/2") && !u.includes("lang=ko")),
+					).toBe(false);
+
+					fireClick(getButton(audioPanel, "EN"));
+					await waitUntil(() => {
+						expect(audioUrls).toContain("/api/audio/GEN/2?lang=en");
+						expect(getByText(audioPanel, "No ESV audio for this chapter.")).toBeDefined();
+						expect(getButton(audioPanel, "Use 개역한글 Audio")).toBeDefined();
+					});
+				},
+			);
+		} finally {
+			mockAudio.restore();
+			restoreMatchMedia();
+		}
+	});
+
+	it("toggles automatic word tooltips on/off from the Dictionary panel and persists the preference", async () => {
+		window.location.hash = "#/GEN/1";
+		const restoreMatchMedia = mockMatchMedia(true);
+
+		try {
+			await withMockFetch(
+				createReaderFetchHandler({
+					krv: () =>
+						makeBookResponse("krv", 1, "GEN", {
+							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+						}),
+					esv: () =>
+						makeChapterResponse("esv", 1, "GEN", 1, [
+							{ verse: 1, text: "In the beginning, God created the heavens and the earth." },
+						]),
+				}),
+				async () => {
+					const { container } = render(<App />);
+
+					await waitUntil(() => {
+						expect(getByText(container, "창조하시니라")).toBeDefined();
+					});
+
+					const dictPanel = container.querySelector("#footnotes") as HTMLElement;
+					const tooltipSwitch = getButton(dictPanel, "Toggle word translation tooltips");
+					expect(tooltipSwitch.getAttribute("aria-checked")).toBe("true");
+					expect(tooltipSwitch.textContent).toBe("On");
+
+					// Default: hovering a Korean word opens the tooltip
+					const wordBtn = getButton(container, "창조하시니라");
+					fireHover(wordBtn, true);
+					expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+
+					// Turn off tooltips in Dictionary -> closes active tooltip and suppresses hover tooltips
+					fireClick(tooltipSwitch);
+					expect(tooltipSwitch.getAttribute("aria-checked")).toBe("false");
+					expect(tooltipSwitch.textContent).toBe("Off");
+					expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"wordTooltip":false',
+					);
+
+					fireHover(wordBtn, true);
+					expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+
+					// Clicking a word still jumps to it in the Dictionary even with tooltips off
+					fireClick(wordBtn);
+					expect(dictPanel.querySelector('[data-footnote-id="vocab-창조하다"]')).not.toBeNull();
+
+					// Turn tooltips back on
+					fireClick(tooltipSwitch);
+					expect(tooltipSwitch.getAttribute("aria-checked")).toBe("true");
+					expect(tooltipSwitch.textContent).toBe("On");
+					fireHover(wordBtn, true);
+					expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+				},
+			);
+		} finally {
 			restoreMatchMedia();
 		}
 	});

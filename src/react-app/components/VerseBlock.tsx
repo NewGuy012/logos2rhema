@@ -37,6 +37,7 @@ interface VerseBlockProps {
 	koHighlights?: readonly HighlightItem[];
 	enUnavailable?: boolean;
 	hasVerseTimestamps: boolean;
+	wordTooltip?: boolean;
 	onSelectVerse: (verseNum: number) => void;
 	onToggleFavorite?: (verse: AlignedVerse) => void;
 	onSelectFootnote: (footnoteId: string) => void;
@@ -53,6 +54,7 @@ export const VerseBlock = memo(function VerseBlock({
 	koHighlights = [],
 	enUnavailable = false,
 	hasVerseTimestamps,
+	wordTooltip = true,
 	onSelectVerse,
 	onToggleFavorite,
 	onSelectFootnote,
@@ -102,6 +104,7 @@ export const VerseBlock = memo(function VerseBlock({
 									token={token}
 									tokenOffset={tokenOffset}
 									highlights={koHighlights}
+									tooltipEnabled={wordTooltip}
 									onSelectFootnote={onSelectFootnote}
 								/>
 							</span>

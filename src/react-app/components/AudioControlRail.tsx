@@ -40,6 +40,7 @@ export function AudioControlRail({
 	activeTrack,
 	isPlaying,
 	isLoading,
+	isLoadingTracks = false,
 	currentTime,
 	duration,
 	playbackRate,
@@ -133,7 +134,7 @@ export function AudioControlRail({
 							activeTrack={activeTrack}
 							activeLangCode={activeLangCode}
 							isPlaying={isPlaying}
-							isLoading={isLoading}
+							isLoading={isLoading || isLoadingTracks}
 							errorMessage={errorMessage}
 							onSkipBy={onSkipBy}
 							onTogglePlay={onTogglePlay}
@@ -142,14 +143,18 @@ export function AudioControlRail({
 						{errorMessage ? (
 							<p className="rail-note">{errorMessage}</p>
 						) : !activeTrack ? (
-							<div className="rail-unavailable">
-								<p className="rail-note">No {activeLangCode} audio for this chapter.</p>
-								<AudioFallbackAction
-									preferredLang={preferredLang}
-									tracks={tracks}
-									onSelectLanguage={onSelectLanguage}
-								/>
-							</div>
+							isLoadingTracks ? (
+								<p className="rail-note">Checking available audio tracks...</p>
+							) : (
+								<div className="rail-unavailable">
+									<p className="rail-note">No {activeLangCode} audio for this chapter.</p>
+									<AudioFallbackAction
+										preferredLang={preferredLang}
+										tracks={tracks}
+										onSelectLanguage={onSelectLanguage}
+									/>
+								</div>
+							)
 						) : (
 							<>
 								<div className="rail-time-row">

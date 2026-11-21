@@ -44,17 +44,22 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				(url) => {
 					fetchedUrls.push(url);
 					if (url.startsWith("/api/audio/")) {
-						return Response.json({
-							tracks: [
-								makeSupertonicTrack(`${url.replace("/api/audio/", "/api/audio/krv/")}.mp3`),
-								{
-									id: "esv-audio",
-									label: "ESV Audio",
-									language: "en",
-									url: `${url.replace("/api/audio/", "/api/audio/esv/")}`,
-								},
-							],
-						});
+						const parsed = new URL(url, "https://app.local");
+						const lang = parsed.searchParams.get("lang");
+						const refPath = parsed.pathname.replace("/api/audio/", "");
+						const tracks = [];
+						if (!lang || lang === "ko") {
+							tracks.push(makeSupertonicTrack(`/api/audio/krv/${refPath}.mp3`));
+						}
+						if (!lang || lang === "en") {
+							tracks.push({
+								id: "esv-audio",
+								label: "ESV Audio",
+								language: "en" as const,
+								url: `/api/audio/esv/${refPath}`,
+							});
+						}
+						return Response.json({ tracks });
 					}
 					if (url.includes("/data/timings/krv-supertonic/")) {
 						return Response.json({
@@ -78,6 +83,9 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 							SUPERTONIC_TRACK_LABEL,
 						);
 					});
+					expect(fetchedUrls).toContain("/api/audio/GEN/1?lang=ko");
+					expect(fetchedUrls).not.toContain("/api/audio/GEN/1?lang=en");
+					expect(fetchedUrls).not.toContain("/api/audio/GEN/1");
 
 					fireClick(getButton(browse, "Play audio"));
 					await waitUntil(() => {
@@ -86,10 +94,20 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					});
 
 					fireClick(getButton(browse, "EN"));
-					expect(getByText(browse, "ESV Audio")).toBeDefined();
+					await waitUntil(() => {
+						expect(fetchedUrls).toContain("/api/audio/GEN/1?lang=en");
+						expect(getByText(browse, "ESV Audio")).toBeDefined();
+					});
 					expect(browse.querySelector(".home-audio-eyebrow")?.textContent).not.toContain(
 						SUPERTONIC_COMPACT_BADGE,
 					);
+					expect(mockAudio.latest()?.src).toBe("/api/audio/esv/GEN/1");
+					expect(mockAudio.latest()?.playCalls).toBeGreaterThan(0);
+
+					// Switching back to 한 and EN on the same chapter reuses cached tracks without re-fetching
+					fireClick(getButton(browse, "한"));
+					fireClick(getButton(browse, "EN"));
+					expect(fetchedUrls.filter((u) => u === "/api/audio/GEN/1?lang=en")).toHaveLength(1);
 
 					const bookSelect = browse.querySelector(
 						'select[aria-label="Select book"]',
