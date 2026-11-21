@@ -2,7 +2,7 @@ import "./dom";
 
 import { afterEach, describe, expect, it, mock } from "bun:test";
 
-import { act, type ComponentProps } from "react";
+import { act, type ComponentProps, StrictMode } from "react";
 
 import App from "../src/react-app/App";
 import { AudioControlRail } from "../src/react-app/components/AudioControlRail";
@@ -642,6 +642,83 @@ describe("Reader UI & Audio Hooks", () => {
 			}
 		} finally {
 			mockAudio.restore();
+		}
+	});
+
+	it("loads ESV chapter and commentary cleanly under React StrictMode double-effect mounts", async () => {
+		window.location.hash = "#/GEN/1";
+		const restoreMatchMedia = mockMatchMedia(true);
+		const rawHandler = createReaderFetchHandler({
+			krv: () =>
+				makeBookResponse("krv", 1, "GEN", {
+					"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+				}),
+			esv: () =>
+				makeChapterResponse("esv", 1, "GEN", 1, [
+					{ verse: 1, text: "In the beginning, God created the heavens and the earth." },
+				]),
+			commentary: () =>
+				Response.json({
+					entries: [
+						{
+							id: "tyndale:GEN:1:1",
+							verseStart: 1,
+							paragraphs: ["StrictMode commentary loaded."],
+						},
+					],
+				}),
+		});
+
+		try {
+			await withMockFetch(
+				(url, init) =>
+					new Promise((resolve, reject) => {
+						const signal = init?.signal;
+						if (signal?.aborted) {
+							reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+							return;
+						}
+						const onAbort = () => {
+							reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+						};
+						signal?.addEventListener("abort", onAbort, { once: true });
+						queueMicrotask(() => {
+							Promise.resolve(rawHandler(url)).then(
+								(res) => {
+									signal?.removeEventListener("abort", onAbort);
+									if (signal?.aborted) onAbort();
+									else resolve(res);
+								},
+								(err) => {
+									signal?.removeEventListener("abort", onAbort);
+									reject(err);
+								},
+							);
+						});
+					}),
+				async () => {
+					const { container } = render(
+						<StrictMode>
+							<App />
+						</StrictMode>,
+					);
+
+					await waitUntil(() => {
+						expect(
+							getByText(container, "In the beginning, God created the heavens and the earth."),
+						).toBeDefined();
+						expect(getByText(container, "태초에")).toBeDefined();
+						expect(container.querySelector(".en-load-banner")).toBeNull();
+					});
+
+					fireClick(getButton(container, "Commentary"));
+					await waitUntil(() => {
+						expect(getByText(container, "StrictMode commentary loaded.")).toBeDefined();
+					});
+				},
+			);
+		} finally {
+			restoreMatchMedia();
 		}
 	});
 });

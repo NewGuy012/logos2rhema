@@ -413,4 +413,183 @@ describe("Reader pure logic (no DOM)", () => {
 			},
 		);
 	});
+
+	it("isolates per-caller AbortSignals on shared ESV, KRV, and commentary fetches (StrictMode & concurrent)", async () => {
+		const recordedSignals: Array<{ url: string; signal: AbortSignal | undefined }> = [];
+		const deferredResolvers = new Map<string, Array<() => void>>();
+
+		function abortAwareResponse(
+			url: string,
+			init: RequestInit | undefined,
+			makeRes: () => Response,
+		) {
+			const signal = init?.signal ?? undefined;
+			recordedSignals.push({ url, signal });
+			return new Promise<Response>((resolve, reject) => {
+				if (signal?.aborted) {
+					reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+					return;
+				}
+				const onAbort = () => {
+					reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+				};
+				signal?.addEventListener("abort", onAbort, { once: true });
+				const deliver = () => {
+					signal?.removeEventListener("abort", onAbort);
+					if (signal?.aborted) onAbort();
+					else resolve(makeRes());
+				};
+				if (url.includes("/GEN/2") || url.includes("/EXO/1")) {
+					const list = deferredResolvers.get(url) ?? [];
+					list.push(deliver);
+					deferredResolvers.set(url, list);
+				} else {
+					queueMicrotask(deliver);
+				}
+			});
+		}
+
+		await withMockFetch(
+			(url, init) => {
+				if (url === "/api/esv/GEN/1" || url === "/api/esv/GEN/2") {
+					return abortAwareResponse(url, init, () =>
+						Response.json({
+							translationId: "esv",
+							bookNumber: 1,
+							usfm: "GEN",
+							chapter: url.endsWith("/2") ? 2 : 1,
+							verses: [{ verse: 1, text: `ESV ${url}` }],
+						}),
+					);
+				}
+				if (url === "/data/bibles/krv/GEN.json") {
+					return abortAwareResponse(url, init, () =>
+						Response.json({
+							translationId: "krv",
+							bookNumber: 1,
+							usfm: "GEN",
+							chapters: { "1": [{ verse: 1, text: "태초에" }] },
+						}),
+					);
+				}
+				if (url === "/api/commentary/tyndale/GEN/1" || url === "/api/commentary/tyndale/EXO/1") {
+					return abortAwareResponse(url, init, () =>
+						Response.json({
+							entries: [{ id: `tyndale:${url}:1`, verseStart: 1, paragraphs: ["Note."] }],
+						}),
+					);
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+			async () => {
+				// 1. StrictMode pattern: mount 1 starts, cleanup aborts synchronously, mount 2 immediately requests same key
+				const c1 = new AbortController();
+				const c2 = new AbortController();
+				const esv1 = loadTranslationChapter("esv", 1, 1, c1.signal);
+				c1.abort();
+				const esv2 = loadTranslationChapter("esv", 1, 1, c2.signal);
+				await expect(esv1).rejects.toThrow();
+				expect(await esv2).toEqual([{ verse: 1, text: "ESV /api/esv/GEN/1" }]);
+
+				const k1 = new AbortController();
+				const k2 = new AbortController();
+				const krv1 = loadTranslationChapter("krv", 1, 1, k1.signal);
+				k1.abort();
+				const krv2 = loadTranslationChapter("krv", 1, 1, k2.signal);
+				await expect(krv1).rejects.toThrow();
+				expect(await krv2).toEqual([{ verse: 1, text: "태초에" }]);
+
+				const com1 = new AbortController();
+				const com2 = new AbortController();
+				const cm1 = loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "GEN",
+					chapter: 1,
+					signal: com1.signal,
+				});
+				com1.abort();
+				const cm2 = loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "GEN",
+					chapter: 1,
+					signal: com2.signal,
+				});
+				await expect(cm1).rejects.toThrow();
+				expect((await cm2).entries).toHaveLength(1);
+
+				// 2. Concurrent callers sharing in-flight ESV & commentary: aborting one must not abort the other
+				const s1 = new AbortController();
+				const s2 = new AbortController();
+				const sharedEsv1 = loadTranslationChapter("esv", 1, 2, s1.signal);
+				const sharedEsv2 = loadTranslationChapter("esv", 1, 2, s2.signal);
+				const gen2Calls = recordedSignals.filter((r) => r.url === "/api/esv/GEN/2");
+				expect(gen2Calls).toHaveLength(1);
+				s1.abort();
+				expect(gen2Calls[0]?.signal?.aborted).toBe(false);
+				for (const deliver of deferredResolvers.get("/api/esv/GEN/2") ?? []) deliver();
+				await expect(sharedEsv1).rejects.toThrow();
+				expect(await sharedEsv2).toEqual([{ verse: 1, text: "ESV /api/esv/GEN/2" }]);
+
+				const cs1 = new AbortController();
+				const cs2 = new AbortController();
+				const sharedCom1 = loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "EXO",
+					chapter: 1,
+					signal: cs1.signal,
+				});
+				const sharedCom2 = loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "EXO",
+					chapter: 1,
+					signal: cs2.signal,
+				});
+				const exoCalls = recordedSignals.filter((r) => r.url === "/api/commentary/tyndale/EXO/1");
+				expect(exoCalls).toHaveLength(1);
+				cs1.abort();
+				expect(exoCalls[0]?.signal?.aborted).toBe(false);
+				for (const deliver of deferredResolvers.get("/api/commentary/tyndale/EXO/1") ?? []) {
+					deliver();
+				}
+				await expect(sharedCom1).rejects.toThrow();
+				expect((await sharedCom2).entries).toHaveLength(1);
+
+				// 3. Pre-aborted signal fails immediately without hitting network or touching cache
+				const preAborted = new AbortController();
+				preAborted.abort();
+				const countBefore = recordedSignals.length;
+				await expect(loadTranslationChapter("esv", 1, 1, preAborted.signal)).rejects.toThrow();
+				await expect(
+					loadChapterCommentary({
+						commentaryId: "tyndale",
+						usfm: "GEN",
+						chapter: 1,
+						signal: preAborted.signal,
+					}),
+				).rejects.toThrow();
+				expect(recordedSignals.length).toBe(countBefore);
+
+				// 4. Aborting a warm-cache hit does not evict the cached entry
+				const warmAbort = new AbortController();
+				const warmPromise = loadChapterCommentary({
+					commentaryId: "tyndale",
+					usfm: "GEN",
+					chapter: 1,
+					signal: warmAbort.signal,
+				});
+				warmAbort.abort();
+				await expect(warmPromise).rejects.toThrow();
+				expect(
+					(
+						await loadChapterCommentary({
+							commentaryId: "tyndale",
+							usfm: "GEN",
+							chapter: 1,
+						})
+					).entries,
+				).toHaveLength(1);
+				expect(recordedSignals.length).toBe(countBefore);
+			},
+		);
+	});
 });

@@ -24,11 +24,18 @@ export const MAX_ESV_CACHED_VERSES = 400;
 const STATIC_TIMINGS_DIR_BY_TRACK_ID: Readonly<Record<string, string>> = {
 	[SUPERTONIC_TRACK_ID]: "krv-supertonic",
 };
-const bundledBookCache = new Map<string, Promise<BookBibleData>>();
+interface SharedFetchTask<T> {
+	promise: Promise<T>;
+	controller: AbortController;
+	consumers: number;
+	settled: boolean;
+}
+
+const bundledBookCache = new Map<string, SharedFetchTask<BookBibleData>>();
 const esvChapterCache = new Map<string, { bookNumber: number; verses: VerseEntry[] }>();
-const esvInFlightCache = new Map<string, Promise<VerseEntry[]>>();
-const bundledTimingsCache = new Map<string, Promise<BookAudioTimingsData | null>>();
-const commentaryCache = new Map<string, Promise<ChapterCommentaryResponse>>();
+const esvInFlightCache = new Map<string, SharedFetchTask<VerseEntry[]>>();
+const bundledTimingsCache = new Map<string, SharedFetchTask<BookAudioTimingsData | null>>();
+const commentaryCache = new Map<string, SharedFetchTask<ChapterCommentaryResponse>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
 
 export function clearLoaderCaches(): void {
@@ -78,30 +85,123 @@ function cacheEsvChapter(book: BookMeta, chapter: number, verses: VerseEntry[]):
 	esvChapterCache.set(key, { bookNumber: book.number, verses });
 }
 
-function cachedFetch<T>(
-	cache: Map<string, Promise<T>>,
+function createAbortError(signal: AbortSignal): unknown {
+	return signal.reason !== undefined
+		? signal.reason
+		: new DOMException("The operation was aborted.", "AbortError");
+}
+
+function subscribeTask<T>(
+	cache: Map<string, SharedFetchTask<T>>,
 	key: string,
-	loader: () => Promise<T>,
-	maxEntries?: number,
+	task: SharedFetchTask<T>,
+	signal: AbortSignal,
 ): Promise<T> {
-	const existing = cache.get(key);
-	if (existing) {
-		if (maxEntries) {
-			cache.delete(key);
-			cache.set(key, existing);
+	const cancelIfUnused = () => {
+		if (task.consumers === 0 && !task.settled) {
+			if (cache.get(key) === task) cache.delete(key);
+			task.controller.abort(signal.reason);
 		}
-		return existing;
+	};
+
+	if (signal.aborted) {
+		cancelIfUnused();
+		return Promise.reject(createAbortError(signal));
 	}
-	if (maxEntries && cache.size >= maxEntries) {
-		const oldestKey = cache.keys().next().value;
-		if (oldestKey) cache.delete(oldestKey);
-	}
-	const promise = loader().catch((err) => {
-		if (cache.get(key) === promise) cache.delete(key);
-		throw err;
+
+	task.consumers++;
+	return new Promise<T>((resolve, reject) => {
+		let finished = false;
+		const finish = (): boolean => {
+			if (finished) return false;
+			finished = true;
+			signal.removeEventListener("abort", onAbort);
+			task.consumers--;
+			return true;
+		};
+		const onAbort = () => {
+			if (!finish()) return;
+			cancelIfUnused();
+			reject(createAbortError(signal));
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		task.promise.then(
+			(value) => {
+				if (finish()) resolve(value);
+			},
+			(err) => {
+				if (finish()) reject(err);
+			},
+		);
 	});
-	cache.set(key, promise);
-	return promise;
+}
+
+function cachedFetch<T>(
+	cache: Map<string, SharedFetchTask<T>>,
+	key: string,
+	loader: (signal: AbortSignal) => Promise<T>,
+	options?: {
+		signal?: AbortSignal;
+		maxEntries?: number;
+		evictOnSettle?: boolean;
+	},
+): Promise<T> {
+	const signal = options?.signal;
+	if (signal?.aborted) {
+		return Promise.reject(createAbortError(signal));
+	}
+
+	let task = cache.get(key);
+	if (task) {
+		if (options?.maxEntries) {
+			cache.delete(key);
+			cache.set(key, task);
+		}
+	} else {
+		if (options?.maxEntries && cache.size >= options.maxEntries) {
+			const oldestKey = cache.keys().next().value;
+			if (oldestKey) cache.delete(oldestKey);
+		}
+		const controller = new AbortController();
+		const created: SharedFetchTask<T> = {
+			controller,
+			consumers: 0,
+			settled: false,
+			promise: null!,
+		};
+		let rawPromise: Promise<T>;
+		try {
+			rawPromise = loader(controller.signal);
+		} catch (err) {
+			rawPromise = Promise.reject(err);
+		}
+		const promise = rawPromise.then(
+			(value) => {
+				created.settled = true;
+				if (options?.evictOnSettle && cache.get(key) === created) {
+					cache.delete(key);
+				}
+				return value;
+			},
+			(err) => {
+				created.settled = true;
+				if (cache.get(key) === created) {
+					cache.delete(key);
+				}
+				throw err;
+			},
+		);
+		promise.catch(() => {});
+		created.promise = promise;
+		cache.set(key, created);
+		task = created;
+	}
+
+	if (!signal) {
+		task.consumers++;
+		return task.promise;
+	}
+	return subscribeTask(cache, key, task, signal);
 }
 
 function isCommentaryResponse(value: unknown): value is ChapterCommentaryResponse {
@@ -154,6 +254,9 @@ export async function loadTranslationChapter(
 	if (!book) throw new Error(`Unknown book number ${bookNumber}`);
 
 	if (translationId === CANONICAL_BIBLES.en.id) {
+		if (signal?.aborted) {
+			throw createAbortError(signal);
+		}
 		const key = `${book.usfm}:${chapter}`;
 		const cached = esvChapterCache.get(key);
 		if (cached) {
@@ -161,14 +264,13 @@ export async function loadTranslationChapter(
 			esvChapterCache.set(key, cached);
 			return cached.verses;
 		}
-		const existing = esvInFlightCache.get(key);
-		if (existing) return existing;
-
-		const promise = fetch(
-			`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`,
-			signal ? { signal } : undefined,
-		)
-			.then(async (res) => {
+		return cachedFetch(
+			esvInFlightCache,
+			key,
+			async (internalSignal) => {
+				const res = await fetch(`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`, {
+					signal: internalSignal,
+				});
 				if (!res.ok) {
 					throw new Error(
 						await readApiError(res, `Failed to load ${translationId} ${book.usfm} ${chapter}`),
@@ -178,26 +280,28 @@ export async function loadTranslationChapter(
 				const verses = Array.isArray(payload?.verses) ? payload.verses : [];
 				if (verses.length > 0) cacheEsvChapter(book, chapter, verses);
 				return verses;
-			})
-			.finally(() => {
-				if (esvInFlightCache.get(key) === promise) esvInFlightCache.delete(key);
-			});
-
-		esvInFlightCache.set(key, promise);
-		return promise;
+			},
+			{ signal, evictOnSettle: true },
+		);
 	}
 
-	const data = await cachedFetch(bundledBookCache, `${translationId}:${book.usfm}`, async () => {
-		const res = await fetch(
-			`/data/bibles/${encodeURIComponent(translationId)}/${encodeURIComponent(book.usfm)}.json`,
-		);
-		if (!res.ok) throw new Error(`Failed to load ${translationId} ${book.usfm}`);
-		const parsed = (await res.json()) as Partial<BookBibleData>;
-		if (!parsed || typeof parsed !== "object" || !parsed.chapters) {
-			throw new Error(`Invalid chapter data for ${translationId} ${book.usfm}`);
-		}
-		return parsed as BookBibleData;
-	});
+	const data = await cachedFetch(
+		bundledBookCache,
+		`${translationId}:${book.usfm}`,
+		async (internalSignal) => {
+			const res = await fetch(
+				`/data/bibles/${encodeURIComponent(translationId)}/${encodeURIComponent(book.usfm)}.json`,
+				{ signal: internalSignal },
+			);
+			if (!res.ok) throw new Error(`Failed to load ${translationId} ${book.usfm}`);
+			const parsed = (await res.json()) as Partial<BookBibleData>;
+			if (!parsed || typeof parsed !== "object" || !parsed.chapters) {
+				throw new Error(`Invalid chapter data for ${translationId} ${book.usfm}`);
+			}
+			return parsed as BookBibleData;
+		},
+		{ signal },
+	);
 	const verses = data.chapters[String(chapter)];
 	return Array.isArray(verses) ? verses : [];
 }
@@ -206,9 +310,10 @@ function fetchStaticBookTimings(
 	timingsKey: string,
 	usfm: string,
 ): Promise<BookAudioTimingsData | null> {
-	return cachedFetch(bundledTimingsCache, `${timingsKey}:${usfm}`, async () => {
+	return cachedFetch(bundledTimingsCache, `${timingsKey}:${usfm}`, async (internalSignal) => {
 		const res = await fetch(
 			`/data/timings/${encodeURIComponent(timingsKey)}/${encodeURIComponent(usfm)}.json`,
+			{ signal: internalSignal },
 		);
 		if (res.status === 404) return null;
 		if (!res.ok) throw new Error(`Failed to load timings ${usfm}`);
@@ -259,8 +364,8 @@ export function loadChapterCommentary(options: {
 	return cachedFetch(
 		commentaryCache,
 		key,
-		async () => {
-			const res = await fetch(url, options.signal ? { signal: options.signal } : undefined);
+		async (internalSignal) => {
+			const res = await fetch(url, { signal: internalSignal });
 			if (!res.ok) {
 				throw new Error(await readApiError(res, "Unable to load commentary."));
 			}
@@ -270,7 +375,7 @@ export function loadChapterCommentary(options: {
 			}
 			return parsed;
 		},
-		MAX_COMMENTARY_CACHE_ENTRIES,
+		{ signal: options.signal, maxEntries: MAX_COMMENTARY_CACHE_ENTRIES },
 	);
 }
 
