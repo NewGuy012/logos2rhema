@@ -58,7 +58,7 @@ Derived from live Thunder Compute benchmarks (`RUT` 4 ch = `10.1s` synth at `q=5
 
 ## Operational Safety Checklist
 
-- **Always preview first** with `--dry-run` (note: `--shards N --create --dry-run` prints the exact balanced shard plan without provisioning VMs).
+- **Always preview first** with `--dry-run` (both single-VM `--create --dry-run` and `--shards N --create --dry-run` print the exact plan without provisioning VMs).
 - **Use `--staging <name>`** for tests so production audio (`.cache/krv-supertonic-audio/`), production timings (`public/data/timings/krv-supertonic/`), and `.cache/krv-r2-uploaded.json` are never touched.
 - **R2 upload is opt-in only** (`--upload` is blocked in staging; standalone upload is `bun run audio:upload-krv`). Never upload to Cloudflare R2 unless explicitly requested.
 - **Stop billing:** Prefer `--delete-after` for one-shot runs, and verify no VMs remain afterward with `tnr --json status --no-wait </dev/null` (always pass `stdin: "ignore"` / `</dev/null` to `tnr` to avoid interactive TUI hangs).

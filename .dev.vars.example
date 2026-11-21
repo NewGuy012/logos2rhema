@@ -1,3 +1,6 @@
+# Local development defaults (copy to `.dev.vars`, gitignored).
+# Shell environment variables always take precedence over values in `.dev.vars`.
+
 # Optional external-CDN fallback for Supertonic 3 KRV MP3 files ({AUDIO_BASE_URL}/{USFM}/{CHAPTER}.mp3).
 # Not needed when using the private R2 binding (`AUDIO_BUCKET` in wrangler.json) or local `.cache/krv-supertonic-audio/`.
 # AUDIO_BASE_URL=
