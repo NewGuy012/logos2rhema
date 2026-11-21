@@ -15,7 +15,22 @@ import { isSafeHttpsUrl } from "../src/shared/url";
 import { parseEsvPassageHtml } from "../src/worker/esv-text";
 import type { FetchLike } from "../src/worker/http";
 import { readJsonWithLimit } from "../src/worker/http";
-import { createApp, type R2BucketLike, type R2ObjectBodyLike } from "../src/worker/index";
+import {
+	createApp,
+	type R2BucketLike,
+	type R2ObjectBodyLike,
+	type WorkerApp,
+	type WorkerBindings,
+} from "../src/worker/index";
+
+function requestApp(
+	app: WorkerApp,
+	path: string,
+	init?: RequestInit,
+	env?: WorkerBindings,
+): Promise<Response> {
+	return app.fetch(new Request(new URL(path, "http://localhost"), init), env);
+}
 
 function assertSecurityHeaders(res: Response) {
 	expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
@@ -75,7 +90,7 @@ describe("Worker API & Security Boundaries", () => {
 		});
 
 		// Prefers private R2 AUDIO_BUCKET over AUDIO_BASE_URL without touching R2 on metadata lookup
-		const boundRes = await app.request("/api/audio/JHN/3", undefined, {
+		const boundRes = await requestApp(app, "/api/audio/JHN/3", undefined, {
 			AUDIO_BUCKET: bucket,
 			AUDIO_BASE_URL: "https://cdn.example.com/krv/",
 			ESV_API_KEY: secretKey,
@@ -98,7 +113,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(boundBody.tracks[1]?.url).toBe("https://audio.esv.org/hw/43003001-43003036.mp3");
 
 		// AUDIO_BASE_URL fallback when R2 is not bound + single-chapter ESV query
-		const baseUrlRes = await app.request("/api/audio/JUD/1", undefined, {
+		const baseUrlRes = await requestApp(app, "/api/audio/JUD/1", undefined, {
 			AUDIO_BASE_URL: "https://cdn.example.com/krv/",
 			ESV_API_KEY: secretKey,
 		});
@@ -110,7 +125,7 @@ describe("Worker API & Security Boundaries", () => {
 
 		// Untrusted redirect host or secret-leaking redirect URL is dropped and not long-cached
 		for (const badChapter of ["/api/audio/GEN/2", "/api/audio/GEN/3", "/api/audio/GEN/4"]) {
-			const res = await app.request(badChapter, undefined, { ESV_API_KEY: secretKey });
+			const res = await requestApp(app, badChapter, undefined, { ESV_API_KEY: secretKey });
 			expect(res.status).toBe(200);
 			expect(res.headers.get("cache-control")).toBe("private, no-store");
 			const text = await res.text();
@@ -119,7 +134,7 @@ describe("Worker API & Security Boundaries", () => {
 		}
 
 		// /api/audio/esv/:usfm/:chapter: direct stream MIME coercion, trusted 302, untrusted 502, missing key 503
-		const proxyStream = await app.request("/api/audio/esv/GEN/1", undefined, {
+		const proxyStream = await requestApp(app, "/api/audio/esv/GEN/1", undefined, {
 			ESV_API_KEY: secretKey,
 		});
 		expect(proxyStream.status).toBe(200);
@@ -127,7 +142,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(proxyStream.headers.get("content-disposition")).toBe("inline");
 		assertSecurityHeaders(proxyStream);
 
-		const proxyRedirect = await app.request("/api/audio/esv/JHN/3", undefined, {
+		const proxyRedirect = await requestApp(app, "/api/audio/esv/JHN/3", undefined, {
 			ESV_API_KEY: secretKey,
 		});
 		expect(proxyRedirect.status).toBe(302);
@@ -137,9 +152,9 @@ describe("Worker API & Security Boundaries", () => {
 		assertSecurityHeaders(proxyRedirect);
 
 		expect(
-			(await app.request("/api/audio/esv/GEN/2", undefined, { ESV_API_KEY: secretKey })).status,
+			(await requestApp(app, "/api/audio/esv/GEN/2", undefined, { ESV_API_KEY: secretKey })).status,
 		).toBe(502);
-		expect((await app.request("/api/audio/esv/GEN/1")).status).toBe(503);
+		expect((await requestApp(app, "/api/audio/esv/GEN/1")).status).toBe(503);
 	});
 
 	it("enforces URL safety, chunked stream limits, strict ref parsing, HEAD/methods, and sanitized onError", async () => {
@@ -184,24 +199,30 @@ describe("Worker API & Security Boundaries", () => {
 			"/api/audio/GEN/1abc",
 			"/api/audio/%E0%A4%A/1",
 		]) {
-			const res = await app.request(badPath);
+			const res = await requestApp(app, badPath);
 			expect(res.status).toBe(400);
 			assertSecurityHeaders(res);
 		}
 
-		for (const notFound of ["/api/health", "/api/commentaries", "/api/languages"]) {
-			const res = await app.request(notFound);
+		for (const notFound of [
+			"/api/health",
+			"/api/commentaries",
+			"/api/languages",
+			"/api/esv/GEN/1/",
+			"/api/esv//1",
+		]) {
+			const res = await requestApp(app, notFound);
 			expect(res.status).toBe(404);
 			expect(res.headers.get("cache-control")).toBe("no-store");
 			assertSecurityHeaders(res);
 		}
 
-		const headRes = await app.request("/api/audio/JHN/3", { method: "HEAD" });
+		const headRes = await requestApp(app, "/api/audio/JHN/3", { method: "HEAD" });
 		expect(headRes.status).toBe(200);
 		expect(await headRes.text()).toBe("");
 		assertSecurityHeaders(headRes);
 
-		const badMethod = await app.request("/api/audio/GEN/1", { method: "POST" });
+		const badMethod = await requestApp(app, "/api/audio/GEN/1", { method: "POST" });
 		expect(badMethod.status).toBe(405);
 		expect(badMethod.headers.get("cache-control")).toBe("no-store");
 		assertSecurityHeaders(badMethod);
@@ -211,12 +232,14 @@ describe("Worker API & Security Boundaries", () => {
 			"https://cdn.example.com/krv?token=x",
 			"https://cdn.example.com/krv#frag",
 		]) {
-			const res = await app.request("/api/audio/GEN/1", undefined, { AUDIO_BASE_URL: blockedBase });
+			const res = await requestApp(app, "/api/audio/GEN/1", undefined, {
+				AUDIO_BASE_URL: blockedBase,
+			});
 			expect(((await res.json()) as ChapterAudioResponse).tracks).toEqual([]);
 		}
 
 		// Unhandled error boundary returns sanitized 502 with security headers
-		const errRes = await app.request("/api/audio/krv/GEN/1", undefined, {
+		const errRes = await requestApp(app, "/api/audio/krv/GEN/1", undefined, {
 			AUDIO_BUCKET: {
 				async get() {
 					throw new Error("internal-secret-stack-detail");
@@ -283,7 +306,7 @@ describe("Worker API & Security Boundaries", () => {
 		};
 
 		const app = createApp({ fetcher: mockFetch });
-		const tyndaleRes = await app.request("/api/commentary/tyndale/gen/1");
+		const tyndaleRes = await requestApp(app, "/api/commentary/tyndale/gen/1");
 		expect(tyndaleRes.status).toBe(200);
 		expect(tyndaleRes.headers.get("cache-control")).toBe("public, max-age=86400");
 		const tyndaleBody = (await tyndaleRes.json()) as ChapterCommentaryResponse;
@@ -301,7 +324,7 @@ describe("Worker API & Security Boundaries", () => {
 		expect(tyndaleBody.entries[4]?.paragraphs).toEqual(["1:9 Waters."]);
 
 		const mhBody = (await (
-			await app.request("/api/commentary/matthew-henry/JHN/3")
+			await requestApp(app, "/api/commentary/matthew-henry/JHN/3")
 		).json()) as ChapterCommentaryResponse;
 		expect(mhBody.introduction).toEqual(["Christ's discourse with Nicodemus."]);
 		expect(mhBody.entries[0]).toMatchObject({
@@ -311,7 +334,7 @@ describe("Worker API & Security Boundaries", () => {
 			paragraphs: ["Paragraph one.", "I. Paragraph two."],
 		});
 
-		const emptyRes = await app.request("/api/commentary/tyndale/JDG/1");
+		const emptyRes = await requestApp(app, "/api/commentary/tyndale/JDG/1");
 		expect(emptyRes.status).toBe(200);
 		expect(emptyRes.headers.get("cache-control")).toBe("public, max-age=3600");
 		expect(((await emptyRes.json()) as ChapterCommentaryResponse).entries).toEqual([]);
@@ -321,9 +344,10 @@ describe("Worker API & Security Boundaries", () => {
 			["/api/commentary/tyndale/LEV/1", 502],
 			["/api/commentary/matthew-henry/EXO/1", 502],
 			["/api/commentary/adam-clarke/GEN/1", 400],
+			["/api/commentary/%E0%A4%A/GEN/1", 400],
 			["/api/commentary/tyndale/GEN/999", 400],
 		] as const) {
-			const res = await app.request(path);
+			const res = await requestApp(app, path);
 			expect(res.status).toBe(status);
 			assertSecurityHeaders(res);
 		}
@@ -343,7 +367,7 @@ describe("Worker API & Security Boundaries", () => {
 			target: R2BucketLike & { resetCounts(): void } = bucket,
 		) => {
 			target.resetCounts();
-			const res = await app.request(path, init, { AUDIO_BUCKET: target });
+			const res = await requestApp(app, path, init, { AUDIO_BUCKET: target });
 			assertSecurityHeaders(res);
 			return res;
 		};
@@ -356,7 +380,7 @@ describe("Worker API & Security Boundaries", () => {
 			expect((await requestR2(bad)).status).toBe(400);
 			expect(bucket.totalOps()).toBe(0);
 		}
-		expect((await app.request("/api/audio/krv/GEN/1")).status).toBe(503);
+		expect((await requestApp(app, "/api/audio/krv/GEN/1")).status).toBe(503);
 
 		for (const badRange of ["bytes=abc-def", "bytes=5-2", "bytes=0-1, 2-3", "items=0-3", ""]) {
 			expect(
@@ -521,14 +545,14 @@ describe("Worker API & Security Boundaries", () => {
 		};
 
 		const app = createApp({ fetcher: mockFetch });
-		const badRef = await app.request("/api/esv/GEN/999", undefined, { ESV_API_KEY: secretKey });
+		const badRef = await requestApp(app, "/api/esv/GEN/999", undefined, { ESV_API_KEY: secretKey });
 		expect(badRef.status).toBe(400);
 		expect(badRef.headers.get("cache-control")).toBe("private, no-store");
 		assertSecurityHeaders(badRef);
 
-		expect((await app.request("/api/esv/JUD/1")).status).toBe(503);
+		expect((await requestApp(app, "/api/esv/JUD/1")).status).toBe(503);
 
-		const judeRes = await app.request("/api/esv/jud/1", undefined, { ESV_API_KEY: secretKey });
+		const judeRes = await requestApp(app, "/api/esv/jud/1", undefined, { ESV_API_KEY: secretKey });
 		expect(judeRes.status).toBe(200);
 		expect(judeRes.headers.get("cache-control")).toBe("private, no-store");
 		assertSecurityHeaders(judeRes);
@@ -551,7 +575,8 @@ describe("Worker API & Security Boundaries", () => {
 		expect(reqUrl.searchParams.get("q")).toBe("Jude 1:1-99");
 		expect(reqUrl.searchParams.get("include-copyright")).toBe("false");
 
-		const headRes = await app.request(
+		const headRes = await requestApp(
+			app,
 			"/api/esv/JUD/1",
 			{ method: "HEAD" },
 			{ ESV_API_KEY: secretKey },
@@ -566,7 +591,7 @@ describe("Worker API & Security Boundaries", () => {
 			["/api/esv/GEN/5", 502],
 			["/api/esv/GEN/6", 502],
 		] as const) {
-			const res = await app.request(path, undefined, { ESV_API_KEY: secretKey });
+			const res = await requestApp(app, path, undefined, { ESV_API_KEY: secretKey });
 			expect(res.status).toBe(status);
 			expect(res.headers.get("cache-control")).toBe("private, no-store");
 		}
@@ -581,11 +606,11 @@ describe("Worker API & Security Boundaries", () => {
 			localEsvLoader: async (usfm, ch) =>
 				usfm === "PSA" && ch === 23 ? [{ verse: 1, text: "The LORD is my shepherd." }] : null,
 		});
-		const localRes = await localApp.request("/api/esv/PSA/23");
+		const localRes = await requestApp(localApp, "/api/esv/PSA/23");
 		expect(localRes.status).toBe(200);
 		expect(liveCalls).toBe(0);
 		expect(
-			(await localApp.request("/api/esv/JUD/1", undefined, { ESV_API_KEY: secretKey })).status,
+			(await requestApp(localApp, "/api/esv/JUD/1", undefined, { ESV_API_KEY: secretKey })).status,
 		).toBe(200);
 		expect(liveCalls).toBe(1);
 	});

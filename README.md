@@ -9,7 +9,6 @@
 [![Live App](https://img.shields.io/badge/Live_App-Cloudflare_Workers-8b5a3c?style=flat-square&logo=cloudflareworkers&logoColor=white)](https://logos2rhema.juyoung-m-yoo.workers.dev/)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react&logoColor=white)
-![Hono](https://img.shields.io/badge/Hono-4-e36002?style=flat-square&logo=hono&logoColor=white)
 ![Bun](https://img.shields.io/badge/Bun-runtime_%26_test-000000?style=flat-square&logo=bun&logoColor=white)
 
 </div>
@@ -37,7 +36,7 @@
 | Layer                  | Technology                                                                                                                                                                                   |
 | :--------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Frontend**           | [React 19](https://react.dev/), custom editorial CSS (`Paper` / `Sepia` / `Dark`)                                                                                                            |
-| **Edge API**           | [Hono](https://hono.dev/) on [Cloudflare Workers](https://workers.cloudflare.com/)                                                                                                           |
+| **Edge API**           | [Cloudflare Workers](https://workers.cloudflare.com/) (Web Fetch API)                                                                                                                        |
 | **Language & Tooling** | [TypeScript](https://www.typescriptlang.org/), [Bun](https://bun.sh/) (`bun build`, `bun test`, `bun fmt`, `bun check`), [Wrangler](https://developers.cloudflare.com/workers/wrangler/)     |
 | **Data & Audio**       | Bundled KRV 1961 JSON & Korean lexicon (`public/data/`), live [ESV API](https://api.esv.org/) text & audio, [HelloAO](https://bible.helloao.org/) commentaries, Supertonic 3 AI Korean audio |
 
@@ -53,18 +52,18 @@ Bundled Korean Scripture (`public/data/bibles/krv/`), Korean lexicon, and HelloA
 
 ### Scripts
 
-| Command                             | Description                                                                                                                                                      |
-| :---------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run dev`                       | Start Bun dev server with HMR + local Hono API (binds `127.0.0.1` by default; `process.env` overrides `.dev.vars`; pass `USE_LIVE_ESV=1` for live `api.esv.org`) |
-| `bun test`                          | Run unit, Worker API, and `happy-dom` React tests                                                                                                                |
-| `bun run check`                     | Run `bun fmt --check` and native `bun check` typechecking                                                                                                        |
-| `bun run format`                    | Format codebase with `bun fmt`                                                                                                                                   |
-| `bun run build`                     | Typecheck and build client SPA bundle into `dist/client/` (fails if static ESV files exist)                                                                      |
-| `bun run deploy`                    | Deploy to Cloudflare Workers via Wrangler                                                                                                                        |
-| `bun run data:build`                | Rebuild bundled KRV chapters and Korean lexicon (and optional local-only `.cache/esv-local/` if `data-sources/esv.spb` exists)                                   |
-| `bun run audio:generate-krv`        | Generate Supertonic 3 KRV audio and verse timings locally or remotely (`--thunder` / `--ssh`)                                                                    |
-| `bun run audio:generate-krv:remote` | Offload Supertonic 3 KRV generation to Thunder Compute using `.dev.vars` defaults or `tnr`                                                                       |
-| `bun run audio:upload-krv`          | Upload local KRV MP3s to private Cloudflare R2 via Wrangler                                                                                                      |
+| Command                             | Description                                                                                                                                                        |
+| :---------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run dev`                       | Start Bun dev server with HMR + local Worker API (binds `127.0.0.1` by default; `process.env` overrides `.dev.vars`; pass `USE_LIVE_ESV=1` for live `api.esv.org`) |
+| `bun test`                          | Run unit, Worker API, and `happy-dom` React tests                                                                                                                  |
+| `bun run check`                     | Run `bun fmt --check` and native `bun check` typechecking                                                                                                          |
+| `bun run format`                    | Format codebase with `bun fmt`                                                                                                                                     |
+| `bun run build`                     | Typecheck and build client SPA bundle into `dist/client/` (fails if static ESV files exist)                                                                        |
+| `bun run deploy`                    | Deploy to Cloudflare Workers via Wrangler                                                                                                                          |
+| `bun run data:build`                | Rebuild bundled KRV chapters and Korean lexicon (and optional local-only `.cache/esv-local/` if `data-sources/esv.spb` exists)                                     |
+| `bun run audio:generate-krv`        | Generate Supertonic 3 KRV audio and verse timings locally or remotely (`--thunder` / `--ssh`)                                                                      |
+| `bun run audio:generate-krv:remote` | Offload Supertonic 3 KRV generation to Thunder Compute using `.dev.vars` defaults or `tnr`                                                                         |
+| `bun run audio:upload-krv`          | Upload local KRV MP3s to private Cloudflare R2 via Wrangler                                                                                                        |
 
 ## API Endpoints
 

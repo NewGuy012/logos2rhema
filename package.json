@@ -2,7 +2,6 @@
 	"name": "logos",
 	"description": "Bilingual English (ESV) & Korean (개역한글) Bible reader for learning Korean",
 	"dependencies": {
-		"hono": "4.13.19",
 		"react": "19.3.1",
 		"react-dom": "19.3.1"
 	},

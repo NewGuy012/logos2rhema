@@ -1,5 +1,3 @@
-import { type Context, Hono } from "hono";
-
 import {
 	AUDIO_CACHE_CONTROL,
 	SUPERTONIC_TRACK_ATTRIBUTION,
@@ -116,7 +114,10 @@ function isR2InvalidRangeError(err: unknown): boolean {
 	return msg.includes("10039") || msg.includes("not satisfiable") || msg.includes("invalidrange");
 }
 
-function matchesIfNoneMatch(header: string | undefined, httpEtag: string | undefined): boolean {
+function matchesIfNoneMatch(
+	header: string | null | undefined,
+	httpEtag: string | undefined,
+): boolean {
 	if (!header || header.length > 2048 || !httpEtag) return false;
 	const trimmed = header.trim();
 	if (trimmed === "*") return true;
@@ -181,14 +182,38 @@ function applySecurityHeaders(headers: Headers): void {
 	headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 }
 
+export interface WorkerApp {
+	fetch(request: Request, env?: WorkerBindings): Promise<Response>;
+}
+
+function jsonResponse(
+	data: unknown,
+	status = 200,
+	cacheControl?: string,
+	extraHeaders?: HeadersInit,
+): Response {
+	const headers = new Headers(extraHeaders);
+	if (cacheControl) {
+		headers.set("Cache-Control", cacheControl);
+	}
+	return Response.json(data, { status, headers });
+}
+
 function jsonError(
-	c: Context<{ Bindings: WorkerBindings }>,
-	status: 400 | 404 | 429 | 502 | 503,
+	status: 400 | 404 | 405 | 429 | 502 | 503,
 	error: string,
 	cacheControl = "no-store",
+	extraHeaders?: HeadersInit,
 ): Response {
-	c.header("Cache-Control", cacheControl);
-	return c.json({ error }, status);
+	return jsonResponse({ error }, status, cacheControl, extraHeaders);
+}
+
+function decodeSegment(raw: string): string | null {
+	try {
+		return decodeURIComponent(raw);
+	} catch {
+		return null;
+	}
 }
 
 function parsePositiveInt(raw: string | undefined, min: number, max: number): number | null {
@@ -198,12 +223,16 @@ function parsePositiveInt(raw: string | undefined, min: number, max: number): nu
 }
 
 function parseChapterRef(
-	c: Context<{ Bindings: WorkerBindings }>,
+	usfmRaw: string,
+	chapterRaw: string,
 ): { book: BookMeta; usfm: string; chapter: number } | null {
-	const usfm = (c.req.param("usfm") ?? "").toUpperCase();
+	const decodedUsfm = decodeSegment(usfmRaw);
+	const decodedChapter = decodeSegment(chapterRaw);
+	if (decodedUsfm === null || decodedChapter === null) return null;
+	const usfm = decodedUsfm.toUpperCase();
 	const book = getBookByUsfm(usfm);
 	if (!book) return null;
-	const chapter = parsePositiveInt(c.req.param("chapter"), 1, book.chapters);
+	const chapter = parsePositiveInt(decodedChapter, 1, book.chapters);
 	return chapter !== null ? { book, usfm, chapter } : null;
 }
 
@@ -211,281 +240,347 @@ function esvPassageOpts(book: BookMeta, chapter: number) {
 	return { bookEn: book.en, chapter, chaptersInBook: book.chapters };
 }
 
-export function createApp(deps: WorkerDeps = {}) {
-	const fetcher = deps.fetcher ?? fetch;
-	const app = new Hono<{ Bindings: WorkerBindings }>();
+function finalizeResponse(response: Response, isHead: boolean): Response {
+	if (response.status >= 400 && !response.headers.has("Cache-Control")) {
+		response.headers.set("Cache-Control", "no-store");
+	}
+	applySecurityHeaders(response.headers);
+	if (isHead && response.body !== null) {
+		cancelBody(response);
+		return new Response(null, { status: response.status, headers: response.headers });
+	}
+	return response;
+}
 
-	app.use("*", async (c, next) => {
-		if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-			const res = c.json({ error: "Method not allowed" }, 405, {
-				Allow: "GET, HEAD",
-				"Cache-Control": "no-store",
-			});
-			applySecurityHeaders(res.headers);
-			return res;
+async function handleEsvChapter(
+	usfmRaw: string,
+	chapterRaw: string,
+	env: WorkerBindings,
+	fetcher: FetchLike,
+	localEsvLoader?: WorkerDeps["localEsvLoader"],
+): Promise<Response> {
+	const parsed = parseChapterRef(usfmRaw, chapterRaw);
+	if (!parsed) {
+		return jsonError(400, "Invalid book or chapter reference", NO_STORE_PRIVATE);
+	}
+	const { book, usfm, chapter } = parsed;
+
+	let verses = localEsvLoader ? await localEsvLoader(usfm, chapter).catch(() => null) : null;
+
+	if (!verses || verses.length === 0) {
+		const esvApiKey = env.ESV_API_KEY?.trim();
+		if (!esvApiKey) {
+			return jsonError(503, "ESV text is not configured", NO_STORE_PRIVATE);
 		}
-		await next();
-		if (c.res.status >= 400 && !c.res.headers.has("Cache-Control")) {
-			c.res.headers.set("Cache-Control", "no-store");
+		const result = await fetchEsvChapterVerses(esvApiKey, esvPassageOpts(book, chapter), fetcher);
+		if (result.status === "rate_limited") {
+			return jsonError(
+				429,
+				"ESV API rate limit reached. Please try again shortly.",
+				NO_STORE_PRIVATE,
+			);
 		}
-		applySecurityHeaders(c.res.headers);
-		if (c.req.method === "HEAD" && c.res.body !== null) {
-			cancelBody(c.res);
-			c.res = new Response(null, { status: c.res.status, headers: c.res.headers });
+		if (result.status !== "ok") {
+			return jsonError(502, "ESV passage unavailable", NO_STORE_PRIVATE);
 		}
-	});
+		verses = result.verses;
+	}
 
-	app.notFound((c) => jsonError(c, 404, "Not found"));
-
-	app.onError((err, c) => {
-		console.error("Worker route error:", err instanceof Error ? err.name : "UnknownError");
-		const res = jsonError(c, 502, "Upstream service error");
-		applySecurityHeaders(res.headers);
-		return res;
-	});
-
-	app.get("/api/esv/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c);
-		if (!parsed) {
-			return jsonError(c, 400, "Invalid book or chapter reference", NO_STORE_PRIVATE);
-		}
-		const { book, usfm, chapter } = parsed;
-
-		let verses = deps.localEsvLoader
-			? await deps.localEsvLoader(usfm, chapter).catch(() => null)
-			: null;
-
-		if (!verses || verses.length === 0) {
-			const esvApiKey = c.env?.ESV_API_KEY?.trim();
-			if (!esvApiKey) {
-				return jsonError(c, 503, "ESV text is not configured", NO_STORE_PRIVATE);
-			}
-			const result = await fetchEsvChapterVerses(esvApiKey, esvPassageOpts(book, chapter), fetcher);
-			if (result.status === "rate_limited") {
-				return jsonError(
-					c,
-					429,
-					"ESV API rate limit reached. Please try again shortly.",
-					NO_STORE_PRIVATE,
-				);
-			}
-			if (result.status !== "ok") {
-				return jsonError(c, 502, "ESV passage unavailable", NO_STORE_PRIVATE);
-			}
-			verses = result.verses;
-		}
-
-		c.header("Cache-Control", NO_STORE_PRIVATE);
-		return c.json({
+	return jsonResponse(
+		{
 			translationId: CANONICAL_BIBLES.en.id,
 			bookNumber: book.number,
 			usfm,
 			chapter,
 			verses,
-		} satisfies ChapterTextResponse);
-	});
+		} satisfies ChapterTextResponse,
+		200,
+		NO_STORE_PRIVATE,
+	);
+}
 
-	app.get("/api/audio/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c);
-		if (!parsed) {
-			return jsonError(c, 400, "Invalid book or chapter reference");
-		}
-		const { book, usfm, chapter } = parsed;
+async function handleAudioTracks(
+	usfmRaw: string,
+	chapterRaw: string,
+	env: WorkerBindings,
+	fetcher: FetchLike,
+): Promise<Response> {
+	const parsed = parseChapterRef(usfmRaw, chapterRaw);
+	if (!parsed) {
+		return jsonError(400, "Invalid book or chapter reference");
+	}
+	const { book, usfm, chapter } = parsed;
 
-		const esvApiKey = c.env?.ESV_API_KEY?.trim();
-		const customAudioBase = hasConfiguredAudioBase(c.env);
-		const tracks: AudioTrackOption[] = [];
+	const esvApiKey = env.ESV_API_KEY?.trim();
+	const customAudioBase = hasConfiguredAudioBase(env);
+	const tracks: AudioTrackOption[] = [];
 
-		const krvUrl = c.env?.AUDIO_BUCKET
-			? `/api/audio/krv/${usfm}/${chapter}`
-			: customAudioBase
-				? `${customAudioBase}/${usfm}/${chapter}.mp3`
-				: null;
-		if (krvUrl) {
-			tracks.push({
-				id: SUPERTONIC_TRACK_ID,
-				label: SUPERTONIC_TRACK_LABEL,
-				language: "ko",
-				url: krvUrl,
-				isAiGenerated: true,
-				attribution: SUPERTONIC_TRACK_ATTRIBUTION,
-			});
-		}
+	const krvUrl = env.AUDIO_BUCKET
+		? `/api/audio/krv/${usfm}/${chapter}`
+		: customAudioBase
+			? `${customAudioBase}/${usfm}/${chapter}.mp3`
+			: null;
+	if (krvUrl) {
+		tracks.push({
+			id: SUPERTONIC_TRACK_ID,
+			label: SUPERTONIC_TRACK_LABEL,
+			language: "ko",
+			url: krvUrl,
+			isAiGenerated: true,
+			attribution: SUPERTONIC_TRACK_ATTRIBUTION,
+		});
+	}
 
-		let esvDegraded = false;
-		if (esvApiKey) {
-			const esvTrack = await fetchEsvAudioTrack(
-				esvApiKey,
-				{ usfm, ...esvPassageOpts(book, chapter) },
-				fetcher,
-			);
-			if (esvTrack) tracks.push(esvTrack);
-			else esvDegraded = true;
-		}
-
-		c.header("Cache-Control", esvDegraded ? NO_STORE_PRIVATE : "private, max-age=1800");
-		return c.json({ tracks } satisfies ChapterAudioResponse);
-	});
-
-	app.get("/api/audio/krv/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c);
-		if (!parsed) {
-			return jsonError(c, 400, "Invalid book or chapter reference");
-		}
-
-		const bucket = c.env?.AUDIO_BUCKET;
-		if (!bucket) {
-			return jsonError(c, 503, "Korean audio is not configured");
-		}
-
-		const rawRangeHeader = c.req.header("Range");
-		let parsedRange: ParsedByteRange | undefined;
-		if (rawRangeHeader !== undefined) {
-			const rangeResult = parseByteRangeHeader(rawRangeHeader);
-			if (!rangeResult.ok) {
-				return rangeResult.status === 416
-					? rangeNotSatisfiableResponse()
-					: new Response(null, { status: 400, headers: { "Cache-Control": "no-store" } });
-			}
-			parsedRange = rangeResult.value;
-		}
-
-		const key = `${parsed.usfm}/${parsed.chapter}.mp3`;
-		const isHead = c.req.method === "HEAD";
-		let object: R2ObjectBodyLike | null;
-		try {
-			object =
-				isHead && bucket.head
-					? await bucket.head(key)
-					: await bucket.get(key, parsedRange ? { range: parsedRange.r2Range } : undefined);
-		} catch (err) {
-			if (parsedRange && isR2InvalidRangeError(err)) {
-				return rangeNotSatisfiableResponse();
-			}
-			throw err;
-		}
-
-		if (!object) {
-			return jsonError(c, 404, "Korean audio chapter not found");
-		}
-
-		if (matchesIfNoneMatch(c.req.header("If-None-Match"), object.httpEtag)) {
-			cancelBody(object);
-			const headers = new Headers({ "Cache-Control": AUDIO_CACHE_CONTROL });
-			if (object.httpEtag) headers.set("ETag", object.httpEtag);
-			return new Response(null, { status: 304, headers });
-		}
-
-		if (parsedRange) {
-			const isOutOfBounds =
-				object.size <= 0 || (parsedRange.kind === "bounded" && parsedRange.start >= object.size);
-			if (isOutOfBounds) {
-				cancelBody(object);
-				return rangeNotSatisfiableResponse(object.size);
-			}
-		}
-
-		const headers = new Headers();
-		headers.set("Content-Type", sanitizeAudioMime(object.httpMetadata?.contentType).mime);
-		headers.set("Accept-Ranges", "bytes");
-		headers.set("Content-Disposition", "inline");
-		headers.set("Cache-Control", AUDIO_CACHE_CONTROL);
-		if (object.httpEtag) {
-			headers.set("ETag", object.httpEtag);
-		}
-
-		if (isHead) {
-			cancelBody(object);
-		} else if (object.size > 0 && !object.body) {
-			return jsonError(c, 502, "Korean audio stream unavailable");
-		}
-
-		if (parsedRange) {
-			const { offset, length } = resolveReturnedRange(object, parsedRange);
-			if (length <= 0 || offset < 0 || offset + length > object.size) {
-				cancelBody(object);
-				return rangeNotSatisfiableResponse(object.size);
-			}
-			headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
-			headers.set("Content-Length", String(length));
-			return new Response(isHead ? null : (object.body ?? null), { status: 206, headers });
-		}
-
-		headers.set("Content-Length", String(object.size));
-		return new Response(isHead ? null : (object.body ?? null), { status: 200, headers });
-	});
-
-	app.get("/api/audio/esv/:usfm/:chapter", async (c) => {
-		const parsed = parseChapterRef(c);
-		if (!parsed) {
-			return jsonError(c, 400, "Invalid book or chapter reference");
-		}
-		const { book, chapter } = parsed;
-
-		const esvApiKey = c.env?.ESV_API_KEY?.trim();
-		if (!esvApiKey) {
-			return jsonError(c, 503, "ESV audio is not configured");
-		}
-
-		const resolved = await resolveEsvAudioUrl(esvApiKey, esvPassageOpts(book, chapter), fetcher);
-		if (!resolved) {
-			return jsonError(c, 502, "ESV audio unavailable for this passage");
-		}
-
-		if (resolved.url) {
-			c.header("Cache-Control", "private, max-age=1800");
-			return c.redirect(resolved.url, 302);
-		}
-
-		if (resolved.directStreamResponse) {
-			const { mime, isAudio } = sanitizeAudioMime(
-				resolved.directStreamResponse.headers.get("content-type"),
-			);
-			const headers = new Headers();
-			headers.set("Content-Type", mime);
-			headers.set("Content-Disposition", "inline");
-			headers.set("Cache-Control", isAudio ? "private, max-age=1800" : NO_STORE_PRIVATE);
-			const contentLength = resolved.directStreamResponse.headers.get("content-length")?.trim();
-			if (contentLength && /^\d+$/.test(contentLength)) {
-				headers.set("Content-Length", contentLength);
-			}
-			return new Response(resolved.directStreamResponse.body, {
-				status: 200,
-				headers,
-			});
-		}
-
-		return jsonError(c, 502, "ESV audio unavailable");
-	});
-
-	app.get("/api/commentary/:commentaryId/:usfm/:chapter", async (c) => {
-		const commentaryId = c.req.param("commentaryId");
-		if (!isCommentaryId(commentaryId)) {
-			return jsonError(c, 400, "Unsupported commentary source");
-		}
-		const parsed = parseChapterRef(c);
-		if (!parsed) {
-			return jsonError(c, 400, "Invalid book or chapter reference");
-		}
-
-		const result = await fetchHelloAoCommentaryChapter(
-			commentaryId,
-			parsed.usfm,
-			parsed.chapter,
+	let esvDegraded = false;
+	if (esvApiKey) {
+		const esvTrack = await fetchEsvAudioTrack(
+			esvApiKey,
+			{ usfm, ...esvPassageOpts(book, chapter) },
 			fetcher,
 		);
-		if (result.status === "error") {
-			return jsonError(c, 502, "Commentary lookup failed");
+		if (esvTrack) tracks.push(esvTrack);
+		else esvDegraded = true;
+	}
+
+	return jsonResponse(
+		{ tracks } satisfies ChapterAudioResponse,
+		200,
+		esvDegraded ? NO_STORE_PRIVATE : "private, max-age=1800",
+	);
+}
+
+async function handleKrvAudio(
+	request: Request,
+	usfmRaw: string,
+	chapterRaw: string,
+	env: WorkerBindings,
+): Promise<Response> {
+	const parsed = parseChapterRef(usfmRaw, chapterRaw);
+	if (!parsed) {
+		return jsonError(400, "Invalid book or chapter reference");
+	}
+
+	const bucket = env.AUDIO_BUCKET;
+	if (!bucket) {
+		return jsonError(503, "Korean audio is not configured");
+	}
+
+	const rawRangeHeader = request.headers.get("Range");
+	let parsedRange: ParsedByteRange | undefined;
+	if (rawRangeHeader !== null) {
+		const rangeResult = parseByteRangeHeader(rawRangeHeader);
+		if (!rangeResult.ok) {
+			return rangeResult.status === 416
+				? rangeNotSatisfiableResponse()
+				: new Response(null, { status: 400, headers: { "Cache-Control": "no-store" } });
+		}
+		parsedRange = rangeResult.value;
+	}
+
+	const key = `${parsed.usfm}/${parsed.chapter}.mp3`;
+	const isHead = request.method === "HEAD";
+	let object: R2ObjectBodyLike | null;
+	try {
+		object =
+			isHead && bucket.head
+				? await bucket.head(key)
+				: await bucket.get(key, parsedRange ? { range: parsedRange.r2Range } : undefined);
+	} catch (err) {
+		if (parsedRange && isR2InvalidRangeError(err)) {
+			return rangeNotSatisfiableResponse();
+		}
+		throw err;
+	}
+
+	if (!object) {
+		return jsonError(404, "Korean audio chapter not found");
+	}
+
+	if (matchesIfNoneMatch(request.headers.get("If-None-Match"), object.httpEtag)) {
+		cancelBody(object);
+		const headers = new Headers({ "Cache-Control": AUDIO_CACHE_CONTROL });
+		if (object.httpEtag) headers.set("ETag", object.httpEtag);
+		return new Response(null, { status: 304, headers });
+	}
+
+	if (parsedRange) {
+		const isOutOfBounds =
+			object.size <= 0 || (parsedRange.kind === "bounded" && parsedRange.start >= object.size);
+		if (isOutOfBounds) {
+			cancelBody(object);
+			return rangeNotSatisfiableResponse(object.size);
+		}
+	}
+
+	const headers = new Headers();
+	headers.set("Content-Type", sanitizeAudioMime(object.httpMetadata?.contentType).mime);
+	headers.set("Accept-Ranges", "bytes");
+	headers.set("Content-Disposition", "inline");
+	headers.set("Cache-Control", AUDIO_CACHE_CONTROL);
+	if (object.httpEtag) {
+		headers.set("ETag", object.httpEtag);
+	}
+
+	if (isHead) {
+		cancelBody(object);
+	} else if (object.size > 0 && !object.body) {
+		return jsonError(502, "Korean audio stream unavailable");
+	}
+
+	if (parsedRange) {
+		const { offset, length } = resolveReturnedRange(object, parsedRange);
+		if (length <= 0 || offset < 0 || offset + length > object.size) {
+			cancelBody(object);
+			return rangeNotSatisfiableResponse(object.size);
+		}
+		headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
+		headers.set("Content-Length", String(length));
+		return new Response(isHead ? null : (object.body ?? null), { status: 206, headers });
+	}
+
+	headers.set("Content-Length", String(object.size));
+	return new Response(isHead ? null : (object.body ?? null), { status: 200, headers });
+}
+
+async function handleEsvAudio(
+	usfmRaw: string,
+	chapterRaw: string,
+	env: WorkerBindings,
+	fetcher: FetchLike,
+): Promise<Response> {
+	const parsed = parseChapterRef(usfmRaw, chapterRaw);
+	if (!parsed) {
+		return jsonError(400, "Invalid book or chapter reference");
+	}
+	const { book, chapter } = parsed;
+
+	const esvApiKey = env.ESV_API_KEY?.trim();
+	if (!esvApiKey) {
+		return jsonError(503, "ESV audio is not configured");
+	}
+
+	const resolved = await resolveEsvAudioUrl(esvApiKey, esvPassageOpts(book, chapter), fetcher);
+	if (!resolved) {
+		return jsonError(502, "ESV audio unavailable for this passage");
+	}
+
+	if (resolved.url) {
+		return new Response(null, {
+			status: 302,
+			headers: {
+				Location: resolved.url,
+				"Cache-Control": "private, max-age=1800",
+			},
+		});
+	}
+
+	if (resolved.directStreamResponse) {
+		const { mime, isAudio } = sanitizeAudioMime(
+			resolved.directStreamResponse.headers.get("content-type"),
+		);
+		const headers = new Headers();
+		headers.set("Content-Type", mime);
+		headers.set("Content-Disposition", "inline");
+		headers.set("Cache-Control", isAudio ? "private, max-age=1800" : NO_STORE_PRIVATE);
+		const contentLength = resolved.directStreamResponse.headers.get("content-length")?.trim();
+		if (contentLength && /^\d+$/.test(contentLength)) {
+			headers.set("Content-Length", contentLength);
+		}
+		return new Response(resolved.directStreamResponse.body, {
+			status: 200,
+			headers,
+		});
+	}
+
+	return jsonError(502, "ESV audio unavailable");
+}
+
+async function handleCommentary(
+	commentaryIdRaw: string,
+	usfmRaw: string,
+	chapterRaw: string,
+	fetcher: FetchLike,
+): Promise<Response> {
+	const commentaryId = decodeSegment(commentaryIdRaw);
+	if (!commentaryId || !isCommentaryId(commentaryId)) {
+		return jsonError(400, "Unsupported commentary source");
+	}
+	const parsed = parseChapterRef(usfmRaw, chapterRaw);
+	if (!parsed) {
+		return jsonError(400, "Invalid book or chapter reference");
+	}
+
+	const result = await fetchHelloAoCommentaryChapter(
+		commentaryId,
+		parsed.usfm,
+		parsed.chapter,
+		fetcher,
+	);
+	if (result.status === "error") {
+		return jsonError(502, "Commentary lookup failed");
+	}
+
+	return jsonResponse(
+		result.data,
+		200,
+		result.status === "empty" ? "public, max-age=3600" : "public, max-age=86400",
+	);
+}
+
+export function createApp(deps: WorkerDeps = {}): WorkerApp {
+	const fetcher = deps.fetcher ?? fetch;
+
+	async function dispatch(request: Request, env: WorkerBindings): Promise<Response> {
+		const { pathname } = new URL(request.url);
+		const parts = pathname.startsWith("/") ? pathname.slice(1).split("/") : [];
+		if (parts[0] !== "api" || parts.some((part) => part.length === 0)) {
+			return jsonError(404, "Not found");
 		}
 
-		c.header(
-			"Cache-Control",
-			result.status === "empty" ? "public, max-age=3600" : "public, max-age=86400",
-		);
-		return c.json(result.data);
-	});
+		if (parts.length === 4) {
+			if (parts[1] === "esv") {
+				return handleEsvChapter(parts[2], parts[3], env, fetcher, deps.localEsvLoader);
+			}
+			if (parts[1] === "audio") {
+				return handleAudioTracks(parts[2], parts[3], env, fetcher);
+			}
+		}
 
-	return app;
+		if (parts.length === 5) {
+			if (parts[1] === "audio" && parts[2] === "krv") {
+				return handleKrvAudio(request, parts[3], parts[4], env);
+			}
+			if (parts[1] === "audio" && parts[2] === "esv") {
+				return handleEsvAudio(parts[3], parts[4], env, fetcher);
+			}
+			if (parts[1] === "commentary") {
+				return handleCommentary(parts[2], parts[3], parts[4], fetcher);
+			}
+		}
+
+		return jsonError(404, "Not found");
+	}
+
+	return {
+		async fetch(request: Request, env: WorkerBindings = {}): Promise<Response> {
+			const isHead = request.method === "HEAD";
+			if (request.method !== "GET" && !isHead) {
+				return finalizeResponse(
+					jsonError(405, "Method not allowed", "no-store", { Allow: "GET, HEAD" }),
+					false,
+				);
+			}
+
+			let response: Response;
+			try {
+				response = await dispatch(request, env);
+			} catch (err) {
+				console.error("Worker route error:", err instanceof Error ? err.name : "UnknownError");
+				response = jsonError(502, "Upstream service error");
+			}
+			return finalizeResponse(response, isHead);
+		},
+	};
 }
 
 const app = createApp();
