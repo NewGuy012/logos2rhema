@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 import indexHtml from "../index.html";
@@ -9,45 +9,19 @@ import {
 	type R2ObjectBodyLike,
 	type WorkerBindings,
 } from "../src/worker/index";
+import { AUDIO_CACHE_DIR, isDirectory, loadDevVarsRecord, ROOT_DIR } from "./lib/common";
 
-const ROOT_DIR = join(import.meta.dir, "..");
 const PUBLIC_DIR = join(ROOT_DIR, "public");
 const DIST_CLIENT_DIR = join(ROOT_DIR, "dist", "client");
 const DEV_VARS_PATH = join(ROOT_DIR, ".dev.vars");
 const HEADERS_PATH = join(PUBLIC_DIR, "_headers");
-const LOCAL_AUDIO_DIR = join(ROOT_DIR, ".cache", "krv-supertonic-audio");
 const LOCAL_ESV_DIR = join(ROOT_DIR, ".cache", "esv-local");
 
-function stripOptionalQuotes(value: string): string {
-	if (
-		(value.startsWith('"') && value.endsWith('"')) ||
-		(value.startsWith("'") && value.endsWith("'"))
-	) {
-		return value.slice(1, -1);
-	}
-	return value;
-}
-
 async function loadDevVars(): Promise<WorkerBindings> {
-	const file = Bun.file(DEV_VARS_PATH);
-	if (!(await file.exists())) {
-		return {};
-	}
-	const raw = await file.text();
-	const bindings: Record<string, string> = {};
-	for (const line of raw.split(/\r?\n/)) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith("#")) continue;
-		const normalized = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
-		const eqIdx = normalized.indexOf("=");
-		if (eqIdx <= 0) continue;
-		const key = normalized.slice(0, eqIdx).trim();
-		const value = stripOptionalQuotes(normalized.slice(eqIdx + 1).trim());
-		bindings[key] = value;
-	}
+	const bindings = await loadDevVarsRecord(DEV_VARS_PATH);
 	return {
-		ESV_API_KEY: bindings.ESV_API_KEY,
-		AUDIO_BASE_URL: bindings.AUDIO_BASE_URL,
+		ESV_API_KEY: process.env.ESV_API_KEY ?? bindings.ESV_API_KEY,
+		AUDIO_BASE_URL: process.env.AUDIO_BASE_URL ?? bindings.AUDIO_BASE_URL,
 	};
 }
 
@@ -101,17 +75,34 @@ function resolveSafeStaticPath(baseDir: string, requestPath: string): string | n
 	return candidate;
 }
 
+async function resolveSafeFile(baseDir: string, requestPath: string): Promise<string | null> {
+	const candidate = resolveSafeStaticPath(baseDir, requestPath);
+	if (!candidate) return null;
+	try {
+		const [realRoot, realCandidate, info] = await Promise.all([
+			realpath(baseDir),
+			realpath(candidate),
+			stat(candidate),
+		]);
+		if (!info.isFile()) return null;
+		if (realCandidate !== realRoot && !realCandidate.startsWith(`${realRoot}${sep}`)) {
+			return null;
+		}
+		return realCandidate;
+	} catch {
+		return null;
+	}
+}
+
 async function serveStaticFile(
-	filePath: string,
+	baseDir: string,
+	requestPath: string,
 	staticHeaders: Array<[string, string]>,
 	method = "GET",
 	contentType?: string,
 ): Promise<Response | null> {
-	try {
-		if (!(await stat(filePath)).isFile()) return null;
-	} catch {
-		return null;
-	}
+	const filePath = await resolveSafeFile(baseDir, requestPath);
+	if (!filePath) return null;
 	const file = Bun.file(filePath);
 	const headers = applyHeaders(new Headers(), staticHeaders);
 	if (contentType) {
@@ -122,20 +113,11 @@ async function serveStaticFile(
 	return new Response(method === "HEAD" ? null : file, { headers });
 }
 
-async function isDirectory(dirPath: string): Promise<boolean> {
-	try {
-		return (await stat(dirPath)).isDirectory();
-	} catch {
-		return false;
-	}
-}
-
 function createLocalAudioBucket(baseDir: string): R2BucketLike {
 	async function resolveAudioFile(key: string) {
-		const filePath = resolveSafeStaticPath(baseDir, key);
+		const filePath = await resolveSafeFile(baseDir, key);
 		if (!filePath) return null;
 		const file = Bun.file(filePath);
-		if (!(await file.exists())) return null;
 		const size = file.size;
 		const contentType = filePath.toLowerCase().endsWith(".mp3")
 			? "audio/mpeg"
@@ -212,11 +194,9 @@ function createLocalEsvLoader(
 	baseDir: string,
 ): (usfm: string, chapter: number) => Promise<VerseEntry[] | null> {
 	return async (usfm: string, chapter: number): Promise<VerseEntry[] | null> => {
-		const filePath = resolveSafeStaticPath(baseDir, `${usfm}.json`);
+		const filePath = await resolveSafeFile(baseDir, `${usfm}.json`);
 		if (!filePath) return null;
-		const file = Bun.file(filePath);
-		if (!(await file.exists())) return null;
-		const data = (await file.json()) as Partial<BookBibleData>;
+		const data = (await Bun.file(filePath).json()) as Partial<BookBibleData>;
 		const verses = data.chapters?.[String(chapter)];
 		return Array.isArray(verses) ? verses : null;
 	};
@@ -227,10 +207,17 @@ const useLiveEsv = process.env.USE_LIVE_ESV === "1";
 const hostname = process.env.HOST?.trim() || "127.0.0.1";
 const rawLoopbackHost = hostname === "0.0.0.0" || hostname === "::" ? "127.0.0.1" : hostname;
 const loopbackHost = rawLoopbackHost.includes(":") ? `[${rawLoopbackHost}]` : rawLoopbackHost;
-const port = Number.parseInt(process.env.PORT ?? "", 10) || (isPreview ? 4173 : 5173);
+const parsedPort =
+	process.env.PORT !== undefined ? Number.parseInt(process.env.PORT, 10) : Number.NaN;
+const port =
+	Number.isInteger(parsedPort) && parsedPort >= 0 && parsedPort <= 65535
+		? parsedPort
+		: isPreview
+			? 4173
+			: 5173;
 const devVars = await loadDevVars();
-if (!devVars.AUDIO_BASE_URL?.trim() && (await isDirectory(LOCAL_AUDIO_DIR))) {
-	devVars.AUDIO_BUCKET = createLocalAudioBucket(LOCAL_AUDIO_DIR);
+if (!devVars.AUDIO_BASE_URL?.trim() && (await isDirectory(AUDIO_CACHE_DIR))) {
+	devVars.AUDIO_BUCKET = createLocalAudioBucket(AUDIO_CACHE_DIR);
 }
 const localEsvLoader =
 	!isPreview && !useLiveEsv && (await isDirectory(LOCAL_ESV_DIR))
@@ -246,16 +233,20 @@ if (isPreview) {
 	const staticHeaders = await loadStaticHeaders();
 	const respondPreview = async (
 		req: Request,
-		filePath: string | null,
+		requestPath: string,
 		contentType?: string,
 	): Promise<Response> => {
 		if (req.method !== "GET" && req.method !== "HEAD") {
 			const headers = applyHeaders(new Headers({ Allow: "GET, HEAD" }), staticHeaders);
 			return new Response("Method Not Allowed", { status: 405, headers });
 		}
-		const res = filePath
-			? await serveStaticFile(filePath, staticHeaders, req.method, contentType)
-			: null;
+		const res = await serveStaticFile(
+			DIST_CLIENT_DIR,
+			requestPath,
+			staticHeaders,
+			req.method,
+			contentType,
+		);
 		return (
 			res ??
 			new Response(req.method === "HEAD" ? null : "Not Found", {
@@ -265,7 +256,7 @@ if (isPreview) {
 		);
 	};
 	const serveDistAsset = (req: Request): Promise<Response> =>
-		respondPreview(req, resolveSafeStaticPath(DIST_CLIENT_DIR, new URL(req.url).pathname));
+		respondPreview(req, new URL(req.url).pathname);
 
 	const server = Bun.serve({
 		hostname,
@@ -274,10 +265,8 @@ if (isPreview) {
 			"/api/*": (req) => workerApp.fetch(req, devVars),
 			"/assets/*": serveDistAsset,
 			"/data/*": serveDistAsset,
-			"/favicon.svg": (req) =>
-				respondPreview(req, join(DIST_CLIENT_DIR, "favicon.svg"), "image/svg+xml"),
-			"/*": (req) =>
-				respondPreview(req, join(DIST_CLIENT_DIR, "index.html"), "text/html; charset=utf-8"),
+			"/favicon.svg": (req) => respondPreview(req, "/favicon.svg", "image/svg+xml"),
+			"/*": (req) => respondPreview(req, "/index.html", "text/html; charset=utf-8"),
 		},
 	});
 

@@ -2,7 +2,6 @@ import { getBookByNumber } from "../src/shared/books";
 import type { BookBibleData, VerseEntry } from "../src/shared/types";
 
 interface SpbParseResult {
-	title: string;
 	abbreviation: string;
 	books: Map<number, BookBibleData>;
 }
@@ -43,8 +42,8 @@ export function extractPsalmSuperscription(
 
 	const candidateHeading = match[1];
 	const remainder = match[2].trim();
-	// Only treat as a superscription if all-caps and at least 2 words.
-	if (/[a-z]/.test(candidateHeading) || !candidateHeading.includes(" ") || !remainder) {
+	// Only treat as a superscription if at least 2 words (regex already enforces uppercase).
+	if (!candidateHeading.includes(" ") || !remainder) {
 		return { text };
 	}
 
@@ -53,7 +52,6 @@ export function extractPsalmSuperscription(
 
 export function parseSpbContent(content: string, translationId = "esv"): SpbParseResult {
 	const lines = content.split(/\r?\n/);
-	let title = "English Standard Version";
 	let abbreviation = "ESV";
 	let inVerses = false;
 	const books = new Map<number, BookBibleData>();
@@ -65,8 +63,6 @@ export function parseSpbContent(content: string, translationId = "esv"): SpbPars
 		if (!inVerses) {
 			if (line === "-----") {
 				inVerses = true;
-			} else if (line.startsWith("##Title:")) {
-				title = line.replace("##Title:", "").trim();
 			} else if (line.startsWith("##Abbreviation:")) {
 				abbreviation = line.replace("##Abbreviation:", "").trim();
 			}
@@ -103,5 +99,5 @@ export function parseSpbContent(content: string, translationId = "esv"): SpbPars
 		chapterVerses.push(entry);
 	}
 
-	return { title, abbreviation, books };
+	return { abbreviation, books };
 }

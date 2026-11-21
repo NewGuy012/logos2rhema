@@ -83,7 +83,6 @@ class SynthConfig:
     audio_dir: Path = AUDIO_CACHE_DIR
     batch_size: int = 1
     mp3_quality: int = 2
-    verbose: bool = False
 
 
 def load_book_catalog() -> dict[str, tuple[int, str]]:
@@ -94,10 +93,6 @@ def load_book_catalog() -> dict[str, tuple[int, str]]:
             f"Expected 66 books from {BOOKS_TS_PATH}, parsed {len(matches)}"
         )
     return {usfm: (idx + 1, ko) for idx, (usfm, ko, _) in enumerate(matches)}
-
-
-def load_korean_book_names() -> dict[str, str]:
-    return {usfm: ko for usfm, (_, ko) in load_book_catalog().items()}
 
 
 def load_krv_books(wanted_usfms: list[str] | None = None) -> list[dict[str, Any]]:
@@ -435,6 +430,60 @@ def _create_batch_runner(
     return None
 
 
+def _get_batched_style(voice_style: Any, bsz: int, style_cache: dict[int, Any]) -> Any:
+    cached = style_cache.get(bsz)
+    if cached is not None:
+        return cached
+    if bsz == 1:
+        batch_style = voice_style
+    else:
+        from supertonic.core import Style
+
+        batch_style = Style(
+            np.repeat(voice_style.ttl, bsz, axis=0),
+            np.repeat(voice_style.dp, bsz, axis=0),
+        )
+    style_cache[bsz] = batch_style
+    return batch_style
+
+
+def _run_single_batch(
+    tts: Any,
+    voice_style: Any,
+    batch_texts: list[str],
+    *,
+    steps: int,
+    speed: float,
+    use_batched_model: bool,
+    cuda_runner: _CudaBatchRunner | None,
+    style_cache: dict[int, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    if cuda_runner is not None:
+        return cuda_runner.run_batch(batch_texts, speed=speed)
+    if use_batched_model:
+        batch_style = _get_batched_style(voice_style, len(batch_texts), style_cache)
+        return tts.model(
+            batch_texts,
+            batch_style,
+            total_step=steps,
+            speed=speed,
+            lang="ko",
+        )
+    wav_single, dur_single = tts.synthesize(
+        text=batch_texts[0],
+        voice_style=voice_style,
+        total_steps=steps,
+        speed=speed,
+        max_chunk_length=max(200, len(batch_texts[0]) + 20),
+        silence_duration=0.0,
+        lang="ko",
+    )
+    return (
+        np.asarray(wav_single, dtype=np.float32).reshape(1, -1),
+        np.asarray(dur_single, dtype=np.float32).reshape(1),
+    )
+
+
 def synthesize_chunks_raw_batched(
     tts: Any,
     voice_style: Any,
@@ -452,53 +501,42 @@ def synthesize_chunks_raw_batched(
     if batch_size <= 1:
         pcms: list[np.ndarray] = []
         for chunk in chunks:
-            wav, _dur = tts.synthesize(
-                text=chunk,
-                voice_style=voice_style,
-                total_steps=steps,
+            wav_batch, _ = _run_single_batch(
+                tts,
+                voice_style,
+                [chunk],
+                steps=steps,
                 speed=speed,
-                max_chunk_length=max(200, len(chunk) + 20),
-                silence_duration=0.0,
-                lang="ko",
+                use_batched_model=False,
+                cuda_runner=None,
+                style_cache={},
             )
-            pcms.append(np.asarray(wav, dtype=np.float32).reshape(-1))
+            pcms.append(wav_batch.reshape(-1))
         return pcms
-
-    from supertonic.core import Style
 
     # Bucket by character length so mini-batches have minimal padding overhead.
     order = sorted(range(len(chunks)), key=lambda idx: len(chunks[idx]))
     results: list[np.ndarray | None] = [None] * len(chunks)
     style_cache: dict[int, Any] = {}
-    active_cuda = cuda_runner if cuda_runner is not None else _create_batch_runner(tts, voice_style, steps)
+    active_cuda = (
+        cuda_runner
+        if cuda_runner is not None
+        else _create_batch_runner(tts, voice_style, steps)
+    )
 
     for start in range(0, len(order), batch_size):
         batch_indices = order[start : start + batch_size]
-        bsz = len(batch_indices)
         batch_texts = [chunks[i] for i in batch_indices]
-
-        if active_cuda is not None:
-            wav_batch, dur_batch = active_cuda.run_batch(batch_texts, speed=speed)
-        else:
-            batch_style = style_cache.get(bsz)
-            if batch_style is None:
-                batch_style = (
-                    voice_style
-                    if bsz == 1
-                    else Style(
-                        np.repeat(voice_style.ttl, bsz, axis=0),
-                        np.repeat(voice_style.dp, bsz, axis=0),
-                    )
-                )
-                style_cache[bsz] = batch_style
-            wav_batch, dur_batch = tts.model(
-                batch_texts,
-                batch_style,
-                total_step=steps,
-                speed=speed,
-                lang="ko",
-            )
-
+        wav_batch, dur_batch = _run_single_batch(
+            tts,
+            voice_style,
+            batch_texts,
+            steps=steps,
+            speed=speed,
+            use_batched_model=True,
+            cuda_runner=active_cuda,
+            style_cache=style_cache,
+        )
         for row_idx, orig_idx in enumerate(batch_indices):
             n_samples = max(1, int(round(float(dur_batch[row_idx]) * sample_rate)))
             results[orig_idx] = np.array(
@@ -506,48 +544,6 @@ def synthesize_chunks_raw_batched(
             )
 
     return [pcm if pcm is not None else np.zeros(0, dtype=np.float32) for pcm in results]
-
-
-def synthesize_chunks_batched(
-    tts: Any,
-    voice_style: Any,
-    chunks: list[str],
-    *,
-    steps: int,
-    speed: float,
-    batch_size: int,
-) -> list[np.ndarray]:
-    sample_rate = int(tts.sample_rate)
-    raw_pcms = synthesize_chunks_raw_batched(
-        tts,
-        voice_style,
-        chunks,
-        steps=steps,
-        speed=speed,
-        batch_size=batch_size,
-    )
-    return [trim_silence(pcm, sample_rate) for pcm in raw_pcms]
-
-
-def synthesize_text_utterance(
-    tts: Any,
-    voice_style: Any,
-    chunks: list[str],
-    *,
-    steps: int,
-    speed: float,
-    chunk_pause_sec: float = 0.12,
-) -> np.ndarray:
-    sample_rate = int(tts.sample_rate)
-    chunk_pcms = synthesize_chunks_batched(
-        tts,
-        voice_style,
-        chunks,
-        steps=steps,
-        speed=speed,
-        batch_size=1,
-    )
-    return assemble_chunk_pcms(chunk_pcms, sample_rate, chunk_pause_sec=chunk_pause_sec)
 
 
 def master_chapter_audio(
@@ -665,35 +661,12 @@ def finalize_chapter_from_raw_chunks(
             segments.append(verse_pause)
             sample_cursor += int(verse_pause.size)
 
-    return finalize_chapter_audio(
-        segments,
-        sr,
-        timings,
-        usfm=usfm,
-        chapter=chapter,
-        verses=verses,
-        header_text=header_text,
-        cfg=cfg,
-        mp3_path=mp3_path,
-    )
-
-
-def finalize_chapter_audio(
-    segments: list[np.ndarray],
-    sr: int,
-    timings: dict[str, float],
-    *,
-    usfm: str,
-    chapter: int,
-    verses: list[VerseJob],
-    header_text: str,
-    cfg: SynthConfig,
-    mp3_path: Path,
-) -> tuple[dict[str, float], dict[str, Any]]:
     mastered, rms_dbfs, peak_dbfs = master_chapter_audio(segments)
     total_duration = float(mastered.size) / float(sr)
+    if not verses or not timings:
+        raise RuntimeError(f"{usfm} {chapter}: no synthesized verse timings produced")
     last_start = timings[str(verses[-1].verse)]
-    if not timings or last_start >= total_duration:
+    if last_start >= total_duration:
         raise RuntimeError(
             f"{usfm} {chapter}: invalid final timestamp {last_start} >= duration {total_duration:.3f}s"
         )
@@ -940,48 +913,42 @@ def configure_onnx_providers(
                 opts.inter_op_num_threads = inter_op_num_threads
 
             target_dev = str(_ACTIVE_CUDA_DEVICE_ID)
-            cuda_providers: list[Any] = [
-                (
-                    "CUDAExecutionProvider",
-                    {
-                        "device_id": target_dev,
-                        "cudnn_conv_algo_search": "HEURISTIC",
-                        "cudnn_conv_use_max_workspace": "1",
-                    },
-                ),
-                "CPUExecutionProvider",
-            ]
+            provider_candidates: tuple[list[Any], ...] = (
+                [
+                    (
+                        "CUDAExecutionProvider",
+                        {
+                            "device_id": target_dev,
+                            "cudnn_conv_algo_search": "HEURISTIC",
+                            "cudnn_conv_use_max_workspace": "1",
+                        },
+                    ),
+                    "CPUExecutionProvider",
+                ],
+                [
+                    ("CUDAExecutionProvider", {"device_id": target_dev}),
+                    "CPUExecutionProvider",
+                ],
+            )
             rel_paths = (
                 st_config.DP_ONNX_REL_PATH,
                 st_config.TEXT_ENC_ONNX_REL_PATH,
                 st_config.VECTOR_EST_ONNX_REL_PATH,
                 st_config.VOCODER_ONNX_REL_PATH,
             )
-            try:
-                sessions = tuple(
-                    ort.InferenceSession(
-                        model_root / rel, sess_options=opts, providers=cuda_providers
-                    )
-                    for rel in rel_paths
-                )
-                return sessions  # type: ignore[return-value]
-            except Exception:  # noqa: BLE001
-                fallback_providers: list[Any] = [
-                    ("CUDAExecutionProvider", {"device_id": target_dev}),
-                    "CPUExecutionProvider",
-                ]
+            for providers in provider_candidates:
                 try:
-                    sessions = tuple(
+                    return tuple(  # type: ignore[return-value]
                         ort.InferenceSession(
-                            model_root / rel, sess_options=opts, providers=fallback_providers
+                            model_root / rel, sess_options=opts, providers=providers
                         )
                         for rel in rel_paths
                     )
-                    return sessions  # type: ignore[return-value]
                 except Exception:  # noqa: BLE001
-                    return _ORIG_LOAD_ONNX_MODULES(
-                        model_root, intra_op_num_threads, inter_op_num_threads
-                    )
+                    continue
+            return _ORIG_LOAD_ONNX_MODULES(
+                model_root, intra_op_num_threads, inter_op_num_threads
+            )
 
         st_loader.load_onnx_modules = _load_onnx_modules_cuda
     else:
@@ -1019,6 +986,21 @@ def get_active_tts_providers(tts: Any) -> list[str]:
         if session is not None and hasattr(session, "get_providers"):
             return list(session.get_providers())
     return []
+
+
+def _check_cuda_provider(
+    providers: list[str],
+    requested_device: str,
+    context: str,
+    fallback_note: str,
+) -> bool:
+    if "CUDAExecutionProvider" in providers:
+        return True
+    msg = f"{context} failed to bind CUDAExecutionProvider (active={providers})."
+    if requested_device == "cuda":
+        raise RuntimeError(msg)
+    print(f"Warning: {msg} {fallback_note}", file=sys.stderr, flush=True)
+    return False
 
 
 def parse_args() -> argparse.Namespace:
@@ -1165,7 +1147,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate text normalization, chunking, and chapter headers without running ONNX",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    checks = (
+        (args.speed > 0, "--speed must be > 0"),
+        (args.steps >= 1, "--steps must be >= 1"),
+        (args.pause >= 0, "--pause must be >= 0"),
+        (args.header_pause >= 0, "--header-pause must be >= 0"),
+        (args.bitrate >= 32, "--bitrate must be >= 32"),
+        (args.workers >= 0, "--workers must be >= 0"),
+        (args.threads >= 1, "--threads must be >= 1"),
+        (args.gpus >= 0, "--gpus must be >= 0"),
+        (args.gpu_streams >= 0, "--gpu-streams must be >= 0"),
+        (args.batch_size >= 0, "--batch-size must be >= 0"),
+    )
+    for ok, err_msg in checks:
+        if not ok:
+            parser.error(err_msg)
+    return args
 
 
 def _init_worker(
@@ -1195,15 +1193,12 @@ def _init_worker(
         inter_op_num_threads=1,
     )
     if active_device == "cuda":
-        worker_providers = get_active_tts_providers(_WORKER_TTS)
-        if "CUDAExecutionProvider" not in worker_providers:
-            msg = (
-                f"Worker (gpu={device_id}) failed to bind CUDAExecutionProvider "
-                f"(active={worker_providers})"
-            )
-            if requested_device == "cuda":
-                raise RuntimeError(msg)
-            print(f"Warning: {msg} Continuing on CPU.", file=sys.stderr, flush=True)
+        _check_cuda_provider(
+            get_active_tts_providers(_WORKER_TTS),
+            requested_device,
+            f"Worker (gpu={device_id})",
+            "Continuing on CPU.",
+        )
     _WORKER_STYLE = _WORKER_TTS.get_voice_style(resolved_voice)
 
 
@@ -1265,11 +1260,12 @@ def main() -> int:
         wanted_usfms = resolve_requested_usfms(args, catalog)
         selected_books = load_krv_books(wanted_usfms)
 
-    chapter_filter = (
-        {int(c.strip()) for c in str(args.chapters).split(",") if c.strip()}
-        if args.chapters
-        else None
-    )
+    chapter_filter: set[int] | None = None
+    if args.chapters:
+        try:
+            chapter_filter = {int(c.strip()) for c in str(args.chapters).split(",") if c.strip()}
+        except ValueError as err:
+            raise SystemExit(f"Invalid --chapters value: {args.chapters!r}") from err
 
     jobs: list[tuple[str, str, int, list[VerseJob], int]] = []
     total_verses_checked = 0
@@ -1319,7 +1315,7 @@ def main() -> int:
             format_chapter_header(
                 str(b["usfm"]),
                 book_names_ko[str(b["usfm"])],
-                next(iter(sorted(b["chapters"].keys(), key=int))),
+                int(next(iter(sorted(b["chapters"].keys(), key=int)))),
             )
             for b in selected_books[:3]
         ]
@@ -1362,14 +1358,12 @@ def main() -> int:
             inter_op_num_threads=1,
         )
         active_providers = get_active_tts_providers(tts)
-        if active_device == "cuda" and "CUDAExecutionProvider" not in active_providers:
-            msg = (
-                "CUDAExecutionProvider failed to initialize on ONNX session "
-                f"(available={available_providers}, active={active_providers})."
-            )
-            if args.device == "cuda":
-                raise RuntimeError(msg)
-            print(f"Warning: {msg} Falling back to CPU.", file=sys.stderr, flush=True)
+        if active_device == "cuda" and not _check_cuda_provider(
+            active_providers,
+            args.device,
+            f"ONNX session (available={available_providers})",
+            "Falling back to CPU.",
+        ):
             active_device = "cpu"
         voice_names = list(tts.voice_style_names)
         text_processor = tts.model.text_processor
@@ -1566,7 +1560,6 @@ def main() -> int:
         audio_dir=audio_dir,
         batch_size=batch_size,
         mp3_quality=args.mp3_quality,
-        verbose=args.verbose,
     )
 
     try:
@@ -1584,15 +1577,12 @@ def main() -> int:
                         extra_tts = _create_tts_on_cuda_device(
                             dev_id, args.threads, auto_download=False
                         )
-                        extra_providers = get_active_tts_providers(extra_tts)
-                        if "CUDAExecutionProvider" not in extra_providers:
-                            msg = (
-                                f"GPU {dev_id} stream {stream_idx} failed to bind "
-                                f"CUDAExecutionProvider (active={extra_providers})"
-                            )
-                            if args.device == "cuda":
-                                raise RuntimeError(msg)
-                            print(f"Warning: {msg} Skipping runner.", file=sys.stderr, flush=True)
+                        if not _check_cuda_provider(
+                            get_active_tts_providers(extra_tts),
+                            args.device,
+                            f"GPU {dev_id} stream {stream_idx}",
+                            "Skipping runner.",
+                        ):
                             continue
                         extra_tts_instances.append(extra_tts)
                         extra_runner = _create_batch_runner(
@@ -1685,8 +1675,6 @@ def main() -> int:
                 if cur_win:
                     windows.append(cur_win)
 
-                from supertonic.core import Style
-
                 runner_queue: queue.Queue[_CudaBatchRunner] = queue.Queue()
                 for r in cuda_runners:
                     runner_queue.put(r)
@@ -1710,6 +1698,7 @@ def main() -> int:
                         chapter_headers: list[str] = []
                         chapter_slots: list[list[np.ndarray | None]] = []
                         chapter_remaining: list[int] = []
+                        chapter_started: list[float | None] = [None] * len(win_jobs)
                         chapter_failed: list[bool] = [False] * len(win_jobs)
 
                         for local_idx, job in enumerate(win_jobs):
@@ -1735,11 +1724,14 @@ def main() -> int:
                             batch_indices: list[int],
                             wav_batch: np.ndarray,
                             dur_batch: np.ndarray,
+                            t_batch_start: float,
                         ) -> None:
                             for row_idx, flat_idx in enumerate(batch_indices):
                                 local_idx, c_idx = flat_meta[flat_idx]
                                 if chapter_failed[local_idx]:
                                     continue
+                                if chapter_started[local_idx] is None:
+                                    chapter_started[local_idx] = t_batch_start
                                 n_samples = max(1, int(round(float(dur_batch[row_idx]) * sr)))
                                 chapter_slots[local_idx][c_idx] = np.array(
                                     wav_batch[row_idx, :n_samples],
@@ -1762,7 +1754,7 @@ def main() -> int:
                                         verses_j,
                                         total_verses_j,
                                         chapter_headers[local_idx],
-                                        t_win_start,
+                                        chapter_started[local_idx] or t_win_start,
                                     )
                                     pending_futures[fut] = (usfm_j, ch_j)
                                     if len(pending_futures) >= max_in_flight:
@@ -1795,55 +1787,28 @@ def main() -> int:
                                 except Exception as err:  # noqa: BLE001
                                     _fail_batch_chapters(batch_indices, err)
                                     continue
-                                _scatter_batch_result(batch_indices, wav_batch, dur_batch)
+                                _scatter_batch_result(
+                                    batch_indices, wav_batch, dur_batch, t_win_start
+                                )
                         else:
                             for batch_indices in batches:
-                                bsz = len(batch_indices)
+                                t_batch = time.time()
                                 batch_texts = [flat_texts[i] for i in batch_indices]
                                 try:
-                                    if cuda_runner is not None and bsz >= 1:
-                                        wav_batch, dur_batch = cuda_runner.run_batch(
-                                            batch_texts, speed=cfg.speed
-                                        )
-                                    elif step_bsz > 1:
-                                        b_style = style_cache.get(bsz)
-                                        if b_style is None:
-                                            b_style = (
-                                                voice_style
-                                                if bsz == 1
-                                                else Style(
-                                                    np.repeat(voice_style.ttl, bsz, axis=0),
-                                                    np.repeat(voice_style.dp, bsz, axis=0),
-                                                )
-                                            )
-                                            style_cache[bsz] = b_style
-                                        wav_batch, dur_batch = tts.model(
-                                            batch_texts,
-                                            b_style,
-                                            total_step=cfg.steps,
-                                            speed=cfg.speed,
-                                            lang="ko",
-                                        )
-                                    else:
-                                        wav_single, dur_single = tts.synthesize(
-                                            text=batch_texts[0],
-                                            voice_style=voice_style,
-                                            total_steps=cfg.steps,
-                                            speed=cfg.speed,
-                                            max_chunk_length=max(200, len(batch_texts[0]) + 20),
-                                            silence_duration=0.0,
-                                            lang="ko",
-                                        )
-                                        wav_batch = np.asarray(wav_single, dtype=np.float32).reshape(
-                                            1, -1
-                                        )
-                                        dur_batch = np.asarray(dur_single, dtype=np.float32).reshape(
-                                            1
-                                        )
+                                    wav_batch, dur_batch = _run_single_batch(
+                                        tts,
+                                        voice_style,
+                                        batch_texts,
+                                        steps=cfg.steps,
+                                        speed=cfg.speed,
+                                        use_batched_model=step_bsz > 1,
+                                        cuda_runner=cuda_runner,
+                                        style_cache=style_cache,
+                                    )
                                 except Exception as err:  # noqa: BLE001
                                     _fail_batch_chapters(batch_indices, err)
                                     continue
-                                _scatter_batch_result(batch_indices, wav_batch, dur_batch)
+                                _scatter_batch_result(batch_indices, wav_batch, dur_batch, t_batch)
                     while pending_futures:
                         _drain_one()
             del extra_tts_instances

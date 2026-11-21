@@ -1,22 +1,26 @@
-import { mkdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { stat } from "node:fs/promises";
+import { delimiter, dirname, join } from "node:path";
 import { parseArgs as parseCliArgs } from "node:util";
 
+import { AUDIO_CACHE_CONTROL } from "../src/shared/audio-timings";
 import { BIBLE_BOOKS } from "../src/shared/books";
 import { resolveBookList } from "./lib/book-selection";
+import {
+	atomicWriteJson,
+	AUDIO_CACHE_DIR,
+	CACHE_DIR,
+	parseNumberInRange,
+	ROOT_DIR,
+} from "./lib/common";
 
-const ROOT_DIR = join(import.meta.dir, "..");
-const CACHE_DIR = join(ROOT_DIR, ".cache");
-const AUDIO_CACHE_DIR = join(CACHE_DIR, "krv-supertonic-audio");
 const CHECKPOINT_PATH = join(CACHE_DIR, "krv-r2-uploaded.json");
 
 const DEFAULT_BUCKET = "logos-krv-audio";
 const DEFAULT_CONCURRENCY = 6;
 const DEFAULT_RETRIES = 2;
-const CACHE_CONTROL_VALUE = "public, max-age=31536000, immutable";
 const BUCKET_NAME_RE = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 
-export interface UploadOptions {
+interface UploadOptions {
 	bucket: string;
 	books?: string[];
 	concurrency: number;
@@ -57,17 +61,6 @@ Options:
   -h, --help            Show this help message`);
 }
 
-function parseIntInRange(raw: string, flag: string, min: number, max: number): number {
-	if (!/^\d+$/.test(raw)) {
-		throw new Error(`Invalid value for ${flag}: "${raw}" (expected integer ${min}-${max})`);
-	}
-	const value = Number.parseInt(raw, 10);
-	if (value < min || value > max) {
-		throw new Error(`Out-of-range value for ${flag}: ${value} (expected ${min}-${max})`);
-	}
-	return value;
-}
-
 export function parseUploadArgs(argv: string[]): UploadOptions | null {
 	const { values } = parseCliArgs({
 		args: argv,
@@ -103,11 +96,11 @@ export function parseUploadArgs(argv: string[]): UploadOptions | null {
 		books,
 		concurrency:
 			values.concurrency !== undefined
-				? parseIntInRange(values.concurrency.trim(), "--concurrency", 1, 32)
+				? parseNumberInRange(values.concurrency, "--concurrency", 1, 32, true)
 				: DEFAULT_CONCURRENCY,
 		retries:
 			values.retries !== undefined
-				? parseIntInRange(values.retries.trim(), "--retries", 0, 10)
+				? parseNumberInRange(values.retries, "--retries", 0, 10, true)
 				: DEFAULT_RETRIES,
 		dryRun: Boolean(values["dry-run"]),
 		force: Boolean(values.force),
@@ -121,7 +114,7 @@ function formatBytes(bytes: number): string {
 	return `${bytes} B`;
 }
 
-export async function scanAudioFiles(bookFilter?: readonly string[]): Promise<{
+async function scanAudioFiles(bookFilter?: readonly string[]): Promise<{
 	items: AudioUploadItem[];
 	expectedCount: number;
 	missingKeys: string[];
@@ -178,26 +171,16 @@ let checkpointSaveChain: Promise<void> = Promise.resolve();
 function saveCheckpoint(data: CheckpointData): Promise<void> {
 	checkpointSaveChain = checkpointSaveChain
 		.catch(() => {})
-		.then(async () => {
-			await mkdir(CACHE_DIR, { recursive: true });
-			const tmpPath = `${CHECKPOINT_PATH}.${process.pid}.tmp`;
-			try {
-				await Bun.write(tmpPath, `${JSON.stringify(data, null, 2)}\n`);
-				await rename(tmpPath, CHECKPOINT_PATH);
-			} catch (err) {
-				await rm(tmpPath, { force: true }).catch(() => {});
-				throw err;
-			}
-		});
+		.then(() => atomicWriteJson(CHECKPOINT_PATH, data, true));
 	return checkpointSaveChain;
 }
 
 async function resolveWranglerRunner(): Promise<{ cmd: string[]; env: Record<string, string> }> {
 	const bunDir = dirname(process.execPath);
 	const currentPath = process.env.PATH ?? "";
-	const pathWithBun = currentPath.split(":").includes(bunDir)
+	const pathWithBun = currentPath.split(delimiter).includes(bunDir)
 		? currentPath
-		: `${bunDir}:${currentPath}`;
+		: `${bunDir}${delimiter}${currentPath}`;
 	const env = { ...process.env, PATH: pathWithBun } as Record<string, string>;
 
 	const bunxInSameDir = join(bunDir, "bunx");
@@ -219,7 +202,7 @@ function buildWranglerPutArgs(bucket: string, item: AudioUploadItem): string[] {
 		"--content-type",
 		"audio/mpeg",
 		"--cache-control",
-		CACHE_CONTROL_VALUE,
+		AUDIO_CACHE_CONTROL,
 	];
 }
 

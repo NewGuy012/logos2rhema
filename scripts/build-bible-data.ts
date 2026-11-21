@@ -1,29 +1,33 @@
-import { mkdir, rename, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { inflateRawSync } from "node:zlib";
+import { gunzipSync, inflateRawSync } from "node:zlib";
 
 import { BIBLICAL_GLOSSARY } from "../src/shared/biblical-glossary";
-import { BIBLE_BOOKS, getBookByNumber } from "../src/shared/books";
+import { BIBLE_BOOKS } from "../src/shared/books";
 import { containsHangul, romanizeHangul } from "../src/shared/hangul";
 import { analyzeKoreanVerse } from "../src/shared/korean-morphology";
 import type { BookBibleData, LexiconEntry, LexiconMap, VerseEntry } from "../src/shared/types";
+import { atomicWriteFile, ROOT_DIR } from "./lib/common";
 import { parseSpbContent } from "./spb-parser";
 
 type WordPos = NonNullable<LexiconEntry["pos"]>;
 
-const ROOT_DIR = join(import.meta.dir, "..");
 const DATA_SOURCES_DIR = join(ROOT_DIR, "data-sources");
 const PUBLIC_DATA_DIR = join(ROOT_DIR, "public", "data");
 const LOCAL_ESV_CACHE_DIR = join(ROOT_DIR, ".cache", "esv-local");
 
 const KRV_SOURCE_URL =
 	"https://raw.githubusercontent.com/bluesaurel/Korean-Bible-1961-KRV/2fdb91e77d323b99bacaa9b61fc18f318b703240/bible_1961_krv.json";
+const KRV_SOURCE_SHA256 = "65c6d99f80a5a47b9c0d144f313ac533f482454f336d3a82fc1dcedb020612e2";
 const KRDICT_SOURCE_URL =
 	"https://github.com/Lyroxide/yomitan-ko-dic/releases/download/1.0.0/KO-EN.KRDICT.No.Examples.zip";
+const KRDICT_SOURCE_SHA256 = "c7aeb60823781388e68e941ece27694e09b868aa1832a980a116874d4dad07cf";
 const KAIKKI_SOURCE_URL =
 	"https://kaikki.org/dictionary/Korean/kaikki.org-dictionary-Korean.jsonl.gz";
 const KENGDIC_SOURCE_URL =
 	"https://raw.githubusercontent.com/garfieldnate/kengdic/793de2369c9a98b944154eb4695d26854d2de59b/kengdic.tsv";
+const KENGDIC_SOURCE_SHA256 = "d23236d5676f506514721e605534647ba4735a85bbb76b9e12d1ec067b8cfdb4";
 
 interface RawKrvBook {
 	book: string;
@@ -51,30 +55,38 @@ interface EsvLemmaContext {
 }
 
 const MAX_ZIP_ENTRY_BYTES = 64 * 1024 * 1024;
+const MAX_GZIP_BYTES = 512 * 1024 * 1024;
 
-async function ensureSourceFile(filename: string, url?: string): Promise<string> {
+function verifySha256(bytes: Uint8Array, expected: string, label: string): void {
+	const actual = createHash("sha256").update(bytes).digest("hex");
+	if (actual !== expected) {
+		throw new Error(`SHA-256 mismatch for ${label}: expected ${expected}, got ${actual}`);
+	}
+}
+
+async function ensureSourceFile(
+	filename: string,
+	url: string,
+	expectedSha256?: string,
+): Promise<string> {
 	const targetPath = join(DATA_SOURCES_DIR, filename);
 	const file = Bun.file(targetPath);
 	if (await file.exists()) {
+		if (expectedSha256) {
+			verifySha256(new Uint8Array(await file.arrayBuffer()), expectedSha256, filename);
+		}
 		return targetPath;
-	}
-	if (!url) {
-		throw new Error(`Required source file missing: ${targetPath}`);
 	}
 	console.log(`Downloading ${filename} from ${url}...`);
 	const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
 	if (!res.ok) {
 		throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
 	}
-	await mkdir(DATA_SOURCES_DIR, { recursive: true });
-	const tmpPath = `${targetPath}.${process.pid}.tmp`;
-	try {
-		await Bun.write(tmpPath, await res.arrayBuffer());
-		await rename(tmpPath, targetPath);
-	} catch (err) {
-		await rm(tmpPath, { force: true }).catch(() => {});
-		throw err;
+	const bytes = new Uint8Array(await res.arrayBuffer());
+	if (expectedSha256) {
+		verifySha256(bytes, expectedSha256, filename);
 	}
+	await atomicWriteFile(targetPath, bytes);
 	return targetPath;
 }
 
@@ -514,7 +526,7 @@ function mapKaikkiPos(p: string): WordPos | undefined {
 
 async function loadKaikkiCandidates(gzPath: string): Promise<Map<string, DictCandidate[]>> {
 	const gzBytes = new Uint8Array(await Bun.file(gzPath).arrayBuffer());
-	const text = new TextDecoder().decode(Bun.gunzipSync(gzBytes));
+	const text = new TextDecoder().decode(gunzipSync(gzBytes, { maxOutputLength: MAX_GZIP_BYTES }));
 	const candidates = new Map<string, DictCandidate[]>();
 
 	for (const line of text.split("\n")) {
@@ -572,7 +584,7 @@ async function loadKaikkiCandidates(gzPath: string): Promise<Map<string, DictCan
 }
 
 const KENGDIC_HARD_REJECT_RE = new RegExp(
-	`\\b(${SHARED_NOISY_SENSE_TERMS}|sth|sb|s|p\\.o\\.w|dugg|in tear)\\b|\\bbale,|\\(English\\)`,
+	`\\b(${SHARED_NOISY_SENSE_TERMS}|sth|sb|p\\.o\\.w|dugg|in tear)\\b|\\bbale,|\\(English\\)`,
 	"i",
 );
 
@@ -879,20 +891,16 @@ function selectBestMultiSourceLexicon(
 	return { map, sourceByKey };
 }
 
-const KRV_BOOK_NAME_TO_NUMBER: Record<string, number> = Object.fromEntries(
-	BIBLE_BOOKS.map((b) => [b.en.replace(/\s+/g, ""), b.number]),
-);
+const KRV_BOOK_NAME_TO_META = new Map(BIBLE_BOOKS.map((b) => [b.en.replace(/\s+/g, ""), b]));
 
 function parseKrvBooks(rawBooks: RawKrvBook[]): Map<number, BookBibleData> {
 	const result = new Map<number, BookBibleData>();
 
 	for (const rawBook of rawBooks) {
-		const bookNumber = KRV_BOOK_NAME_TO_NUMBER[rawBook.book];
-		if (!bookNumber) {
+		const meta = KRV_BOOK_NAME_TO_META.get(rawBook.book);
+		if (!meta) {
 			throw new Error(`Unknown KRV book key: ${rawBook.book}`);
 		}
-		const meta = getBookByNumber(bookNumber);
-		if (!meta) continue;
 
 		const chapters: Record<string, VerseEntry[]> = {};
 		for (const chap of rawBook.chapters) {
@@ -902,9 +910,9 @@ function parseKrvBooks(rawBooks: RawKrvBook[]): Map<number, BookBibleData> {
 			}));
 		}
 
-		result.set(bookNumber, {
+		result.set(meta.number, {
 			translationId: "krv",
-			bookNumber,
+			bookNumber: meta.number,
 			usfm: meta.usfm,
 			chapters,
 		});
@@ -973,10 +981,10 @@ async function main() {
 	}
 
 	const [krvPath, krdictPath, kaikkiPath, kengdicPath] = await Promise.all([
-		ensureSourceFile("krv_1961.json", KRV_SOURCE_URL),
-		ensureSourceFile("krdict-en.zip", KRDICT_SOURCE_URL),
+		ensureSourceFile("krv_1961.json", KRV_SOURCE_URL, KRV_SOURCE_SHA256),
+		ensureSourceFile("krdict-en.zip", KRDICT_SOURCE_URL, KRDICT_SOURCE_SHA256),
 		ensureSourceFile("kaikki-ko.jsonl.gz", KAIKKI_SOURCE_URL),
-		ensureSourceFile("kengdic.tsv", KENGDIC_SOURCE_URL),
+		ensureSourceFile("kengdic.tsv", KENGDIC_SOURCE_URL, KENGDIC_SOURCE_SHA256),
 	]);
 
 	const [esvText, krvRaw, krdictCandidates, kaikkiCandidates] = await Promise.all([
@@ -1049,7 +1057,7 @@ async function main() {
 	const lexiconJson = JSON.stringify(lexicon);
 	await Bun.write(join(PUBLIC_DATA_DIR, "lexicon.json"), lexiconJson);
 
-	const pct = ((matchedWords / totalHangulWords) * 100).toFixed(2);
+	const pct = totalHangulWords > 0 ? ((matchedWords / totalHangulWords) * 100).toFixed(2) : "0.00";
 	console.log(
 		`Built compact Bible lexicon: ${Object.keys(lexicon).length} entries (${(lexiconJson.length / 1024).toFixed(1)} KB)`,
 	);

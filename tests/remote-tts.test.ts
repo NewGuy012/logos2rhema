@@ -32,6 +32,12 @@ import {
 } from "../scripts/lib/remote-tts";
 import { parseUploadArgs } from "../scripts/upload-krv-audio";
 
+const parseOpts = (argv: readonly string[], env?: Record<string, string | undefined>) => {
+	const opts = parseCliOptions(argv, env);
+	if (!opts) throw new Error("Expected parsed CliOptions");
+	return opts;
+};
+
 const tempDirs: string[] = [];
 
 async function makeTempDir(prefix: string): Promise<string> {
@@ -102,7 +108,7 @@ describe("remote-tts CLI parsing & isolation", () => {
 			"--force",
 		]);
 
-		const stageOpts = parseCliOptions([
+		const stageOpts = parseOpts([
 			"--thunder",
 			"0",
 			"--book",
@@ -159,12 +165,12 @@ describe("remote-tts CLI parsing & isolation", () => {
 		expect(loaded.THUNDER_INSTANCE).toBe("0");
 		expect(loaded.THUNDER_SSH_TARGET).toBe("tnr-0");
 
-		const localOpts = parseCliOptions(["--book", "RUT"], loaded);
+		const localOpts = parseOpts(["--book", "RUT"], loaded);
 		expect(localOpts.remote).toBe(false);
 		expect(localOpts.thunder).toBeUndefined();
 		expect(localOpts.ssh).toBeUndefined();
 
-		const remoteOpts = parseCliOptions(["--remote", "--books", "RUT,PHM"], loaded);
+		const remoteOpts = parseOpts(["--remote", "--books", "RUT,PHM"], loaded);
 		expect(remoteOpts.remote).toBe(true);
 		expect(remoteOpts.thunder).toBe("0");
 		expect(remoteOpts.ssh).toBe("tnr-0");
@@ -180,7 +186,7 @@ describe("remote-tts CLI parsing & isolation", () => {
 		expect(remoteOpts.template).toBe(DEFAULT_THUNDER_VM_SPEC.template);
 		expect(remoteOpts.diskSizeGb).toBe(DEFAULT_THUNDER_VM_SPEC.diskSizeGb);
 
-		expect(buildTnrCreateArgs(parseCliOptions(["--create", "--book", "RUT"]))).toEqual([
+		expect(buildTnrCreateArgs(parseOpts(["--create", "--book", "RUT"]))).toEqual([
 			"--json",
 			"-y",
 			"create",
@@ -197,7 +203,7 @@ describe("remote-tts CLI parsing & isolation", () => {
 		]);
 		expect(
 			buildTnrCreateArgs(
-				parseCliOptions(["--create", "--mode", "production", "--gpu", "a100", "--num-gpus", "2"]),
+				parseOpts(["--create", "--mode", "production", "--gpu", "a100", "--num-gpus", "2"]),
 			),
 		).toEqual([
 			"--json",
@@ -218,7 +224,7 @@ describe("remote-tts CLI parsing & isolation", () => {
 
 	it("resolves isolated staging vs production output paths", () => {
 		const root = "/workspace/logos2rhema";
-		const prodOpts = parseCliOptions(["--thunder", "0", "--book", "RUT"]);
+		const prodOpts = parseOpts(["--thunder", "0", "--book", "RUT"]);
 		const prodPaths = resolveOutputPaths(prodOpts, root);
 		expect(prodPaths.mode).toBe("production");
 		expect(prodPaths.localAudioDir).toBe(join(root, ".cache", "krv-supertonic-audio"));
@@ -227,7 +233,7 @@ describe("remote-tts CLI parsing & isolation", () => {
 		);
 		expect(prodPaths.remoteRunDir).toBe("~/logos2rhema-krv-tts/prod");
 
-		const stageOpts = parseCliOptions(["--thunder", "0", "--book", "RUT", "--staging", "rut-test"]);
+		const stageOpts = parseOpts(["--thunder", "0", "--book", "RUT", "--staging", "rut-test"]);
 		const stagePaths = resolveOutputPaths(stageOpts, root);
 		expect(stagePaths.mode).toBe("staging");
 		expect(stagePaths.stagingName).toBe("rut-test");
@@ -651,15 +657,7 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 
 	it("verifies staging outputs and catches corrupted or missing outputs", async () => {
 		const rootDir = await makeTempDir("l2r-verify-");
-		const opts = parseCliOptions([
-			"--thunder",
-			"0",
-			"--book",
-			"RUT",
-			"--staging",
-			"vtest",
-			"--force",
-		]);
+		const opts = parseOpts(["--thunder", "0", "--book", "RUT", "--staging", "vtest", "--force"]);
 		const paths = resolveOutputPaths(opts, rootDir);
 		const plan = await buildPendingJobPlan(opts, paths);
 		expect(plan.pendingChapters).toBe(4);
@@ -693,17 +691,17 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 	});
 
 	it("parses --shards options, balances full-Bible chapter weights, and rejects invalid combos", async () => {
-		const shardCreate = parseCliOptions(["--shards", "4", "--create", "--delete-after", "--all"]);
+		const shardCreate = parseOpts(["--shards", "4", "--create", "--delete-after", "--all"]);
 		expect(shardCreate.shards).toBe(4);
 		expect(shardCreate.remote).toBe(true);
 		expect(shardCreate.create).toBe(true);
 		expect(shardCreate.deleteAfter).toBe(true);
 
-		const inferredThunder = parseCliOptions(["--thunder", "0,1,2", "--book", "PSA"]);
+		const inferredThunder = parseOpts(["--thunder", "0,1,2", "--book", "PSA"]);
 		expect(inferredThunder.shards).toBe(3);
 		expect(inferredThunder.remote).toBe(true);
 
-		const inferredSsh = parseCliOptions(["--ssh", "ubuntu@h1,ubuntu@h2", "--book", "RUT"]);
+		const inferredSsh = parseOpts(["--ssh", "ubuntu@h1,ubuntu@h2", "--book", "RUT"]);
 		expect(inferredSsh.shards).toBe(2);
 
 		expect(() => parseCliOptions(["--shards", "4", "--shell"])).toThrow("Cannot combine --shards");
@@ -717,7 +715,7 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 		// Partition real 66-book Bible (1,189 chapters) across 4 shards using KRV char weights
 		const realRoot = join(import.meta.dir, "..");
 		const allPaths = resolveOutputPaths(shardCreate, await makeTempDir("l2r-shard-plan-"));
-		const fullPlan = await buildPendingJobPlan(parseCliOptions(["--all", "--force"]), allPaths);
+		const fullPlan = await buildPendingJobPlan(parseOpts(["--all", "--force"]), allPaths);
 		expect(fullPlan.pendingChapters).toBe(1189);
 		const shards4 = await partitionJobPlan(fullPlan, 4, realRoot);
 		expect(shards4).toHaveLength(4);
@@ -737,10 +735,7 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 		expect(seenRefs.size).toBe(1189);
 
 		// Single-chapter book caps shards at 1
-		const obaPlan = await buildPendingJobPlan(
-			parseCliOptions(["--book", "OBA", "--force"]),
-			allPaths,
-		);
+		const obaPlan = await buildPendingJobPlan(parseOpts(["--book", "OBA", "--force"]), allPaths);
 		const obaShards = await partitionJobPlan(obaPlan, 4, realRoot);
 		expect(obaShards).toHaveLength(1);
 	});

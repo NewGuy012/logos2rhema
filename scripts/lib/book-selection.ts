@@ -1,4 +1,4 @@
-import { BIBLE_BOOKS, findBookByQuery, getBookByUsfm } from "../../src/shared/books";
+import { BIBLE_BOOKS, BOOK_ALIASES, getBookByNumber, getBookByUsfm } from "../../src/shared/books";
 import type { BookMeta } from "../../src/shared/types";
 
 function normalizeQuery(value: string): string {
@@ -7,7 +7,6 @@ function normalizeQuery(value: string): string {
 
 function isExactBookMatch(book: BookMeta, raw: string, normalized: string): boolean {
 	return (
-		book.usfm.toLowerCase() === normalized ||
 		book.en.toLowerCase() === normalized ||
 		book.enShort.toLowerCase() === normalized ||
 		book.ko === raw ||
@@ -16,7 +15,7 @@ function isExactBookMatch(book: BookMeta, raw: string, normalized: string): bool
 }
 
 /**
- * Resolve a single book identifier (USFM, English, Korean, short form, or unambiguous prefix).
+ * Resolve a single book identifier (USFM, English, Korean, short form, alias, or unambiguous prefix).
  */
 export function resolveBookToken(rawToken: string): BookMeta {
 	const raw = rawToken.trim();
@@ -29,9 +28,13 @@ export function resolveBookToken(rawToken: string): BookMeta {
 
 	const normalized = normalizeQuery(raw);
 	for (const book of BIBLE_BOOKS) {
-		if (isExactBookMatch(book, raw, normalized)) {
-			return book;
-		}
+		if (isExactBookMatch(book, raw, normalized)) return book;
+	}
+
+	const aliasNum = BOOK_ALIASES.get(normalized) ?? BOOK_ALIASES.get(raw);
+	if (aliasNum !== undefined) {
+		const aliased = getBookByNumber(aliasNum);
+		if (aliased) return aliased;
 	}
 
 	const compact = normalized.replace(/\s+/g, "");
@@ -39,9 +42,7 @@ export function resolveBookToken(rawToken: string): BookMeta {
 		(book) =>
 			book.en.toLowerCase().replace(/\s+/g, "").startsWith(compact) || book.ko.startsWith(raw),
 	);
-	if (prefixMatches.length === 1) {
-		return prefixMatches[0];
-	}
+	if (prefixMatches.length === 1) return prefixMatches[0];
 	if (prefixMatches.length > 1) {
 		const preview = prefixMatches
 			.slice(0, 5)
@@ -49,15 +50,6 @@ export function resolveBookToken(rawToken: string): BookMeta {
 			.join(", ");
 		const suffix = prefixMatches.length > 5 ? ", ..." : "";
 		throw new Error(`Ambiguous book identifier "${rawToken}" (matches: ${preview}${suffix})`);
-	}
-
-	// Fall back to explicit aliases in findBookByQuery (e.g. "psalm", "sos", "jn", "요한1서")
-	const aliasMatch = findBookByQuery(raw);
-	if (aliasMatch) {
-		const aliasCompact = normalizeQuery(aliasMatch.en).replace(/\s+/g, "");
-		if (aliasMatch.ko !== raw && !aliasCompact.startsWith(compact)) {
-			return aliasMatch;
-		}
 	}
 
 	throw new Error(`Unknown book identifier: "${rawToken}"`);

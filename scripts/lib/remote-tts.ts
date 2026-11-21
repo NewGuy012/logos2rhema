@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { accessSync, constants } from "node:fs";
 import {
 	cp,
 	lstat,
@@ -16,12 +16,22 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs as parseCliArgs } from "node:util";
 
-import { BIBLE_BOOKS } from "../../src/shared/books";
+import { SUPERTONIC_TRACK_ID } from "../../src/shared/audio-timings";
+import { BIBLE_BOOKS, getBookByUsfm } from "../../src/shared/books";
 import type { BookMeta } from "../../src/shared/types";
 import { resolveBookList } from "./book-selection";
+import {
+	atomicWriteJson,
+	isFileNonEmpty,
+	loadDevVarsRecord,
+	parseNumberInRange,
+	stripOptionalQuotes,
+} from "./common";
 
-export type DevicePreference = "auto" | "cuda" | "cpu";
-export type TransferMethod = "auto" | "rsync" | "tnr-scp" | "tar";
+export { loadDevVarsRecord };
+
+type DevicePreference = "auto" | "cuda" | "cpu";
+type TransferMethod = "auto" | "rsync" | "tnr-scp" | "tar";
 
 export interface CliOptions {
 	books?: string[];
@@ -69,10 +79,9 @@ export interface CliOptions {
 	tnrSshKey?: string;
 	upload: boolean;
 	r2Bucket?: string;
-	help: boolean;
 }
 
-export interface SshEndpoint {
+interface SshEndpoint {
 	target: string;
 	port?: number;
 	keyPath?: string;
@@ -80,22 +89,17 @@ export interface SshEndpoint {
 	strictHostKeyChecking: string;
 }
 
-export interface ThunderInstanceInfo {
+interface ThunderInstanceInfo {
 	id: string;
 	uuid?: string;
 	name?: string;
 	status: string;
 	gpuType?: string;
-	numGpus?: string;
-	cpuCores?: string;
-	memory?: string;
 	ip?: string;
 	port?: number;
-	mode?: string;
-	template?: string;
 }
 
-export interface RemoteHardwareProbe {
+interface RemoteHardwareProbe {
 	os: string;
 	arch: string;
 	cpuCount: number;
@@ -104,11 +108,9 @@ export interface RemoteHardwareProbe {
 	cudaMajor?: number;
 	hasNvidiaGpu: boolean;
 	hasRsync: boolean;
-	hasUv: boolean;
-	pythonPath?: string;
 }
 
-export interface OutputPaths {
+interface OutputPaths {
 	mode: "production" | "staging" | "custom";
 	stagingName?: string;
 	localAudioDir: string;
@@ -121,7 +123,7 @@ export interface OutputPaths {
 	remoteReportPath: string;
 }
 
-export interface JobPlan {
+interface JobPlan {
 	books: BookMeta[];
 	chaptersByBook: Record<string, number[]>;
 	totalSelectedChapters: number;
@@ -169,45 +171,15 @@ export const DEFAULT_THUNDER_VM_SPEC = {
 	diskSizeGb: 100,
 } as const;
 const STAGING_NAME_RE = /^[a-zA-Z0-9._-]+$/;
-const SAFE_SSH_TARGET_RE = /^[^\s\x00-\x1f\x7f]+$/;
+const REMOTE_DIR_RE = /^(?:~(?:\/[a-zA-Z0-9._-]+)*|\/?[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*)$/;
+const SAFE_SSH_TARGET_RE = /^[a-zA-Z0-9._@:[\]-]+$/;
+const SAFE_UUID_RE = /^[a-zA-Z0-9-]+$/;
+const SAFE_HOST_RE = /^[a-zA-Z0-9.:-]+$/;
 const VALID_USFM_SET = new Set(BIBLE_BOOKS.map((b) => b.usfm));
 const MP3_NAME_RE = /^(\d+)\.mp3$/;
 const TIMINGS_FILE_RE = /^([A-Z0-9]+)\.json$/;
-const AUDIO_SOURCE_ID = "custom:krv:supertonic";
 
-function stripOptionalQuotes(value: string): string {
-	if (
-		(value.startsWith('"') && value.endsWith('"')) ||
-		(value.startsWith("'") && value.endsWith("'"))
-	) {
-		return value.slice(1, -1);
-	}
-	return value;
-}
-
-export async function loadDevVarsRecord(devVarsPath: string): Promise<Record<string, string>> {
-	const file = Bun.file(devVarsPath);
-	if (!(await file.exists())) {
-		return {};
-	}
-	const raw = await file.text();
-	const bindings: Record<string, string> = {};
-	for (const line of raw.split(/\r?\n/)) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith("#")) continue;
-		const normalized = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
-		const eqIdx = normalized.indexOf("=");
-		if (eqIdx <= 0) continue;
-		const key = normalized.slice(0, eqIdx).trim();
-		const value = stripOptionalQuotes(normalized.slice(eqIdx + 1).trim());
-		if (key) {
-			bindings[key] = value;
-		}
-	}
-	return bindings;
-}
-
-export function expandLocalHome(rawPath: string): string {
+function expandLocalHome(rawPath: string): string {
 	if (rawPath === "~") return homedir();
 	if (rawPath.startsWith("~/")) return join(homedir(), rawPath.slice(2));
 	return rawPath;
@@ -232,25 +204,6 @@ export function normalizePreArgs(argv: readonly string[]): string[] {
 	return out;
 }
 
-function parseNumberInRange(
-	raw: string,
-	flag: string,
-	min: number,
-	max: number,
-	isInt: boolean,
-): number {
-	const trimmed = raw.trim();
-	const valid = isInt ? /^\d+$/.test(trimmed) : /^-?\d+(?:\.\d+)?$/.test(trimmed);
-	if (!valid) {
-		throw new Error(`Invalid value for ${flag}: "${raw}"`);
-	}
-	const parsed = isInt ? Number.parseInt(trimmed, 10) : Number.parseFloat(trimmed);
-	if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
-		throw new Error(`Out-of-range value for ${flag}: ${parsed} (expected ${min}..${max})`);
-	}
-	return parsed;
-}
-
 function parseCommaList(raw: string): string[] {
 	return raw
 		.split(",")
@@ -261,9 +214,7 @@ function parseCommaList(raw: string): string[] {
 function parseChapterList(raw: string): number[] {
 	const seen = new Set<number>();
 	const chapters: number[] = [];
-	for (const part of raw.split(",")) {
-		const token = part.trim();
-		if (!token) continue;
+	for (const token of parseCommaList(raw)) {
 		const ch = parseNumberInRange(token, "--chapters", 1, 150, true);
 		if (!seen.has(ch)) {
 			seen.add(ch);
@@ -274,6 +225,32 @@ function parseChapterList(raw: string): number[] {
 		throw new Error("Expected at least one chapter number for --chapters.");
 	}
 	return chapters;
+}
+
+function optNum(
+	raw: string | undefined,
+	flag: string,
+	min: number,
+	max: number,
+	isInt: boolean,
+	fallback: number,
+): number {
+	return raw !== undefined ? parseNumberInRange(raw, flag, min, max, isInt) : fallback;
+}
+
+function resolveRemoteInt(
+	cliRaw: string | undefined,
+	cliFlag: string,
+	envRaw: string | undefined,
+	envName: string,
+	min: number,
+	max: number,
+	fallback: number,
+	explicitRemote: boolean,
+): number | undefined {
+	if (cliRaw !== undefined) return parseNumberInRange(cliRaw, cliFlag, min, max, true);
+	if (!explicitRemote) return undefined;
+	return envRaw?.trim() ? parseNumberInRange(envRaw, envName, min, max, true) : fallback;
 }
 
 export function getUsageText(): string {
@@ -337,7 +314,7 @@ Synthesis & Upload Options:
 export function parseCliOptions(
 	argv: readonly string[],
 	env: Record<string, string | undefined> = process.env,
-): CliOptions {
+): CliOptions | null {
 	const normalizedArgv = normalizePreArgs(argv);
 	const { values } = parseCliArgs({
 		args: normalizedArgv,
@@ -395,39 +372,7 @@ export function parseCliOptions(
 		allowPositionals: false,
 	});
 
-	if (values.help) {
-		return {
-			all: false,
-			voice: "Daniel",
-			speed: 0.95,
-			steps: 10,
-			pause: 0.3,
-			headerPause: 0.6,
-			bitrate: 96,
-			device: "auto",
-			workers: 0,
-			threads: 2,
-			gpus: 0,
-			gpuStreams: 0,
-			batchSize: 0,
-			mp3Quality: 2,
-			verbose: false,
-			force: false,
-			dryRun: false,
-			remote: false,
-			sshOptions: [],
-			remoteDir: DEFAULT_REMOTE_DIR,
-			transfer: "auto",
-			setupOnly: false,
-			shell: false,
-			pullOnly: false,
-			create: false,
-			deleteAfter: false,
-			shards: 1,
-			upload: false,
-			help: true,
-		};
-	}
+	if (values.help) return null;
 
 	const rawBooks = [...(values.book ?? []), ...(values.books ?? [])];
 	const books = rawBooks.length > 0 ? resolveBookList(rawBooks).map((b) => b.usfm) : undefined;
@@ -442,8 +387,7 @@ export function parseCliOptions(
 	}
 
 	const all = Boolean(values.all);
-	const scopeCount = Number(Boolean(books)) + Number(Boolean(testament)) + Number(all);
-	if (scopeCount > 1) {
+	if (Number(Boolean(books)) + Number(Boolean(testament)) + Number(all) > 1) {
 		throw new Error("Options --book/--books, --testament, and --all are mutually exclusive.");
 	}
 
@@ -478,8 +422,7 @@ export function parseCliOptions(
 			: undefined;
 	const cliThunderTargets = values.thunder ? parseCommaList(values.thunder) : [];
 	const cliSshTargets = values.ssh ? parseCommaList(values.ssh) : [];
-	const inferredShards = Math.max(cliThunderTargets.length, cliSshTargets.length, 1);
-	const shards = rawShards ?? inferredShards;
+	const shards = rawShards ?? Math.max(cliThunderTargets.length, cliSshTargets.length, 1);
 
 	const explicitRemote =
 		Boolean(values.remote) ||
@@ -491,21 +434,24 @@ export function parseCliOptions(
 		Boolean(values["pull-only"]) ||
 		shards > 1;
 
-	const thunder =
-		values.thunder?.trim() ||
-		(explicitRemote && shards === 1 ? env.THUNDER_INSTANCE?.trim() : undefined) ||
-		undefined;
-	const ssh =
-		values.ssh?.trim() ||
-		(explicitRemote && shards === 1 ? env.THUNDER_SSH_TARGET?.trim() : undefined) ||
-		undefined;
-
 	if (values.thunder && values.ssh) {
 		throw new Error("Options --thunder and --ssh are mutually exclusive.");
 	}
 	if (shards > 1 && values.shell) {
 		throw new Error("Cannot combine --shards > 1 with --shell.");
 	}
+
+	const thunder =
+		values.thunder?.trim() ||
+		(!values.ssh && explicitRemote && shards === 1 ? env.THUNDER_INSTANCE?.trim() : undefined) ||
+		undefined;
+	const ssh =
+		values.ssh?.trim() ||
+		(!values.thunder && explicitRemote && shards === 1
+			? env.THUNDER_SSH_TARGET?.trim()
+			: undefined) ||
+		undefined;
+
 	const thunderTargets = thunder ? parseCommaList(thunder) : [];
 	const sshTargets = ssh ? parseCommaList(ssh) : [];
 	if (shards > 1 && sshTargets.length > 0 && sshTargets.length !== shards) {
@@ -532,7 +478,7 @@ export function parseCliOptions(
 		values["remote-dir"]?.trim() ||
 		(explicitRemote ? env.THUNDER_REMOTE_DIR?.trim() : undefined) ||
 		DEFAULT_REMOTE_DIR;
-	if (/[\x00-\x1f\x7f]/.test(remoteDir) || remoteDir.split("/").includes("..")) {
+	if (!REMOTE_DIR_RE.test(remoteDir) || remoteDir.split("/").includes("..")) {
 		throw new Error(`Unsafe --remote-dir path: "${remoteDir}"`);
 	}
 
@@ -563,11 +509,12 @@ export function parseCliOptions(
 		);
 	}
 
-	const utilityCount =
+	if (
 		Number(Boolean(values["setup-only"])) +
-		Number(Boolean(values.shell)) +
-		Number(Boolean(values["pull-only"]));
-	if (utilityCount > 1) {
+			Number(Boolean(values.shell)) +
+			Number(Boolean(values["pull-only"])) >
+		1
+	) {
 		throw new Error("Options --setup-only, --shell, and --pull-only are mutually exclusive.");
 	}
 
@@ -577,44 +524,18 @@ export function parseCliOptions(
 		all,
 		chapters,
 		voice: values.voice?.trim() || "Daniel",
-		speed:
-			values.speed !== undefined
-				? parseNumberInRange(values.speed, "--speed", 0.7, 2.0, false)
-				: 0.95,
-		steps:
-			values.steps !== undefined ? parseNumberInRange(values.steps, "--steps", 1, 100, true) : 10,
-		pause:
-			values.pause !== undefined ? parseNumberInRange(values.pause, "--pause", 0, 10, false) : 0.3,
-		headerPause:
-			values["header-pause"] !== undefined
-				? parseNumberInRange(values["header-pause"], "--header-pause", 0, 10, false)
-				: 0.6,
-		bitrate:
-			values.bitrate !== undefined
-				? parseNumberInRange(values.bitrate, "--bitrate", 32, 320, true)
-				: 96,
+		speed: optNum(values.speed, "--speed", 0.7, 2.0, false, 0.95),
+		steps: optNum(values.steps, "--steps", 1, 100, true, 10),
+		pause: optNum(values.pause, "--pause", 0, 10, false, 0.3),
+		headerPause: optNum(values["header-pause"], "--header-pause", 0, 10, false, 0.6),
+		bitrate: optNum(values.bitrate, "--bitrate", 32, 320, true, 96),
 		device,
-		workers:
-			values.workers !== undefined
-				? parseNumberInRange(values.workers, "--workers", 0, 64, true)
-				: 0,
-		threads:
-			values.threads !== undefined
-				? parseNumberInRange(values.threads, "--threads", 1, 32, true)
-				: 2,
-		gpus: values.gpus !== undefined ? parseNumberInRange(values.gpus, "--gpus", 0, 16, true) : 0,
-		gpuStreams:
-			values["gpu-streams"] !== undefined
-				? parseNumberInRange(values["gpu-streams"], "--gpu-streams", 0, 4, true)
-				: 0,
-		batchSize:
-			values["batch-size"] !== undefined
-				? parseNumberInRange(values["batch-size"], "--batch-size", 0, 128, true)
-				: 0,
-		mp3Quality:
-			values["mp3-quality"] !== undefined
-				? parseNumberInRange(values["mp3-quality"], "--mp3-quality", 0, 9, true)
-				: 2,
+		workers: optNum(values.workers, "--workers", 0, 64, true, 0),
+		threads: optNum(values.threads, "--threads", 1, 32, true, 2),
+		gpus: optNum(values.gpus, "--gpus", 0, 16, true, 0),
+		gpuStreams: optNum(values["gpu-streams"], "--gpu-streams", 0, 4, true, 0),
+		batchSize: optNum(values["batch-size"], "--batch-size", 0, 128, true, 0),
+		mp3Quality: optNum(values["mp3-quality"], "--mp3-quality", 0, 9, true, 2),
 		verbose: Boolean(values.verbose),
 		force: Boolean(values.force),
 		dryRun: Boolean(values["dry-run"]),
@@ -640,30 +561,36 @@ export function parseCliOptions(
 		mode:
 			values.mode?.trim() ||
 			(explicitRemote ? env.THUNDER_MODE?.trim() || DEFAULT_THUNDER_VM_SPEC.mode : undefined),
-		numGpus:
-			values["num-gpus"] !== undefined
-				? parseNumberInRange(values["num-gpus"], "--num-gpus", 1, 8, true)
-				: explicitRemote
-					? env.THUNDER_NUM_GPUS?.trim()
-						? parseNumberInRange(env.THUNDER_NUM_GPUS, "THUNDER_NUM_GPUS", 1, 8, true)
-						: DEFAULT_THUNDER_VM_SPEC.numGpus
-					: undefined,
-		vcpus:
-			values.vcpus !== undefined
-				? parseNumberInRange(values.vcpus, "--vcpus", 1, 256, true)
-				: explicitRemote
-					? env.THUNDER_VCPUS?.trim()
-						? parseNumberInRange(env.THUNDER_VCPUS, "THUNDER_VCPUS", 1, 256, true)
-						: DEFAULT_THUNDER_VM_SPEC.vcpus
-					: undefined,
-		diskSizeGb:
-			values["disk-size-gb"] !== undefined
-				? parseNumberInRange(values["disk-size-gb"], "--disk-size-gb", 20, 4000, true)
-				: explicitRemote
-					? env.THUNDER_DISK_SIZE_GB?.trim()
-						? parseNumberInRange(env.THUNDER_DISK_SIZE_GB, "THUNDER_DISK_SIZE_GB", 20, 4000, true)
-						: DEFAULT_THUNDER_VM_SPEC.diskSizeGb
-					: undefined,
+		numGpus: resolveRemoteInt(
+			values["num-gpus"],
+			"--num-gpus",
+			env.THUNDER_NUM_GPUS,
+			"THUNDER_NUM_GPUS",
+			1,
+			8,
+			DEFAULT_THUNDER_VM_SPEC.numGpus,
+			explicitRemote,
+		),
+		vcpus: resolveRemoteInt(
+			values.vcpus,
+			"--vcpus",
+			env.THUNDER_VCPUS,
+			"THUNDER_VCPUS",
+			1,
+			256,
+			DEFAULT_THUNDER_VM_SPEC.vcpus,
+			explicitRemote,
+		),
+		diskSizeGb: resolveRemoteInt(
+			values["disk-size-gb"],
+			"--disk-size-gb",
+			env.THUNDER_DISK_SIZE_GB,
+			"THUNDER_DISK_SIZE_GB",
+			20,
+			4000,
+			DEFAULT_THUNDER_VM_SPEC.diskSizeGb,
+			explicitRemote,
+		),
 		template:
 			values.template?.trim() ||
 			(explicitRemote
@@ -672,58 +599,105 @@ export function parseCliOptions(
 		tnrSshKey: values["tnr-ssh-key"]?.trim() || undefined,
 		upload,
 		r2Bucket: values["r2-bucket"]?.trim() || undefined,
-		help: false,
 	};
+}
+
+export function hasRemoteOnlyFlags(options: CliOptions): boolean {
+	return Boolean(
+		options.deleteAfter ||
+		options.gpu ||
+		options.template ||
+		options.mode ||
+		options.numGpus !== undefined ||
+		options.vcpus !== undefined ||
+		options.diskSizeGb !== undefined ||
+		options.tnrSshKey ||
+		options.sshPort !== undefined ||
+		options.sshKey ||
+		options.sshOptions.length > 0 ||
+		options.transfer !== "auto" ||
+		options.remoteDir !== DEFAULT_REMOTE_DIR,
+	);
+}
+
+export function buildPythonSynthArgs(
+	options: CliOptions,
+	opts: { device: DevicePreference; quote?: boolean },
+): string[] {
+	const fmt = (val: string) => (opts.quote ? quotePosix(val) : val);
+	return [
+		"--device",
+		fmt(opts.device),
+		"--voice",
+		fmt(options.voice),
+		"--speed",
+		String(options.speed),
+		"--steps",
+		String(options.steps),
+		"--pause",
+		String(options.pause),
+		"--header-pause",
+		String(options.headerPause),
+		"--bitrate",
+		String(options.bitrate),
+		"--workers",
+		String(options.workers),
+		"--threads",
+		String(options.threads),
+		"--gpus",
+		String(options.gpus),
+		"--gpu-streams",
+		String(options.gpuStreams),
+		"--batch-size",
+		String(options.batchSize),
+		"--mp3-quality",
+		String(options.mp3Quality),
+		...(options.verbose ? ["--verbose"] : []),
+		...(options.force ? ["--force"] : []),
+	];
 }
 
 export function resolveOutputPaths(options: CliOptions, rootDir: string): OutputPaths {
 	const cleanBase = options.remoteDir.replace(/\/+$/, "") || DEFAULT_REMOTE_DIR;
 
+	const makeRemote = (remoteRunDir: string) => ({
+		remoteBaseDir: cleanBase,
+		remoteRunDir,
+		remoteAudioDir: `${remoteRunDir}/out/audio`,
+		remoteTimingsDir: `${remoteRunDir}/out/timings`,
+		remoteReportPath: `${remoteRunDir}/out/report.json`,
+	});
+
 	if (options.staging !== undefined) {
 		const localStageRoot = join(rootDir, ".cache", "krv-supertonic-staging", options.staging);
-		const remoteRunDir = `${cleanBase}/staging/${options.staging}`;
 		return {
 			mode: "staging",
 			stagingName: options.staging,
 			localAudioDir: join(localStageRoot, "audio"),
 			localTimingsDir: join(localStageRoot, "timings"),
 			localReportPath: join(localStageRoot, "report.json"),
-			remoteBaseDir: cleanBase,
-			remoteRunDir,
-			remoteAudioDir: `${remoteRunDir}/out/audio`,
-			remoteTimingsDir: `${remoteRunDir}/out/timings`,
-			remoteReportPath: `${remoteRunDir}/out/report.json`,
+			...makeRemote(`${cleanBase}/staging/${options.staging}`),
 		};
 	}
 
 	if (options.outDir !== undefined) {
 		const customRoot = resolve(rootDir, expandLocalHome(options.outDir));
 		const hash = createHash("sha256").update(customRoot).digest("hex").slice(0, 10);
-		const remoteRunDir = `${cleanBase}/staging/out-${hash}`;
 		return {
 			mode: "custom",
 			localAudioDir: join(customRoot, "audio"),
 			localTimingsDir: join(customRoot, "timings"),
 			localReportPath: join(customRoot, "report.json"),
-			remoteBaseDir: cleanBase,
-			remoteRunDir,
-			remoteAudioDir: `${remoteRunDir}/out/audio`,
-			remoteTimingsDir: `${remoteRunDir}/out/timings`,
-			remoteReportPath: `${remoteRunDir}/out/report.json`,
+			...makeRemote(`${cleanBase}/staging/out-${hash}`),
 		};
 	}
 
-	const remoteRunDir = `${cleanBase}/prod`;
 	return {
 		mode: "production",
 		localAudioDir: join(rootDir, ".cache", "krv-supertonic-audio"),
 		localTimingsDir: join(rootDir, "public", "data", "timings", "krv-supertonic"),
 		localReportPath: join(rootDir, ".cache", "krv-supertonic-report.json"),
-		remoteBaseDir: cleanBase,
-		remoteRunDir,
-		remoteAudioDir: `${remoteRunDir}/out/audio`,
-		remoteTimingsDir: `${remoteRunDir}/out/timings`,
-		remoteReportPath: `${remoteRunDir}/out/report.json`,
+		...makeRemote(`${cleanBase}/prod`),
 	};
 }
 
@@ -733,10 +707,7 @@ export function quotePosix(value: string): string {
 
 export function remoteDirBashExpr(remotePath: string): string {
 	if (remotePath === "~") return `"$HOME"`;
-	if (remotePath.startsWith("~/")) {
-		const rest = remotePath.slice(2);
-		return `"$HOME"/${quotePosix(rest)}`;
-	}
+	if (remotePath.startsWith("~/")) return `"$HOME"/${quotePosix(remotePath.slice(2))}`;
 	return quotePosix(remotePath);
 }
 
@@ -753,7 +724,7 @@ export function parseSshTarget(
 	extraOptions: readonly string[] = [],
 ): SshEndpoint {
 	const trimmed = rawTarget.trim();
-	if (!trimmed || trimmed.startsWith("-") || !SAFE_SSH_TARGET_RE.test(trimmed)) {
+	if (!trimmed || trimmed.startsWith("-") || /[\s\x00-\x1f\x7f]/.test(trimmed)) {
 		throw new Error(`Invalid SSH target: "${rawTarget}"`);
 	}
 
@@ -767,7 +738,12 @@ export function parseSshTarget(
 	let parsedPort: number | undefined;
 
 	if (trimmed.startsWith("ssh://")) {
-		const url = new URL(trimmed);
+		let url: URL;
+		try {
+			url = new URL(trimmed);
+		} catch {
+			throw new Error(`Invalid SSH target: "${rawTarget}"`);
+		}
 		if (!url.hostname || (url.pathname !== "" && url.pathname !== "/")) {
 			throw new Error(`Unsupported ssh:// target format: "${rawTarget}"`);
 		}
@@ -790,7 +766,7 @@ export function parseSshTarget(
 	}
 
 	if (!target || target.startsWith("-") || !SAFE_SSH_TARGET_RE.test(target)) {
-		throw new Error(`Invalid SSH host target parsed from "${rawTarget}"`);
+		throw new Error(`Invalid SSH target: "${rawTarget}"`);
 	}
 
 	return {
@@ -820,33 +796,27 @@ function asOptionalPort(value: unknown): number | undefined {
 }
 
 function normalizeThunderRecord(raw: Record<string, unknown>): ThunderInstanceInfo {
-	const id =
-		asOptionalString(raw.id) ?? asOptionalString(raw.index) ?? asOptionalString(raw.uuid) ?? "0";
 	return {
-		id,
+		id:
+			asOptionalString(raw.id) ?? asOptionalString(raw.index) ?? asOptionalString(raw.uuid) ?? "0",
 		uuid: asOptionalString(raw.uuid),
 		name: asOptionalString(raw.name),
 		status: (asOptionalString(raw.status) ?? "UNKNOWN").toUpperCase(),
 		gpuType: asOptionalString(raw.gpuType ?? raw.gpu_type ?? raw.gpu),
-		numGpus: asOptionalString(raw.numGpus ?? raw.num_gpus),
-		cpuCores: asOptionalString(raw.cpuCores ?? raw.cpu_cores ?? raw.vcpus),
-		memory: asOptionalString(raw.memory ?? raw.ram),
 		ip: asOptionalString(raw.ip ?? raw.address ?? raw.host),
 		port: asOptionalPort(raw.port ?? raw.sshPort ?? raw.ssh_port),
-		mode: asOptionalString(raw.mode),
-		template: asOptionalString(raw.template),
 	};
 }
 
-export function extractJsonValue(rawText: string): unknown {
+function extractJsonValue(rawText: string): unknown {
 	const trimmed = rawText.trim();
 	if (!trimmed) throw new Error("Empty JSON output from tnr CLI.");
 	try {
 		return JSON.parse(trimmed);
 	} catch {
-		const arrayIdx = trimmed.indexOf("[");
-		const objIdx = trimmed.indexOf("{");
-		const candidates = [arrayIdx, objIdx].filter((idx) => idx >= 0).sort((a, b) => a - b);
+		const candidates = [trimmed.indexOf("["), trimmed.indexOf("{")]
+			.filter((idx) => idx >= 0)
+			.sort((a, b) => a - b);
 		for (const idx of candidates) {
 			try {
 				return JSON.parse(trimmed.slice(idx));
@@ -875,7 +845,7 @@ export function parseThunderStatusOutput(stdout: string): ThunderInstanceInfo[] 
 		.map(normalizeThunderRecord);
 }
 
-export interface SshConfigHostBlock {
+interface SshConfigHostBlock {
 	patterns: string[];
 	hostName?: string;
 	user?: string;
@@ -883,7 +853,7 @@ export interface SshConfigHostBlock {
 	identityFile?: string;
 }
 
-export function parseSshConfig(configText: string): SshConfigHostBlock[] {
+function parseSshConfig(configText: string): SshConfigHostBlock[] {
 	const blocks: SshConfigHostBlock[] = [];
 	let current: SshConfigHostBlock | null = null;
 
@@ -903,14 +873,13 @@ export function parseSshConfig(configText: string): SshConfigHostBlock[] {
 		if (!current) continue;
 		if (key === "hostname") current.hostName = value;
 		else if (key === "user") current.user = value;
-		else if (key === "port" && /^\d+$/.test(value)) {
-			current.port = Number.parseInt(value, 10);
-		} else if (key === "identityfile") {
-			current.identityFile = expandLocalHome(value);
-		}
+		else if (key === "port" && /^\d+$/.test(value)) current.port = Number.parseInt(value, 10);
+		else if (key === "identityfile") current.identityFile = expandLocalHome(value);
 	}
 	return blocks;
 }
+
+const isConcreteHostPattern = (p: string) => !p.includes("*") && !p.includes("?");
 
 export function findSshConfigMatch(
 	configText: string,
@@ -930,50 +899,33 @@ export function findSshConfigMatch(
 			.map((v) => v.toLowerCase()),
 	);
 
-	// 1. Exact IP + optional port match (ignore wildcard-only patterns like `*`)
 	if (instance.ip) {
 		const ipMatch = blocks.find(
 			(b) =>
 				b.hostName === instance.ip &&
 				(!instance.port || !b.port || b.port === instance.port) &&
-				b.patterns.some((p) => !p.includes("*") && !p.includes("?")),
+				b.patterns.some(isConcreteHostPattern),
 		);
 		if (ipMatch) return ipMatch;
 	}
 
-	// 2. Alias match by Thunder conventions
 	return blocks.find((b) =>
-		b.patterns.some(
-			(p) => !p.includes("*") && !p.includes("?") && candidateAliases.has(p.toLowerCase()),
-		),
+		b.patterns.some((p) => isConcreteHostPattern(p) && candidateAliases.has(p.toLowerCase())),
 	);
 }
 
 export function selectBooksForOptions(options: CliOptions): BookMeta[] {
-	if (options.testament === "OT") {
-		return BIBLE_BOOKS.filter((b) => b.testament === "OT");
-	}
-	if (options.testament === "NT") {
-		return BIBLE_BOOKS.filter((b) => b.testament === "NT");
+	if (options.testament) {
+		return BIBLE_BOOKS.filter((b) => b.testament === options.testament);
 	}
 	if (options.books && options.books.length > 0) {
-		const byUsfm = new Map(BIBLE_BOOKS.map((b) => [b.usfm, b]));
 		return options.books.map((usfm) => {
-			const found = byUsfm.get(usfm);
+			const found = getBookByUsfm(usfm);
 			if (!found) throw new Error(`Unknown USFM book code: "${usfm}"`);
 			return found;
 		});
 	}
 	return [...BIBLE_BOOKS];
-}
-
-async function fileExistsNonEmpty(path: string, minBytes = 1): Promise<boolean> {
-	try {
-		const info = await stat(path);
-		return info.isFile() && info.size >= minBytes;
-	} catch {
-		return false;
-	}
 }
 
 async function loadExistingTimingsChapters(path: string): Promise<Set<string>> {
@@ -1011,11 +963,9 @@ export async function buildPendingJobPlan(
 		for (let ch = 1; ch <= book.chapters; ch++) {
 			if (chapterSet && !chapterSet.has(ch)) continue;
 			totalSelectedChapters++;
-			if (!options.force && !options.dryRun) {
+			if (!options.force && !options.dryRun && !options.pullOnly) {
 				const mp3Path = join(paths.localAudioDir, book.usfm, `${ch}.mp3`);
-				const hasMp3 = await fileExistsNonEmpty(mp3Path, 1025);
-				const hasTiming = existingChapters.has(String(ch));
-				if (hasMp3 && hasTiming) {
+				if ((await isFileNonEmpty(mp3Path, 1025)) && existingChapters.has(String(ch))) {
 					skippedChapters++;
 					continue;
 				}
@@ -1029,13 +979,7 @@ export async function buildPendingJobPlan(
 		}
 	}
 
-	return {
-		books,
-		chaptersByBook,
-		totalSelectedChapters,
-		pendingChapters,
-		skippedChapters,
-	};
+	return { books, chaptersByBook, totalSelectedChapters, pendingChapters, skippedChapters };
 }
 
 interface WeightedChapter {
@@ -1066,7 +1010,7 @@ async function loadBookChapterWeights(
 			}
 		}
 	} catch {
-		// Fall back to uniform per-chapter weights when KRV JSON isn't present (e.g. mocked tests).
+		// Fall back to uniform per-chapter weights when KRV JSON isn't present.
 	}
 	return weights;
 }
@@ -1084,19 +1028,13 @@ export async function partitionJobPlan(
 		if (!chapters || chapters.length === 0) continue;
 		const weights = await loadBookChapterWeights(book.usfm, rootDir);
 		for (const ch of chapters) {
-			items.push({
-				book,
-				chapter: ch,
-				weight: weights.get(ch) ?? 1,
-			});
+			items.push({ book, chapter: ch, weight: weights.get(ch) ?? 1 });
 		}
 	}
 
 	if (items.length === 0) return [];
 	const effectiveShards = Math.max(1, Math.min(shardCount, items.length));
-	if (effectiveShards === 1) {
-		return [jobPlan];
-	}
+	if (effectiveShards === 1) return [jobPlan];
 
 	const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
 	const buckets: WeightedChapter[][] = Array.from({ length: effectiveShards }, () => []);
@@ -1130,8 +1068,7 @@ export async function partitionJobPlan(
 				const usfm = entry.book.usfm;
 				if (!seenBooks.has(usfm)) {
 					seenBooks.add(usfm);
-					const meta = bookByUsfm.get(usfm) ?? entry.book;
-					books.push(meta);
+					books.push(bookByUsfm.get(usfm) ?? entry.book);
 					chaptersByBook[usfm] = [];
 				}
 				chaptersByBook[usfm].push(entry.chapter);
@@ -1184,7 +1121,7 @@ export function mergeBookTimingsPayload(
 
 	return {
 		translationId: "krv",
-		audioSource: AUDIO_SOURCE_ID,
+		audioSource: SUPERTONIC_TRACK_ID,
 		usfm,
 		chapters: sortedChapters,
 	};
@@ -1206,28 +1143,10 @@ export function mergeGenerationReportPayload(
 
 	const merged: Record<string, unknown> = {
 		...base,
-		chapters: {
-			...existingChapters,
-			...incomingChapters,
-		},
+		chapters: { ...existingChapters, ...incomingChapters },
 	};
-	if (incoming.summary !== undefined) {
-		merged.summary = incoming.summary;
-	}
+	if (incoming.summary !== undefined) merged.summary = incoming.summary;
 	return merged;
-}
-
-async function atomicWriteJsonFile(path: string, data: unknown, pretty = false): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-	const body = pretty ? `${JSON.stringify(data, null, 2)}\n` : JSON.stringify(data);
-	try {
-		await writeFile(tmpPath, body, "utf8");
-		await rename(tmpPath, path);
-	} catch (err) {
-		await rm(tmpPath, { force: true }).catch(() => {});
-		throw err;
-	}
 }
 
 export function createDefaultCommandRunner(): CommandRunner {
@@ -1298,8 +1217,7 @@ export function createDefaultCommandRunner(): CommandRunner {
 				]);
 				return { exitCode };
 			}
-			const exitCode = await proc.exited;
-			return { exitCode };
+			return { exitCode: await proc.exited };
 		},
 		async runInteractive(cmd, args, opts) {
 			const proc = Bun.spawn([cmd, ...args], {
@@ -1314,7 +1232,7 @@ export function createDefaultCommandRunner(): CommandRunner {
 	};
 }
 
-export function resolveExecutable(
+function resolveExecutable(
 	runner: CommandRunner,
 	name: string,
 	fallbacks: readonly string[],
@@ -1322,14 +1240,18 @@ export function resolveExecutable(
 	const found = runner.which(name);
 	if (found) return found;
 	for (const candidate of fallbacks) {
-		const expanded = expandLocalHome(candidate);
-		const check = spawnSync("test", ["-x", expanded]);
-		if (check.status === 0) return expanded;
+		try {
+			const expanded = expandLocalHome(candidate);
+			accessSync(expanded, constants.X_OK);
+			return expanded;
+		} catch {
+			// not executable
+		}
 	}
 	return null;
 }
 
-export function resolveTnrBinary(runner: CommandRunner): string | null {
+function resolveTnrBinary(runner: CommandRunner): string | null {
 	return resolveExecutable(runner, "tnr", [
 		"/usr/local/bin/tnr",
 		"/opt/homebrew/bin/tnr",
@@ -1441,8 +1363,8 @@ async function persistCreatedThunderKey(
 			id?: unknown;
 			key?: unknown;
 		} | null;
-		const uuid =
-			typeof parsed?.uuid === "string" && parsed.uuid.trim() ? parsed.uuid.trim() : undefined;
+		const rawUuid = typeof parsed?.uuid === "string" ? parsed.uuid.trim() : "";
+		const uuid = SAFE_UUID_RE.test(rawUuid) ? rawUuid : undefined;
 		const rawId = parsed?.identifier ?? parsed?.id;
 		const id =
 			typeof rawId === "number" || (typeof rawId === "string" && rawId.trim())
@@ -1451,38 +1373,12 @@ async function persistCreatedThunderKey(
 		if (uuid && typeof parsed?.key === "string" && parsed.key.includes("PRIVATE KEY")) {
 			const keysDir = join(homedir(), ".thunder", "keys");
 			await mkdir(keysDir, { recursive: true, mode: 0o700 });
-			const keyPath = join(keysDir, uuid);
-			await writeFile(keyPath, parsed.key, { mode: 0o600 });
+			await writeFile(join(keysDir, uuid), parsed.key, { mode: 0o600 });
 		}
 		return { uuid, id };
 	} catch {
-		// ignore if non-JSON or key already managed via tnr connect
 		return {};
 	}
-}
-
-async function createThunderInstance(
-	tnrBin: string,
-	options: CliOptions,
-	runner: CommandRunner,
-): Promise<{ instances: ThunderInstanceInfo[]; createdHint: { uuid?: string; id?: string } }> {
-	const args = buildTnrCreateArgs(options);
-
-	console.log(`Provisioning Thunder Compute instance: tnr ${args.join(" ")}`);
-	const created = await runner.run(tnrBin, args, { stdin: "ignore" });
-	if (created.exitCode !== 0) {
-		throw new Error(
-			`\`tnr create\` failed (exit ${created.exitCode}): ${created.stderr.trim() || created.stdout.trim()}`,
-		);
-	}
-	const createdHint = await persistCreatedThunderKey(created.stdout);
-	const after = await runner.run(tnrBin, ["--json", "status", "--no-wait"], { stdin: "ignore" });
-	if (after.exitCode !== 0) {
-		throw new Error(
-			`\`tnr status\` failed after create: ${after.stderr.trim() || after.stdout.trim()}`,
-		);
-	}
-	return { instances: parseThunderStatusOutput(after.stdout), createdHint };
 }
 
 async function fetchThunderInstances(
@@ -1532,54 +1428,7 @@ async function waitForThunderInstancesRunning(
 	return targets;
 }
 
-async function resolveThunderInstance(
-	tnrBin: string,
-	options: CliOptions,
-	runner: CommandRunner,
-): Promise<ThunderInstanceInfo> {
-	let instances = await fetchThunderInstances(tnrBin, runner);
-	if (options.create && (!options.thunder || !findMatchingInstance(instances, options.thunder))) {
-		const created = await createThunderInstance(tnrBin, options, runner);
-		instances = created.instances;
-	}
-
-	if (instances.length === 0) {
-		throw new Error(
-			"No Thunder Compute instances found (`tnr --json status --no-wait` returned []). Create one with `tnr create` or pass `--create` (or use `--ssh <target>`).",
-		);
-	}
-
-	let target: ThunderInstanceInfo | undefined;
-	if (options.thunder) {
-		target = findMatchingInstance(instances, options.thunder);
-		if (!target) {
-			const available = instances
-				.map((i) => `${i.id} (${i.status}${i.gpuType ? `, ${i.gpuType}` : ""})`)
-				.join(", ");
-			throw new Error(`Thunder instance "${options.thunder}" not found. Available: ${available}`);
-		}
-	} else {
-		const running = instances.filter((i) => i.status === "RUNNING");
-		if (running.length === 1) {
-			target = running[0];
-			console.log(
-				`Auto-selected Thunder instance ${target.id} (${target.gpuType ?? "GPU"}, ${target.status}).`,
-			);
-		} else if (instances.length === 1) {
-			target = instances[0];
-		} else {
-			const available = instances.map((i) => `${i.id} (${i.status})`).join(", ");
-			throw new Error(
-				`Multiple Thunder instances found (${available}). Specify one with --thunder <id> or set THUNDER_INSTANCE in .dev.vars.`,
-			);
-		}
-	}
-
-	const [ready] = await waitForThunderInstancesRunning(tnrBin, [target], runner);
-	return ready;
-}
-
-async function resolveThunderShards(
+async function resolveThunderInstances(
 	tnrBin: string,
 	options: CliOptions,
 	neededCount: number,
@@ -1590,12 +1439,12 @@ async function resolveThunderShards(
 	const selected: ThunderInstanceInfo[] = [];
 	const seenKeys = new Set<string>();
 	const createdIds = new Set<string>();
-
 	const instanceKey = (inst: ThunderInstanceInfo) => inst.uuid || inst.id;
 
 	for (const selector of explicitSelectors) {
 		const match = findMatchingInstance(instances, selector);
 		if (!match) {
+			if (options.create && neededCount === 1) continue;
 			const available = instances
 				.map((i) => `${i.id} (${i.status}${i.gpuType ? `, ${i.gpuType}` : ""})`)
 				.join(", ");
@@ -1619,13 +1468,12 @@ async function resolveThunderShards(
 			const preExistingKeys = new Set(instances.map(instanceKey));
 
 			for (let i = 0; i < shortfall; i++) {
-				console.log(
-					`Provisioning Thunder Compute shard VM ${i + 1}/${shortfall}: tnr ${args.join(" ")}`,
-				);
+				const label = shortfall > 1 ? `shard VM ${i + 1}/${shortfall}` : "instance";
+				console.log(`Provisioning Thunder Compute ${label}: tnr ${args.join(" ")}`);
 				const res = await runner.run(tnrBin, args, { stdin: "ignore" });
 				if (res.exitCode !== 0) {
 					throw new Error(
-						`\`tnr create\` failed for shard VM ${i + 1}/${shortfall} (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim()}`,
+						`\`tnr create\` failed for ${label} (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim()}`,
 					);
 				}
 				createdHints.push(await persistCreatedThunderKey(res.stdout));
@@ -1633,14 +1481,12 @@ async function resolveThunderShards(
 
 			instances = await fetchThunderInstances(tnrBin, runner);
 			for (const hint of createdHints) {
-				let match =
+				const match =
 					(hint.uuid ? findMatchingInstance(instances, hint.uuid) : undefined) ??
-					(hint.id ? findMatchingInstance(instances, hint.id) : undefined);
-				if (!match) {
-					match = instances.find(
+					(hint.id ? findMatchingInstance(instances, hint.id) : undefined) ??
+					instances.find(
 						(inst) => !preExistingKeys.has(instanceKey(inst)) && !seenKeys.has(instanceKey(inst)),
 					);
-				}
 				if (!match) {
 					throw new Error(
 						"Created a Thunder instance via `tnr create`, but could not locate it in `tnr --json status --no-wait`.",
@@ -1658,12 +1504,22 @@ async function resolveThunderShards(
 					selected.push(inst);
 				}
 				console.log(
-					`Auto-selected ${running.length} running Thunder instance(s): ${running.map((i) => i.id).join(", ")}.`,
+					neededCount === 1
+						? `Auto-selected Thunder instance ${running[0].id} (${running[0].gpuType ?? "GPU"}, ${running[0].status}).`
+						: `Auto-selected ${running.length} running Thunder instance(s): ${running.map((i) => i.id).join(", ")}.`,
+				);
+			} else if (neededCount === 1 && instances.length === 1) {
+				selected.push(instances[0]);
+			} else if (instances.length === 0) {
+				throw new Error(
+					"No Thunder Compute instances found (`tnr --json status --no-wait` returned []). Create one with `tnr create` or pass `--create` (or use `--ssh <target>`).",
 				);
 			} else {
-				const available = instances.map((i) => `${i.id} (${i.status})`).join(", ") || "none";
+				const available = instances.map((i) => `${i.id} (${i.status})`).join(", ");
 				throw new Error(
-					`--shards ${neededCount} needs ${neededCount} Thunder instance(s), found ${running.length} running (${available}). Pass --create to provision ${neededCount} VM(s) automatically, or pass --thunder id1,id2,...`,
+					neededCount === 1
+						? `Multiple Thunder instances found (${available}). Specify one with --thunder <id> or set THUNDER_INSTANCE in .dev.vars.`
+						: `--shards ${neededCount} needs ${neededCount} Thunder instance(s), found ${running.length} running (${available}). Pass --create to provision ${neededCount} VM(s) automatically, or pass --thunder id1,id2,...`,
 				);
 			}
 		} else {
@@ -1690,18 +1546,18 @@ async function resolveEndpointForRun(
 		throw new Error("Remote mode requires either --thunder <id> or --ssh <target>.");
 	}
 
-	const sshConfigPath = join(homedir(), ".ssh", "config");
 	let sshConfigMatch: SshConfigHostBlock | undefined;
 	try {
-		const configText = await readFile(sshConfigPath, "utf8");
+		const configText = await readFile(join(homedir(), ".ssh", "config"), "utf8");
 		sshConfigMatch = findSshConfigMatch(configText, instance);
 	} catch {
 		// ~/.ssh/config optional
 	}
 
-	if (sshConfigMatch && sshConfigMatch.patterns[0]) {
+	const concreteAlias = sshConfigMatch?.patterns.find(isConcreteHostPattern);
+	if (sshConfigMatch && concreteAlias) {
 		return {
-			target: sshConfigMatch.patterns[0],
+			target: concreteAlias,
 			port: options.sshPort ?? sshConfigMatch.port,
 			keyPath: options.sshKey ?? sshConfigMatch.identityFile,
 			options: [...options.sshOptions],
@@ -1710,16 +1566,19 @@ async function resolveEndpointForRun(
 	}
 
 	if (instance.ip) {
+		if (!SAFE_HOST_RE.test(instance.ip)) {
+			throw new Error(`Unsafe host address reported for Thunder instance ${instance.id}`);
+		}
 		let fallbackKey = options.sshKey;
-		if (!fallbackKey && instance.uuid) {
+		if (!fallbackKey && instance.uuid && SAFE_UUID_RE.test(instance.uuid)) {
 			const thunderKey = join(homedir(), ".thunder", "keys", instance.uuid);
-			if (await fileExistsNonEmpty(thunderKey)) fallbackKey = thunderKey;
+			if (await isFileNonEmpty(thunderKey)) fallbackKey = thunderKey;
 		}
 		if (!fallbackKey) {
 			const defaultEd25519 = join(homedir(), ".ssh", "id_ed25519");
 			const defaultRsa = join(homedir(), ".ssh", "id_rsa");
-			if (await fileExistsNonEmpty(defaultEd25519)) fallbackKey = defaultEd25519;
-			else if (await fileExistsNonEmpty(defaultRsa)) fallbackKey = defaultRsa;
+			if (await isFileNonEmpty(defaultEd25519)) fallbackKey = defaultEd25519;
+			else if (await isFileNonEmpty(defaultRsa)) fallbackKey = defaultRsa;
 		}
 		return {
 			target: `ubuntu@${instance.ip}`,
@@ -1745,8 +1604,7 @@ export function parseProbeOutput(stdout: string): RemoteHardwareProbe {
 		if (eqIdx <= 0) continue;
 		map.set(line.slice(0, eqIdx).trim(), line.slice(eqIdx + 1).trim());
 	}
-	const cudaRaw = map.get("CUDA_VER") ?? "";
-	const cudaMatch = /(\d+)\./.exec(cudaRaw);
+	const cudaMatch = /(\d+)\./.exec(map.get("CUDA_VER") ?? "");
 	const cpuRaw = map.get("CPUS") ?? "1";
 	const cpuCount = /^\d+$/.test(cpuRaw) ? Math.max(1, Number.parseInt(cpuRaw, 10)) : 1;
 	const gpuName = map.get("GPU") || undefined;
@@ -1762,8 +1620,6 @@ export function parseProbeOutput(stdout: string): RemoteHardwareProbe {
 		cudaMajor: cudaMatch ? Number.parseInt(cudaMatch[1], 10) : undefined,
 		hasNvidiaGpu: gpuCount > 0 || Boolean(gpuName),
 		hasRsync: map.get("HAS_RSYNC") === "1",
-		hasUv: map.get("HAS_UV") === "1",
-		pythonPath: map.get("PY_BIN") || undefined,
 	};
 }
 
@@ -1790,8 +1646,6 @@ else
   echo "CUDA_VER="
 fi
 echo "HAS_RSYNC=$(command -v rsync >/dev/null 2>&1 && echo 1 || echo 0)"
-echo "HAS_UV=$( (command -v uv >/dev/null 2>&1 || [ -x "$HOME/.local/bin/uv" ]) && echo 1 || echo 0)"
-echo "PY_BIN=$(command -v python3 || true)"
 `;
 	const res = await runRemoteBash(runner, endpoint, controlPath, script);
 	if (res.exitCode !== 0) {
@@ -1846,7 +1700,7 @@ VENV_DIR="$BASE_DIR/.venv"
 STAMP_FILE="$VENV_DIR/.logos-bootstrap.json"
 WANT_FINGERPRINT=${quotePosix(fingerprint)}
 
-  mkdir -p "$BASE_DIR"
+mkdir -p "$BASE_DIR"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv on remote VM..."
@@ -1862,7 +1716,6 @@ else
   echo "Provisioning remote Supertonic 3 Python environment..."
   uv venv --python 3.12 --allow-existing "$VENV_DIR" || uv venv --python 3.13 --allow-existing "$VENV_DIR" || uv venv --allow-existing "$VENV_DIR"
   if [ ${wantCuda ? "1" : "0"} -eq 1 ]; then
-    uv pip uninstall --python "$VENV_DIR/bin/python" onnxruntime || true
     uv pip install --python "$VENV_DIR/bin/python" --upgrade "supertonic>=1.3" "lameenc>=1.7" "numpy>=1.26"
     uv pip uninstall --python "$VENV_DIR/bin/python" onnxruntime || true
     uv pip install --python "$VENV_DIR/bin/python" --upgrade ${quotePosix(ortGpuSpec)}
@@ -1933,8 +1786,7 @@ function chooseTransferMethod(
 	instance: ThunderInstanceInfo | undefined,
 	explicitSsh: boolean,
 ): "rsync" | "tnr-scp" | "tar" {
-	if (requested === "rsync") return "rsync";
-	if (requested === "tar") return "tar";
+	if (requested === "rsync" || requested === "tar") return requested;
 	if (requested === "tnr-scp") {
 		if (!tnrBin || !instance) {
 			throw new Error("--transfer tnr-scp requires a Thunder instance (--thunder <id>).");
@@ -1972,9 +1824,11 @@ async function uploadPayload(
 	if (method === "rsync") {
 		const dest = `${endpoint.target}:${remoteDirTransferPath(remoteRunDir)}/`;
 		const rsh = buildRsyncRshCommand(endpoint, controlPath);
-		const res = await runner.run("rsync", ["-az", "-e", rsh, `${localStageDir}/`, dest], {
-			stdin: "ignore",
-		});
+		const res = await runner.run(
+			"rsync",
+			["-az", "-s", "--no-links", "-e", rsh, `${localStageDir}/`, dest],
+			{ stdin: "ignore" },
+		);
 		if (res.exitCode !== 0) {
 			throw new Error(`rsync upload failed: ${res.stderr.trim() || res.stdout.trim()}`);
 		}
@@ -1982,7 +1836,7 @@ async function uploadPayload(
 	}
 
 	if (method === "tnr-scp" && tnrBin && instance) {
-		const archiveLocal = join(dirname(localStageDir), `push-${process.pid}.tar.gz`);
+		const archiveLocal = join(dirname(localStageDir), `push-${process.pid}-${randomUUID()}.tar.gz`);
 		const pack = await runner.run("tar", ["-C", localStageDir, "-czf", archiveLocal, "."], {
 			stdin: "ignore",
 		});
@@ -2013,7 +1867,6 @@ async function uploadPayload(
 		return;
 	}
 
-	// tar-over-SSH fallback when rsync is unavailable
 	const sshArgs = buildSshBaseArgs(endpoint, controlPath);
 	const tarProc = Bun.spawn(["tar", "-C", localStageDir, "-cf", "-", "."], {
 		stdout: "pipe",
@@ -2021,11 +1874,7 @@ async function uploadPayload(
 	});
 	const sshProc = Bun.spawn(
 		["ssh", ...sshArgs, endpoint.target, `bash -c ${quotePosix(`tar -C ${remoteRunExpr} -xf -`)}`],
-		{
-			stdin: tarProc.stdout,
-			stdout: "pipe",
-			stderr: "pipe",
-		},
+		{ stdin: tarProc.stdout, stdout: "ignore", stderr: "pipe" },
 	);
 	const [tarErr, sshErr, tarExit, sshExit] = await Promise.all([
 		new Response(tarProc.stderr).text(),
@@ -2057,20 +1906,24 @@ async function downloadDirectory(
 		controlPath,
 		`[ -d ${remoteExpr} ] && echo PRESENT || echo MISSING`,
 	);
-	if (existsCheck.exitCode === 0 && existsCheck.stdout.trim() === "MISSING") {
-		return;
-	}
+	if (existsCheck.exitCode === 0 && existsCheck.stdout.trim() === "MISSING") return;
 
 	if (method === "rsync") {
 		const src = `${endpoint.target}:${remoteDirTransferPath(remoteSubdir)}/`;
 		const rsh = buildRsyncRshCommand(endpoint, controlPath);
-		const flags = compress ? "-az" : "-a";
 		const res = await runner.run(
 			"rsync",
-			[flags, "--partial", "-e", rsh, src, `${localDestDir}/`],
-			{
-				stdin: "ignore",
-			},
+			[
+				compress ? "-az" : "-a",
+				"-s",
+				"--no-links",
+				"--partial",
+				"-e",
+				rsh,
+				src,
+				`${localDestDir}/`,
+			],
+			{ stdin: "ignore" },
 		);
 		if (res.exitCode !== 0) {
 			throw new Error(
@@ -2081,7 +1934,7 @@ async function downloadDirectory(
 	}
 
 	if (method === "tnr-scp" && tnrBin && instance) {
-		const archiveLocal = join(dirname(localDestDir), `pull-${process.pid}-${Date.now()}.tar.gz`);
+		const archiveLocal = join(dirname(localDestDir), `pull-${process.pid}-${randomUUID()}.tar.gz`);
 		const remoteArchive = `${remoteSubdir}.tar.gz`;
 		const pack = await runRemoteBash(
 			runner,
@@ -2128,15 +1981,11 @@ async function downloadDirectory(
 	const sshArgs = buildSshBaseArgs(endpoint, controlPath);
 	const sshProc = Bun.spawn(
 		["ssh", ...sshArgs, endpoint.target, `bash -c ${quotePosix(`tar -C ${remoteExpr} -cf - .`)}`],
-		{
-			stdin: "ignore",
-			stdout: "pipe",
-			stderr: "pipe",
-		},
+		{ stdin: "ignore", stdout: "pipe", stderr: "pipe" },
 	);
 	const tarProc = Bun.spawn(["tar", "-C", localDestDir, "-xf", "-"], {
 		stdin: sshProc.stdout,
-		stdout: "pipe",
+		stdout: "ignore",
 		stderr: "pipe",
 	});
 	const [sshErr, tarErr, sshExit, tarExit] = await Promise.all([
@@ -2162,8 +2011,7 @@ async function mergePulledOutputs(
 
 	const pulledAudioDir = join(pullRoot, "audio");
 	try {
-		const entries = await readdir(pulledAudioDir, { withFileTypes: true });
-		for (const entry of entries) {
+		for (const entry of await readdir(pulledAudioDir, { withFileTypes: true })) {
 			if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
 			const usfm = entry.name.toUpperCase();
 			if (!VALID_USFM_SET.has(usfm) || (allowedUsfms && !allowedUsfms.has(usfm))) continue;
@@ -2172,17 +2020,20 @@ async function mergePulledOutputs(
 			const dstBookDir = join(paths.localAudioDir, usfm);
 			await mkdir(dstBookDir, { recursive: true });
 
-			const files = await readdir(srcBookDir, { withFileTypes: true });
-			for (const fileEntry of files) {
+			for (const fileEntry of await readdir(srcBookDir, { withFileTypes: true })) {
 				if (fileEntry.isSymbolicLink() || !fileEntry.isFile()) continue;
 				const match = MP3_NAME_RE.exec(fileEntry.name);
 				if (!match) continue;
-				const srcFile = join(srcBookDir, fileEntry.name);
 				const dstFile = join(dstBookDir, `${match[1]}.mp3`);
-				const tmpDst = `${dstFile}.${process.pid}.tmp`;
-				await cp(srcFile, tmpDst);
-				await rename(tmpDst, dstFile);
-				mp3Count++;
+				const tmpDst = `${dstFile}.${process.pid}.${randomUUID()}.tmp`;
+				try {
+					await cp(join(srcBookDir, fileEntry.name), tmpDst);
+					await rename(tmpDst, dstFile);
+					mp3Count++;
+				} catch (err) {
+					await rm(tmpDst, { force: true }).catch(() => {});
+					throw err;
+				}
 			}
 		}
 	} catch {
@@ -2191,8 +2042,7 @@ async function mergePulledOutputs(
 
 	const pulledTimingsDir = join(pullRoot, "timings");
 	try {
-		const entries = await readdir(pulledTimingsDir, { withFileTypes: true });
-		for (const entry of entries) {
+		for (const entry of await readdir(pulledTimingsDir, { withFileTypes: true })) {
 			if (entry.isSymbolicLink() || !entry.isFile()) continue;
 			const match = TIMINGS_FILE_RE.exec(entry.name);
 			if (!match) continue;
@@ -2206,16 +2056,14 @@ async function mergePulledOutputs(
 
 			let existing: Record<string, unknown> | null = null;
 			try {
-				const st = await lstat(dstPath);
-				if (st.isFile()) {
+				if ((await lstat(dstPath)).isFile()) {
 					existing = JSON.parse(await readFile(dstPath, "utf8")) as Record<string, unknown>;
 				}
 			} catch {
 				// new file
 			}
 
-			const payload = mergeBookTimingsPayload(existing, incoming, usfm);
-			await atomicWriteJsonFile(dstPath, payload, false);
+			await atomicWriteJson(dstPath, mergeBookTimingsPayload(existing, incoming, usfm), false);
 			timingCount++;
 		}
 	} catch {
@@ -2223,7 +2071,7 @@ async function mergePulledOutputs(
 	}
 
 	const pulledReportFile = join(pullRoot, "report.json");
-	if (await fileExistsNonEmpty(pulledReportFile, 2)) {
+	if (await isFileNonEmpty(pulledReportFile, 2)) {
 		const incomingReport = extractJsonValue(await readFile(pulledReportFile, "utf8")) as Record<
 			string,
 			unknown
@@ -2239,8 +2087,11 @@ async function mergePulledOutputs(
 				// fresh report
 			}
 		}
-		const merged = mergeGenerationReportPayload(existingReport, incomingReport);
-		await atomicWriteJsonFile(paths.localReportPath, merged, true);
+		await atomicWriteJson(
+			paths.localReportPath,
+			mergeGenerationReportPayload(existingReport, incomingReport),
+			true,
+		);
 		mergedReport = true;
 	}
 
@@ -2269,7 +2120,7 @@ export async function verifyAndSummarizeOutputs(
 
 		for (const ch of chapters) {
 			const mp3Path = join(paths.localAudioDir, usfm, `${ch}.mp3`);
-			if (!(await fileExistsNonEmpty(mp3Path, 1025))) {
+			if (!(await isFileNonEmpty(mp3Path, 1025))) {
 				errors.push(`Missing or too-small MP3: ${mp3Path}`);
 			}
 			const chTimings = timingChapters[String(ch)];
@@ -2361,49 +2212,41 @@ async function printStagingComparison(
 		`\nStaging Parity Summary (${paths.stagingName ?? "custom"}) — production untouched:`,
 	);
 	for (const [usfm, chapters] of Object.entries(jobPlan.chaptersByBook)) {
-		let stagedMap: Record<string, Record<string, number>> = {};
-		let prodMap: Record<string, Record<string, number>> = {};
-		try {
-			stagedMap =
-				(
-					JSON.parse(await readFile(join(paths.localTimingsDir, `${usfm}.json`), "utf8")) as {
-						chapters?: Record<string, Record<string, number>>;
-					}
-				).chapters ?? {};
-		} catch {
-			// skip
-		}
-		try {
-			prodMap =
-				(
-					JSON.parse(await readFile(join(prodTimingsDir, `${usfm}.json`), "utf8")) as {
-						chapters?: Record<string, Record<string, number>>;
-					}
-				).chapters ?? {};
-		} catch {
-			// no prod baseline for this book
-		}
+		const readChapters = async (dir: string) => {
+			try {
+				return (
+					(
+						JSON.parse(await readFile(join(dir, `${usfm}.json`), "utf8")) as {
+							chapters?: Record<string, Record<string, number>>;
+						}
+					).chapters ?? {}
+				);
+			} catch {
+				return {};
+			}
+		};
+		const [stagedMap, prodMap] = await Promise.all([
+			readChapters(paths.localTimingsDir),
+			readChapters(prodTimingsDir),
+		]);
 
 		for (const ch of chapters) {
 			const stagedCh = stagedMap[String(ch)] ?? {};
 			const prodCh = prodMap[String(ch)];
 			const stagedCount = Object.keys(stagedCh).length;
 			const stagedV1 = stagedCh["1"];
-			let stagedBytes = 0;
-			try {
-				stagedBytes = (await stat(join(paths.localAudioDir, usfm, `${ch}.mp3`))).size;
-			} catch {
-				// ignore
-			}
+			const readSize = async (dir: string) => {
+				try {
+					return (await stat(join(dir, usfm, `${ch}.mp3`))).size;
+				} catch {
+					return 0;
+				}
+			};
+			const stagedBytes = await readSize(paths.localAudioDir);
 			if (prodCh) {
 				const prodCount = Object.keys(prodCh).length;
 				const prodV1 = prodCh["1"];
-				let prodBytes = 0;
-				try {
-					prodBytes = (await stat(join(prodAudioDir, usfm, `${ch}.mp3`))).size;
-				} catch {
-					// ignore
-				}
+				const prodBytes = await readSize(prodAudioDir);
 				const v1Delta =
 					typeof stagedV1 === "number" && typeof prodV1 === "number"
 						? `${(stagedV1 - prodV1).toFixed(3)}s`
@@ -2444,7 +2287,6 @@ interface ShardExecutionResult {
 	synthesisErrors: boolean;
 	mp3Count: number;
 	timingCount: number;
-	mergedReport: boolean;
 }
 
 async function openSshControlMasterWithRetry(
@@ -2537,8 +2379,15 @@ async function executeRemoteShard(params: {
 	const socketParent = await mkdtemp("/tmp/l2r-ssh-");
 	const controlPath = join(socketParent, "cm");
 	let controlOpen = false;
-	let pullCompletedCleanly = false;
 	let synthesisErrors = false;
+
+	const noopClean: ShardExecutionResult = {
+		exitCode: 0,
+		pullCompletedCleanly: true,
+		synthesisErrors: false,
+		mp3Count: 0,
+		timingCount: 0,
+	};
 
 	const closeControlSocket = async () => {
 		if (!controlOpen) return;
@@ -2585,14 +2434,7 @@ async function executeRemoteShard(params: {
 				`${logPrefix}Dry-run complete. Transport=${endpoint.target}, transfer=${transferMethod}, ` +
 					`remoteDir=${paths.remoteRunDir}, localAudioDir=${paths.localAudioDir}.`,
 			);
-			return {
-				exitCode: 0,
-				pullCompletedCleanly: true,
-				synthesisErrors: false,
-				mp3Count: 0,
-				timingCount: 0,
-				mergedReport: false,
-			};
+			return noopClean;
 		}
 
 		if (options.pullOnly) {
@@ -2613,12 +2455,12 @@ async function executeRemoteShard(params: {
 				`${logPrefix}Pulled ${merged.mp3Count} MP3(s), ${merged.timingCount} timing file(s)` +
 					`${merged.mergedReport ? ", and report" : ""} into ${paths.localAudioDir}.`,
 			);
-			pullCompletedCleanly = true;
 			return {
 				exitCode: 0,
-				pullCompletedCleanly,
+				pullCompletedCleanly: true,
 				synthesisErrors: false,
-				...merged,
+				mp3Count: merged.mp3Count,
+				timingCount: merged.timingCount,
 			};
 		}
 
@@ -2635,31 +2477,16 @@ async function executeRemoteShard(params: {
 		);
 		if (options.setupOnly) {
 			console.log(`${logPrefix}Remote environment ready (device=${activeDevice}).`);
-			return {
-				exitCode: 0,
-				pullCompletedCleanly: true,
-				synthesisErrors: false,
-				mp3Count: 0,
-				timingCount: 0,
-				mergedReport: false,
-			};
+			return noopClean;
 		}
 
 		if (jobPlan.pendingChapters === 0) {
 			console.log(
 				`${logPrefix}All selected chapters are already generated locally. Use --force to regenerate.`,
 			);
-			return {
-				exitCode: 0,
-				pullCompletedCleanly: true,
-				synthesisErrors: false,
-				mp3Count: 0,
-				timingCount: 0,
-				mergedReport: false,
-			};
+			return noopClean;
 		}
 
-		// Stage minimal inputs locally and push to remoteRunDir
 		const cacheParent = join(rootDir, ".cache");
 		await mkdir(cacheParent, { recursive: true });
 		const inputStageDir = await mkdtemp(join(cacheParent, ".remote-push-"));
@@ -2707,48 +2534,17 @@ async function executeRemoteShard(params: {
 
 		const runExpr = remoteDirBashExpr(paths.remoteRunDir);
 		const baseExpr = remoteDirBashExpr(paths.remoteBaseDir);
-		const remoteAudioExpr = remoteDirBashExpr(paths.remoteAudioDir);
-		const remoteTimingsExpr = remoteDirBashExpr(paths.remoteTimingsDir);
-		const remoteReportExpr = remoteDirBashExpr(paths.remoteReportPath);
-
 		const pythonArgs = [
 			`${runExpr}/scripts/generate-krv-audio.py`,
 			"--job-manifest",
 			`${runExpr}/job-manifest.json`,
 			"--audio-dir",
-			remoteAudioExpr,
+			remoteDirBashExpr(paths.remoteAudioDir),
 			"--timings-dir",
-			remoteTimingsExpr,
+			remoteDirBashExpr(paths.remoteTimingsDir),
 			"--report-path",
-			remoteReportExpr,
-			"--device",
-			quotePosix(activeDevice),
-			"--voice",
-			quotePosix(options.voice),
-			"--speed",
-			String(options.speed),
-			"--steps",
-			String(options.steps),
-			"--pause",
-			String(options.pause),
-			"--header-pause",
-			String(options.headerPause),
-			"--bitrate",
-			String(options.bitrate),
-			"--workers",
-			String(options.workers),
-			"--threads",
-			String(options.threads),
-			"--gpus",
-			String(options.gpus),
-			"--gpu-streams",
-			String(options.gpuStreams),
-			"--batch-size",
-			String(options.batchSize),
-			"--mp3-quality",
-			String(options.mp3Quality),
-			...(options.verbose ? ["--verbose"] : []),
-			...(options.force ? ["--force"] : []),
+			remoteDirBashExpr(paths.remoteReportPath),
+			...buildPythonSynthArgs(options, { device: activeDevice, quote: true }),
 		];
 
 		const remoteRunScript = `
@@ -2768,9 +2564,7 @@ exec ${baseExpr}/.venv/bin/python -u ${pythonArgs.join(" ")}
 				},
 			});
 			runExit = res.exitCode;
-			if (runExit !== 0) {
-				synthesisErrors = true;
-			}
+			if (runExit !== 0) synthesisErrors = true;
 		} finally {
 			unregisterKill?.();
 		}
@@ -2794,14 +2588,14 @@ exec ${baseExpr}/.venv/bin/python -u ${pythonArgs.join(" ")}
 			`${logPrefix}Synced ${merged.mp3Count} MP3(s), ${merged.timingCount} timing file(s)` +
 				`${merged.mergedReport ? ", and report" : ""} to ${paths.localAudioDir}.`,
 		);
-		pullCompletedCleanly = true;
 
 		const interruptedNow = Boolean(isInterrupted?.());
 		return {
 			exitCode: interruptedNow || runExit !== 0 ? runExit || 1 : 0,
-			pullCompletedCleanly,
+			pullCompletedCleanly: true,
 			synthesisErrors: synthesisErrors || interruptedNow,
-			...merged,
+			mp3Count: merged.mp3Count,
+			timingCount: merged.timingCount,
 		};
 	} finally {
 		await closeControlSocket().catch(() => {});
@@ -2814,6 +2608,7 @@ export async function runRemoteWorkflow(
 	rootDir: string,
 	runner: CommandRunner = createDefaultCommandRunner(),
 ): Promise<number> {
+	const startedAt = Date.now();
 	const paths = resolveOutputPaths(options, rootDir);
 	const tnrBin = resolveTnrBinary(runner);
 
@@ -2823,109 +2618,26 @@ export async function runRemoteWorkflow(
 		);
 	}
 
-	if (options.shards > 1) {
-		return runShardedRemoteWorkflow(options, paths, rootDir, runner, tnrBin);
-	}
-
-	let instance: ThunderInstanceInfo | undefined;
-	const useThunderCli = Boolean(options.thunder || options.create || (!options.ssh && tnrBin));
-	if (useThunderCli && tnrBin) {
-		instance = await resolveThunderInstance(tnrBin, options, runner);
-	}
-
-	const endpoint = await resolveEndpointForRun(options, tnrBin, instance);
-
 	if (options.shell) {
+		const useThunderCli = Boolean(options.thunder || options.create || (!options.ssh && tnrBin));
+		const instance =
+			useThunderCli && tnrBin
+				? (await resolveThunderInstances(tnrBin, options, 1, runner)).instances[0]
+				: undefined;
+		const endpoint = await resolveEndpointForRun(options, tnrBin, instance);
 		if (!options.ssh && tnrBin && instance) {
 			console.log(`Opening Thunder interactive shell for instance ${instance.id}...`);
 			return runner.runInteractive(tnrBin, ["connect", instance.id]);
 		}
 		console.log(`Opening SSH shell to ${endpoint.target}...`);
-		const args = [...buildSshBaseArgs(endpoint), "-o", "BatchMode=no", endpoint.target];
-		return runner.runInteractive("ssh", args);
+		return runner.runInteractive("ssh", [
+			...buildSshBaseArgs(endpoint),
+			"-o",
+			"BatchMode=no",
+			endpoint.target,
+		]);
 	}
 
-	const jobPlan = await buildPendingJobPlan(options, paths);
-	console.log(
-		`Plan [${paths.mode}${paths.stagingName ? `:${paths.stagingName}` : ""}]: ` +
-			`${jobPlan.books.length} book(s), ${jobPlan.totalSelectedChapters} chapter(s) ` +
-			`(${jobPlan.pendingChapters} pending, ${jobPlan.skippedChapters} already local).`,
-	);
-
-	let interrupted = false;
-	let activeKill: (() => void) | undefined;
-	const onSignal = () => {
-		if (!interrupted) {
-			interrupted = true;
-			console.warn("\nInterrupted — stopping remote synthesis and pulling completed chapters...");
-			activeKill?.();
-		}
-	};
-	process.on("SIGINT", onSignal);
-	process.on("SIGTERM", onSignal);
-
-	let shardResult: ShardExecutionResult | undefined;
-	try {
-		shardResult = await executeRemoteShard({
-			options,
-			paths,
-			jobPlan,
-			rootDir,
-			runner,
-			tnrBin,
-			instance,
-			endpoint,
-			freshVm: options.create,
-			registerKill: (kill) => {
-				activeKill = kill;
-				return () => {
-					if (activeKill === kill) activeKill = undefined;
-				};
-			},
-			isInterrupted: () => interrupted,
-		});
-
-		if (options.dryRun || options.setupOnly || jobPlan.pendingChapters === 0) {
-			return shardResult.exitCode;
-		}
-		if (shardResult.exitCode !== 0) {
-			return shardResult.exitCode;
-		}
-
-		const verification = await verifyAndSummarizeOutputs(jobPlan, paths, rootDir);
-		if (!verification.ok) {
-			for (const err of verification.errors) {
-				console.error(`Verification error: ${err}`);
-			}
-			return 1;
-		}
-
-		console.log("Integrity verification passed.");
-		return 0;
-	} finally {
-		process.off("SIGINT", onSignal);
-		process.off("SIGTERM", onSignal);
-
-		if (options.deleteAfter && instance && tnrBin) {
-			if (shardResult?.pullCompletedCleanly && !shardResult.synthesisErrors) {
-				await deleteThunderInstance(tnrBin, instance.id, runner);
-			} else {
-				console.warn(
-					`Skipping \`tnr delete ${instance.id}\` because synthesis/sync did not complete cleanly. Delete manually when ready: \`tnr delete ${instance.id}\`.`,
-				);
-			}
-		}
-	}
-}
-
-async function runShardedRemoteWorkflow(
-	options: CliOptions,
-	paths: OutputPaths,
-	rootDir: string,
-	runner: CommandRunner,
-	tnrBin: string | null,
-): Promise<number> {
-	const startedAt = Date.now();
 	const jobPlan = await buildPendingJobPlan(options, paths);
 	console.log(
 		`Plan [${paths.mode}${paths.stagingName ? `:${paths.stagingName}` : ""}]: ` +
@@ -2938,8 +2650,10 @@ async function runShardedRemoteWorkflow(
 		return 0;
 	}
 
-	const shardPlans =
-		options.setupOnly || options.pullOnly
+	const isMultiShard = options.shards > 1;
+	const shardPlans = !isMultiShard
+		? [jobPlan]
+		: options.setupOnly || options.pullOnly
 			? Array.from({ length: options.shards }, () => jobPlan)
 			: await partitionJobPlan(jobPlan, options.shards, rootDir);
 
@@ -2948,18 +2662,19 @@ async function runShardedRemoteWorkflow(
 		return 0;
 	}
 
-	if (shardPlans.length < options.shards) {
-		console.log(
-			`Capping parallel shards from ${options.shards} to ${shardPlans.length} to match pending chapter count.`,
-		);
+	if (isMultiShard) {
+		if (shardPlans.length < options.shards) {
+			console.log(
+				`Capping parallel shards from ${options.shards} to ${shardPlans.length} to match pending chapter count.`,
+			);
+		}
+		console.log(`Shard plan (${shardPlans.length} parallel VM shard(s)):`);
+		for (let i = 0; i < shardPlans.length; i++) {
+			console.log(`  Shard ${i + 1}/${shardPlans.length}: ${formatShardSummary(shardPlans[i])}`);
+		}
 	}
 
-	console.log(`Shard plan (${shardPlans.length} parallel VM shard(s)):`);
-	for (let i = 0; i < shardPlans.length; i++) {
-		console.log(`  Shard ${i + 1}/${shardPlans.length}: ${formatShardSummary(shardPlans[i])}`);
-	}
-
-	// Never create/bill N VMs on a dry-run when --create is passed without existing targets.
+	// Never provision/bill VM(s) on a dry-run when --create is passed without existing targets.
 	if (options.dryRun && options.create && !options.thunder && !options.ssh) {
 		console.log(`Dry-run complete (skipped provisioning ${shardPlans.length} Thunder VM(s)).`);
 		return 0;
@@ -2972,30 +2687,17 @@ async function runShardedRemoteWorkflow(
 		eligibleForDelete: boolean;
 	}> = [];
 	const explicitThunderSelectors = options.thunder ? parseCommaList(options.thunder) : [];
+	const useThunderCli = Boolean(
+		options.thunder || options.create || (!options.ssh && (tnrBin || isMultiShard)),
+	);
 
-	if (options.ssh) {
-		const rawSshTargets = parseCommaList(options.ssh);
-		for (let i = 0; i < shardPlans.length; i++) {
-			const endpoint = parseSshTarget(
-				rawSshTargets[i],
-				options.sshPort,
-				options.sshKey,
-				options.sshOptions,
-			);
-			shardTargets.push({
-				instance: undefined,
-				endpoint,
-				freshVm: false,
-				eligibleForDelete: false,
-			});
-		}
-	} else {
+	if (useThunderCli) {
 		if (!tnrBin) {
 			throw new Error(
-				"Thunder Compute CLI (`tnr`) not found in PATH.\nInstall it with `brew tap Thunder-Compute/tnr && brew install tnr` and run `tnr login`, or pass comma-separated `--ssh host1,host2`.",
+				"Thunder Compute CLI (`tnr`) not found in PATH.\nInstall it with `brew tap Thunder-Compute/tnr && brew install tnr` and run `tnr login`, or pass `--ssh <target>`.",
 			);
 		}
-		const { instances, createdIds } = await resolveThunderShards(
+		const { instances, createdIds } = await resolveThunderInstances(
 			tnrBin,
 			options,
 			shardPlans.length,
@@ -3008,25 +2710,44 @@ async function runShardedRemoteWorkflow(
 				instance: inst,
 				endpoint,
 				freshVm: isNewlyCreated,
-				eligibleForDelete: isNewlyCreated || explicitThunderSelectors.length > 0,
+				eligibleForDelete: !isMultiShard || isNewlyCreated || explicitThunderSelectors.length > 0,
 			});
 		}
+	} else if (options.ssh) {
+		const rawSshTargets = parseCommaList(options.ssh);
+		for (let i = 0; i < shardPlans.length; i++) {
+			shardTargets.push({
+				instance: undefined,
+				endpoint: parseSshTarget(
+					rawSshTargets[i],
+					options.sshPort,
+					options.sshKey,
+					options.sshOptions,
+				),
+				freshVm: false,
+				eligibleForDelete: false,
+			});
+		}
+	} else {
+		throw new Error("Remote mode requires either --thunder <id> or --ssh <target>.");
 	}
 
 	let mergeChain = Promise.resolve();
-	const withMergeLock = async <T>(fn: () => Promise<T>): Promise<T> => {
-		const prev = mergeChain;
-		let release!: () => void;
-		mergeChain = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await prev;
-		try {
-			return await fn();
-		} finally {
-			release();
-		}
-	};
+	const withMergeLock = isMultiShard
+		? async <T>(fn: () => Promise<T>): Promise<T> => {
+				const prev = mergeChain;
+				let release!: () => void;
+				mergeChain = new Promise<void>((res) => {
+					release = res;
+				});
+				await prev;
+				try {
+					return await fn();
+				} finally {
+					release();
+				}
+			}
+		: undefined;
 
 	let interrupted = false;
 	const activeKills = new Set<() => void>();
@@ -3034,7 +2755,9 @@ async function runShardedRemoteWorkflow(
 		if (!interrupted) {
 			interrupted = true;
 			console.warn(
-				`\nInterrupted — stopping synthesis on ${activeKills.size} shard VM(s) and pulling completed chapters...`,
+				isMultiShard
+					? `\nInterrupted — stopping synthesis on ${activeKills.size} shard VM(s) and pulling completed chapters...`
+					: "\nInterrupted — stopping remote synthesis and pulling completed chapters...",
 			);
 			for (const kill of activeKills) kill();
 		}
@@ -3043,7 +2766,6 @@ async function runShardedRemoteWorkflow(
 	process.on("SIGTERM", onSignal);
 
 	const results: Array<{
-		shardIndex: number;
 		target: (typeof shardTargets)[number];
 		result?: ShardExecutionResult;
 		error?: unknown;
@@ -3051,11 +2773,11 @@ async function runShardedRemoteWorkflow(
 
 	try {
 		const settled = await Promise.allSettled(
-			shardPlans.map(async (shardPlan, idx) => {
+			shardPlans.map((shardPlan, idx) => {
 				const target = shardTargets[idx];
-				const shardPaths = deriveShardOutputPaths(paths, idx + 1);
+				const shardPaths = isMultiShard ? deriveShardOutputPaths(paths, idx + 1) : paths;
 				const label = target.instance ? `tnr-${target.instance.id}` : target.endpoint.target;
-				const logPrefix = `[shard ${idx + 1}/${shardPlans.length} · ${label}] `;
+				const logPrefix = isMultiShard ? `[shard ${idx + 1}/${shardPlans.length} · ${label}] ` : "";
 				return executeRemoteShard({
 					options,
 					paths: shardPaths,
@@ -3080,30 +2802,32 @@ async function runShardedRemoteWorkflow(
 		for (let i = 0; i < settled.length; i++) {
 			const entry = settled[i];
 			if (entry.status === "fulfilled") {
-				results.push({ shardIndex: i, target: shardTargets[i], result: entry.value });
+				results.push({ target: shardTargets[i], result: entry.value });
 			} else {
+				if (!isMultiShard) throw entry.reason;
 				const msg = entry.reason instanceof Error ? entry.reason.message : String(entry.reason);
 				console.error(`[shard ${i + 1}/${shardPlans.length}] ERROR: ${msg}`);
-				results.push({ shardIndex: i, target: shardTargets[i], error: entry.reason });
+				results.push({ target: shardTargets[i], error: entry.reason });
 			}
 		}
 
-		const totalMp3s = results.reduce((sum, r) => sum + (r.result?.mp3Count ?? 0), 0);
-		const totalTimings = results.reduce((sum, r) => sum + (r.result?.timingCount ?? 0), 0);
-		const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
 		const allClean = results.every((r) => !r.error && r.result?.exitCode === 0);
-
 		if (options.dryRun || options.setupOnly) {
-			return allClean ? 0 : 1;
+			return allClean ? 0 : (results[0]?.result?.exitCode ?? 1);
 		}
 
-		console.log(
-			`\nCompleted ${shardPlans.length} parallel shard(s) in ${elapsedSec}s ` +
-				`(synced ${totalMp3s} MP3(s), ${totalTimings} timing file write(s)).`,
-		);
+		if (isMultiShard) {
+			const totalMp3s = results.reduce((sum, r) => sum + (r.result?.mp3Count ?? 0), 0);
+			const totalTimings = results.reduce((sum, r) => sum + (r.result?.timingCount ?? 0), 0);
+			const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+			console.log(
+				`\nCompleted ${shardPlans.length} parallel shard(s) in ${elapsedSec}s ` +
+					`(synced ${totalMp3s} MP3(s), ${totalTimings} timing file write(s)).`,
+			);
+		}
 
 		if (!allClean) {
-			return 1;
+			return !isMultiShard ? (results[0]?.result?.exitCode ?? 1) : 1;
 		}
 
 		const verification = await verifyAndSummarizeOutputs(jobPlan, paths, rootDir);
@@ -3114,42 +2838,46 @@ async function runShardedRemoteWorkflow(
 			return 1;
 		}
 
-		console.log("Integrity verification passed across all shards.");
+		console.log(
+			isMultiShard
+				? "Integrity verification passed across all shards."
+				: "Integrity verification passed.",
+		);
 		return 0;
 	} finally {
 		process.off("SIGINT", onSignal);
 		process.off("SIGTERM", onSignal);
 
-		const remainingInstanceIds: string[] = [];
+		const allowDelete =
+			options.deleteAfter && !options.dryRun && !options.setupOnly && !options.pullOnly;
 		if (tnrBin) {
-			for (const entry of results) {
+			const remainingIds: string[] = [];
+			const deleteEntries: typeof results =
+				results.length > 0 ? results : shardTargets.map((target) => ({ target }));
+			for (const entry of deleteEntries) {
 				const inst = entry.target.instance;
 				if (!inst) continue;
 				const cleanSync =
 					!entry.error &&
 					Boolean(entry.result?.pullCompletedCleanly) &&
 					!entry.result?.synthesisErrors;
-				if (options.deleteAfter && entry.target.eligibleForDelete && cleanSync) {
+				if (allowDelete && entry.target.eligibleForDelete && cleanSync) {
 					const deleted = await deleteThunderInstance(tnrBin, inst.id, runner);
-					if (!deleted) remainingInstanceIds.push(inst.id);
+					if (!deleted) remainingIds.push(inst.id);
 				} else {
-					remainingInstanceIds.push(inst.id);
+					remainingIds.push(inst.id);
 				}
 			}
-			if (results.length === 0) {
-				for (const t of shardTargets) {
-					if (t.instance) remainingInstanceIds.push(t.instance.id);
-				}
-			}
-			if (remainingInstanceIds.length > 0) {
-				const deleteCmds = remainingInstanceIds.map((id) => `tnr delete ${id}`).join(" && ");
-				if (options.deleteAfter) {
+
+			if (remainingIds.length > 0) {
+				const deleteCmds = remainingIds.map((id) => `tnr delete ${id}`).join(" && ");
+				if (allowDelete) {
 					console.warn(
-						`Some shard VM(s) were kept because synthesis/sync did not finish cleanly. Delete manually when ready: \`${deleteCmds}\``,
+						`Skipping \`${deleteCmds}\` because synthesis/sync did not finish cleanly. Delete manually when ready: \`${deleteCmds}\``,
 					);
-				} else {
+				} else if (isMultiShard) {
 					console.log(
-						`Thunder shard VM(s) still running (${remainingInstanceIds.join(", ")}). Stop billing when done: \`${deleteCmds}\``,
+						`Thunder shard VM(s) still running (${remainingIds.join(", ")}). Stop billing when done: \`${deleteCmds}\``,
 					);
 				}
 			}

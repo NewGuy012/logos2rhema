@@ -1,23 +1,12 @@
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 
-const ROOT_DIR = join(import.meta.dir, "..");
+import { pathExists, ROOT_DIR } from "./lib/common";
+
 const ENTRY_HTML = join(ROOT_DIR, "index.html");
 const PUBLIC_DIR = join(ROOT_DIR, "public");
 const PUBLIC_ESV_DIR = join(PUBLIC_DIR, "data", "bibles", "esv");
 const DIST_CLIENT_DIR = join(ROOT_DIR, "dist", "client");
-
-async function pathExists(path: string): Promise<boolean> {
-	try {
-		await stat(path);
-		return true;
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
-			return false;
-		}
-		throw err;
-	}
-}
 
 async function buildClient(): Promise<void> {
 	if (await pathExists(PUBLIC_ESV_DIR)) {

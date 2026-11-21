@@ -1,11 +1,13 @@
 import { join } from "node:path";
 
+import { loadDevVarsRecord, ROOT_DIR } from "./lib/common";
 import {
+	buildPythonSynthArgs,
 	type CliOptions,
 	type CommandRunner,
 	createDefaultCommandRunner,
 	getUsageText,
-	loadDevVarsRecord,
+	hasRemoteOnlyFlags,
 	parseCliOptions,
 	resolveOutputPaths,
 	resolveUvBinary,
@@ -13,7 +15,6 @@ import {
 	selectBooksForOptions,
 } from "./lib/remote-tts";
 
-const ROOT_DIR = join(import.meta.dir, "..");
 const PYTHON_SCRIPT_PATH = join(ROOT_DIR, "scripts", "generate-krv-audio.py");
 const UPLOAD_SCRIPT_PATH = join(ROOT_DIR, "scripts", "upload-krv-audio.ts");
 
@@ -32,36 +33,7 @@ function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 		args.push("--chapters", options.chapters.join(","));
 	}
 
-	args.push(
-		"--device",
-		options.device,
-		"--voice",
-		options.voice,
-		"--speed",
-		String(options.speed),
-		"--steps",
-		String(options.steps),
-		"--pause",
-		String(options.pause),
-		"--header-pause",
-		String(options.headerPause),
-		"--bitrate",
-		String(options.bitrate),
-		"--workers",
-		String(options.workers),
-		"--threads",
-		String(options.threads),
-		"--gpus",
-		String(options.gpus),
-		"--gpu-streams",
-		String(options.gpuStreams),
-		"--batch-size",
-		String(options.batchSize),
-		"--mp3-quality",
-		String(options.mp3Quality),
-	);
-
-	if (options.verbose) args.push("--verbose");
+	args.push(...buildPythonSynthArgs(options, { device: options.device }));
 
 	if (options.staging !== undefined || options.outDir !== undefined) {
 		const paths = resolveOutputPaths(options, rootDir);
@@ -75,7 +47,6 @@ function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 		);
 	}
 
-	if (options.force) args.push("--force");
 	if (options.dryRun) args.push("--dry-run");
 	return args;
 }
@@ -85,8 +56,12 @@ function buildUploadArgs(options: CliOptions): string[] {
 	if (options.books && options.books.length > 0) {
 		args.push("--books", options.books.join(","));
 	} else if (options.testament) {
-		const usfms = selectBooksForOptions(options).map((b) => b.usfm);
-		args.push("--books", usfms.join(","));
+		args.push(
+			"--books",
+			selectBooksForOptions(options)
+				.map((b) => b.usfm)
+				.join(","),
+		);
 	}
 	if (options.r2Bucket) {
 		args.push("--bucket", options.r2Bucket);
@@ -102,7 +77,7 @@ export async function runCli(
 	const devVars = await loadDevVarsRecord(join(rootDir, ".dev.vars"));
 	const mergedEnv: Record<string, string | undefined> = { ...devVars, ...process.env };
 
-	let options: CliOptions;
+	let options: CliOptions | null;
 	try {
 		options = parseCliOptions(argv, mergedEnv);
 	} catch (err) {
@@ -112,7 +87,7 @@ export async function runCli(
 		return 1;
 	}
 
-	if (options.help) {
+	if (!options) {
 		console.log(getUsageText());
 		return 0;
 	}
@@ -126,9 +101,9 @@ export async function runCli(
 			return 1;
 		}
 	} else {
-		if (options.deleteAfter || options.gpu || options.template || options.mode) {
+		if (hasRemoteOnlyFlags(options)) {
 			console.error(
-				"Thunder Compute VM options (--delete-after, --gpu, --template, --mode) require --thunder <id>, --ssh <target>, or --remote.",
+				"Remote/Thunder Compute options (--delete-after, --gpu, --template, --mode, --ssh-*, --remote-dir, --transfer, etc.) require --thunder <id>, --ssh <target>, or --remote.",
 			);
 			return 1;
 		}
