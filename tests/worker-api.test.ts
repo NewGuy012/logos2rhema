@@ -62,7 +62,7 @@ describe("Worker API & Security Boundaries", () => {
 					headers: { Location: "https://audio.esv.org/hw/43003001-43003036.mp3" },
 				});
 			}
-			if (captured.query === "Jude 1:1-99") {
+			if (captured.query === "Jude") {
 				return new Response(null, {
 					status: 302,
 					headers: { Location: "https://audio.esv.org/hw/65001001-65001025.mp3" },
@@ -145,10 +145,13 @@ describe("Worker API & Security Boundaries", () => {
 			AUDIO_BASE_URL: "https://cdn.example.com/krv/",
 			ESV_API_KEY: secretKey,
 		});
-		expect(captured.query).toBe("Jude 1:1-99");
+		expect(captured.query).toBe("Jude");
 		const baseBody = (await baseUrlRes.json()) as ChapterAudioResponse;
 		expect(baseBody.tracks.find((t) => t.language === "ko")?.url).toBe(
 			"https://cdn.example.com/krv/JUD/1.mp3",
+		);
+		expect(baseBody.tracks.find((t) => t.language === "en")?.url).toBe(
+			"https://audio.esv.org/hw/65001001-65001025.mp3",
 		);
 
 		// Untrusted redirect host or secret-leaking redirect URL is dropped and not long-cached
@@ -552,7 +555,7 @@ describe("Worker API & Security Boundaries", () => {
 				redirect: init?.redirect,
 			});
 			const q = new URL(url).searchParams.get("q");
-			if (q === "Jude 1:1-99") {
+			if (q === "Jude") {
 				return Response.json({
 					passages: [
 						'<p><b class="verse-num">1&nbsp;</b>Jude, a servant.</p><p><b class="verse-num">25&nbsp;</b>to the only God.</p>',
@@ -602,7 +605,7 @@ describe("Worker API & Security Boundaries", () => {
 		const reqUrl = new URL(captured[0]?.url ?? "");
 		expect(captured[0]?.auth).toBe(`Token ${secretKey}`);
 		expect(captured[0]?.redirect).toBe("manual");
-		expect(reqUrl.searchParams.get("q")).toBe("Jude 1:1-99");
+		expect(reqUrl.searchParams.get("q")).toBe("Jude");
 		expect(reqUrl.searchParams.get("include-copyright")).toBe("false");
 
 		const headRes = await requestApp(

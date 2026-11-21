@@ -14,8 +14,8 @@ export function formatEsvPassageQuery(
 	chapter: number,
 	chaptersInBook: number,
 ): string {
-	// Single-chapter books need an explicit span so "Jude 1" isn't treated as verse 1 only.
-	return chaptersInBook === 1 ? `${bookEn} 1:1-99` : `${bookEn} ${chapter}`;
+	// Single-chapter books need the bare book name: "Jude 1" selects verse 1 only, and "Jude 1:1-99" returns 400 on audio.
+	return chaptersInBook === 1 ? bookEn : `${bookEn} ${chapter}`;
 }
 
 function isSafeEsvUrl(url: string, apiKey: string): boolean {
