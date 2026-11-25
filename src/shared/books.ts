@@ -3,6 +3,21 @@ import type { BookMeta, ParsedReference, Testament, VerseRef } from "./types";
 export const MAX_VERSE_NUMBER = 200;
 export const MAX_PASSAGE_VERSE_SPAN = 10;
 
+export type CompactVerseRef = readonly [
+	bookNumber: number,
+	chapter: number,
+	verseStart: number,
+	verseEnd?: number,
+];
+
+export function toVerseRefs(specs: readonly CompactVerseRef[]): readonly VerseRef[] {
+	return specs.map(([bookNumber, chapter, verseStart, verseEnd]) =>
+		verseEnd !== undefined
+			? { bookNumber, chapter, verseStart, verseEnd }
+			: { bookNumber, chapter, verseStart },
+	);
+}
+
 type BookRow = readonly [
 	usfm: string,
 	en: string,

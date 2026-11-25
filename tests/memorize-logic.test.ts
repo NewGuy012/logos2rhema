@@ -16,14 +16,7 @@ import {
 import { BIBLE_BOOKS, getBookByNumber, normalizeVerseRef } from "../src/shared/books";
 import { MEMORIZE_STARTER_PACKS } from "../src/shared/memorize-packs";
 import type { BookBibleData } from "../src/shared/types";
-import {
-	getDayOfYearIndex,
-	getLocalDateKey,
-	getNextRandomVotdIndex,
-	getVerseOfTheDay,
-	getVerseOfTheDayByIndex,
-	VERSE_OF_THE_DAY_REFS,
-} from "../src/shared/verse-of-the-day";
+import { getVerseOfTheDay, VERSE_OF_THE_DAY_REFS } from "../src/shared/verse-of-the-day";
 
 function createMemoryStorage(): Storage {
 	const store = new Map<string, string>();
@@ -115,22 +108,16 @@ describe("Verse of the Day & Starter Packs data integrity", () => {
 		const day2 = new Date(2026, 10, 25, 9, 0, 0);
 		const leapEnd = new Date(2024, 11, 31, 12, 0, 0);
 
-		expect(getLocalDateKey(day1)).toBe("2026-11-24");
-		expect(getDayOfYearIndex(leapEnd)).toBe(365);
-
 		const today = getVerseOfTheDay(day1, 0);
 		const tomorrow = getVerseOfTheDay(day1, 1);
 		const sameTomorrow = getVerseOfTheDay(day2, 0);
 
 		expect(today.isToday).toBe(true);
+		expect(today.displayDate).toBe("Nov 24, 2026");
 		expect(tomorrow.isToday).toBe(false);
-		expect(tomorrow.dateKey).toBe("2026-11-25");
+		expect(tomorrow.displayDate).toBe("Nov 25, 2026");
 		expect(tomorrow.ref).toEqual(sameTomorrow.ref);
-		expect(tomorrow.index).toBe((today.index + 1) % VERSE_OF_THE_DAY_REFS.length);
-
-		expect(getVerseOfTheDayByIndex(-1).index).toBe(VERSE_OF_THE_DAY_REFS.length - 1);
-		const nextRand = getNextRandomVotdIndex(today.index, () => 0);
-		expect(nextRand).not.toBe(today.index);
+		expect(getVerseOfTheDay(leapEnd, 0).ref).toEqual(VERSE_OF_THE_DAY_REFS[365]);
 	});
 });
 

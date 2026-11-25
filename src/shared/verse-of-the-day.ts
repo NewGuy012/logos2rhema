@@ -1,18 +1,8 @@
-import { getBookOrDefault } from "./books";
+import { type CompactVerseRef, toVerseRefs } from "./books";
 import type { VerseRef } from "./types";
 
-type CompactVerseSpec = readonly [
-	bookNumber: number,
-	chapter: number,
-	verseStart: number,
-	verseEnd?: number,
-];
-
-/**
- * 366 curated Bible references (OT & NT) for Verse of the Day.
- * Stores passage references only — English ESV text is fetched live at runtime.
- */
-export const VERSE_OF_THE_DAY_SPECS: readonly CompactVerseSpec[] = [
+/** 366 curated Bible references for Verse of the Day (ESV text fetched live at runtime). */
+const VERSE_OF_THE_DAY_SPECS: readonly CompactVerseRef[] = [
 	[1, 1, 1],
 	[43, 3, 16],
 	[19, 23, 1],
@@ -381,58 +371,14 @@ export const VERSE_OF_THE_DAY_SPECS: readonly CompactVerseSpec[] = [
 	[60, 5, 10],
 ];
 
-function specToRef(spec: CompactVerseSpec): VerseRef {
-	const [bookNumber, chapter, verseStart, verseEnd] = spec;
-	return verseEnd !== undefined
-		? { bookNumber, chapter, verseStart, verseEnd }
-		: { bookNumber, chapter, verseStart };
-}
+export const VERSE_OF_THE_DAY_REFS: readonly VerseRef[] = toVerseRefs(VERSE_OF_THE_DAY_SPECS);
 
-export const VERSE_OF_THE_DAY_REFS: readonly VerseRef[] = VERSE_OF_THE_DAY_SPECS.map(specToRef);
-
-export function getLocalDateKey(date = new Date()): string {
-	const y = date.getFullYear();
-	const m = String(date.getMonth() + 1).padStart(2, "0");
-	const d = String(date.getDate()).padStart(2, "0");
-	return `${y}-${m}-${d}`;
-}
-
-export function getShiftedLocalDate(date = new Date(), offsetDays = 0): Date {
-	return new Date(date.getFullYear(), date.getMonth(), date.getDate() + offsetDays);
-}
-
-export function formatLocalDateLabel(date = new Date()): string {
-	return new Intl.DateTimeFormat("en-US", {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-	}).format(date);
-}
-
-export function getDayOfYearIndex(date = new Date()): number {
+function getDayOfYearIndex(date = new Date()): number {
 	const utcCurrent = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
 	const utcStart = Date.UTC(date.getFullYear(), 0, 1);
 	const dayOfYear = Math.floor((utcCurrent - utcStart) / 86_400_000);
-	return (
-		((dayOfYear % VERSE_OF_THE_DAY_REFS.length) + VERSE_OF_THE_DAY_REFS.length) %
-		VERSE_OF_THE_DAY_REFS.length
-	);
-}
-
-export function getVerseOfTheDayByIndex(index: number): {
-	ref: VerseRef;
-	index: number;
-	labelEn: string;
-} {
 	const len = VERSE_OF_THE_DAY_REFS.length;
-	const normalizedIndex = ((Math.trunc(index) % len) + len) % len;
-	const ref = VERSE_OF_THE_DAY_REFS[normalizedIndex];
-	const book = getBookOrDefault(ref.bookNumber);
-	const labelEn =
-		ref.verseEnd !== undefined && ref.verseEnd > ref.verseStart
-			? `${book.en} ${ref.chapter}:${ref.verseStart}–${ref.verseEnd}`
-			: `${book.en} ${ref.chapter}:${ref.verseStart}`;
-	return { ref, index: normalizedIndex, labelEn };
+	return ((dayOfYear % len) + len) % len;
 }
 
 export function getVerseOfTheDay(
@@ -440,29 +386,18 @@ export function getVerseOfTheDay(
 	offsetDays = 0,
 ): {
 	ref: VerseRef;
-	dateKey: string;
 	displayDate: string;
-	index: number;
 	isToday: boolean;
 } {
-	const targetDate = getShiftedLocalDate(date, offsetDays);
+	const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() + offsetDays);
 	const index = getDayOfYearIndex(targetDate);
 	return {
 		ref: VERSE_OF_THE_DAY_REFS[index],
-		dateKey: getLocalDateKey(targetDate),
-		displayDate: formatLocalDateLabel(targetDate),
-		index,
+		displayDate: new Intl.DateTimeFormat("en-US", {
+			month: "short",
+			day: "numeric",
+			year: "numeric",
+		}).format(targetDate),
 		isToday: offsetDays === 0,
 	};
-}
-
-export function getNextRandomVotdIndex(
-	currentIndex: number,
-	random: () => number = Math.random,
-): number {
-	const len = VERSE_OF_THE_DAY_REFS.length;
-	if (len <= 1) return 0;
-	const normalizedCurrent = ((Math.trunc(currentIndex) % len) + len) % len;
-	const step = 1 + Math.floor(Math.max(0, Math.min(0.9999999, random())) * (len - 1));
-	return (normalizedCurrent + step) % len;
 }

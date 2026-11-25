@@ -36,6 +36,7 @@ export function isSafeHttpsUrl(
 			host === "localhost" ||
 			host.endsWith(".localhost") ||
 			host.endsWith(".local") ||
+			host.endsWith(".localdomain") ||
 			host.endsWith(".internal") ||
 			host.endsWith(".arpa")
 		) {

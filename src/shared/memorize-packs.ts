@@ -1,42 +1,20 @@
+import { toVerseRefs } from "./books";
 import type { VerseRef } from "./types";
-
-export type MemorizePackCategory = "essential" | "testament" | "theme";
 
 export interface MemorizeStarterPack {
 	id: string;
-	category: MemorizePackCategory;
 	titleEn: string;
 	titleKo: string;
-	description: string;
 	refs: readonly VerseRef[];
 }
 
-type CompactRef = readonly [
-	bookNumber: number,
-	chapter: number,
-	verseStart: number,
-	verseEnd?: number,
-];
-
-function toRefs(specs: readonly CompactRef[]): readonly VerseRef[] {
-	return specs.map(([bookNumber, chapter, verseStart, verseEnd]) =>
-		verseEnd !== undefined
-			? { bookNumber, chapter, verseStart, verseEnd }
-			: { bookNumber, chapter, verseStart },
-	);
-}
-
-/**
- * Curated starter packs storing passage references only (no ESV text).
- */
+/** Curated starter packs storing passage references only (no ESV text). */
 export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	{
 		id: "top-50",
-		category: "essential",
 		titleEn: "Top 50 Essential Verses",
 		titleKo: "핵심 성경 암송 50구절",
-		description: "Fifty foundational verses spanning Genesis to Revelation.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[1, 1, 1],
 			[5, 6, 5],
 			[6, 1, 8],
@@ -91,11 +69,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "old-testament",
-		category: "testament",
 		titleEn: "Old Testament Treasures",
 		titleKo: "구약 핵심 말씀",
-		description: "Landmark passages across the Law, History, Psalms, Proverbs, and Prophets.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[1, 1, 1],
 			[5, 6, 5],
 			[6, 1, 8],
@@ -112,11 +88,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "new-testament",
-		category: "testament",
 		titleEn: "New Testament Pillars",
 		titleKo: "신약 핵심 말씀",
-		description: "Key verses from the Gospels, Acts, Epistles, and Revelation.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[40, 5, 16],
 			[41, 10, 45],
 			[42, 1, 37],
@@ -133,11 +107,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "psalms-proverbs",
-		category: "testament",
 		titleEn: "Psalms & Proverbs",
 		titleKo: "시편 · 잠언",
-		description: "Poetic worship, shepherd promises, and daily wisdom.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[19, 1, 1, 2],
 			[19, 19, 14],
 			[19, 23, 1, 3],
@@ -152,11 +124,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "words-of-jesus",
-		category: "testament",
 		titleEn: "Words of Jesus",
 		titleKo: "예수님의 말씀",
-		description: "Direct teachings and promises of Christ across the four Gospels.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[40, 5, 8],
 			[40, 6, 33],
 			[40, 11, 28, 29],
@@ -171,11 +141,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "gospel-grace",
-		category: "theme",
 		titleEn: "Gospel & Grace",
 		titleKo: "복음과 은혜",
-		description: "Core promises of salvation, mercy, and new life in Christ.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[43, 3, 16],
 			[45, 5, 8],
 			[45, 8, 1],
@@ -186,11 +154,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "peace-trust",
-		category: "theme",
 		titleEn: "Peace & Trust",
 		titleKo: "평안과 신뢰",
-		description: "Anchors for anxious days, guidance, and resting in the Lord.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[20, 3, 5, 6],
 			[23, 41, 10],
 			[50, 4, 6, 7],
@@ -201,11 +167,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "wisdom-word",
-		category: "theme",
 		titleEn: "Wisdom & Word",
 		titleKo: "지혜와 말씀",
-		description: "Scripture on meditating on God's Word and walking wisely.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[19, 1, 2],
 			[19, 119, 105],
 			[6, 1, 8],
@@ -216,11 +180,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "strength-courage",
-		category: "theme",
 		titleEn: "Strength & Courage",
 		titleKo: "능력과 담대함",
-		description: "Verses for endurance, courage, and renewing strength.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[23, 40, 31],
 			[50, 4, 13],
 			[6, 1, 9],
@@ -231,11 +193,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "prayer-worship",
-		category: "theme",
 		titleEn: "Prayer & Worship",
 		titleKo: "기도와 예배",
-		description: "Invitations to seek God, give thanks, and draw near in prayer.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[13, 16, 11],
 			[19, 95, 1],
 			[19, 100, 5],
@@ -248,11 +208,9 @@ export const MEMORIZE_STARTER_PACKS: readonly MemorizeStarterPack[] = [
 	},
 	{
 		id: "love-character",
-		category: "theme",
 		titleEn: "Love & Character",
 		titleKo: "사랑과 성품",
-		description: "Walking in love, humility, kindness, and the fruit of the Spirit.",
-		refs: toRefs([
+		refs: toVerseRefs([
 			[46, 13, 4, 5],
 			[46, 13, 13],
 			[48, 5, 22, 23],

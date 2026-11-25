@@ -1,10 +1,6 @@
 import type { KrvGrammarNote, LexiconEntry } from "./types";
 
-/**
- * Curated high-priority Korean-English glossary for biblical, theological,
- * grammatical, and archaic 개역한글 (KRV 1961) vocabulary.
- * Takes precedence over generic dictionary senses (e.g. "운행하다" = hover/move, not bus route).
- */
+/** Curated biblical and archaic KRV (1961) glossary; takes precedence over generic lexicon senses. */
 export const BIBLICAL_GLOSSARY: Record<string, LexiconEntry> = {
 	// Core Theological & Creation Vocabulary
 	태초: { gloss: "the beginning", hanja: "太初", pos: "noun" },
