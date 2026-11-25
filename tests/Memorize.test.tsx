@@ -239,7 +239,7 @@ describe("Memorize Simplified UI & End-to-End Integration", () => {
 			// Expand Starter Packs and add Gospel & Grace
 			fireClick(packsToggle);
 			expect(packsToggle.getAttribute("aria-expanded")).toBe("true");
-			expect(getByText(container, "Top 20 Essential Verses")).toBeDefined();
+			expect(getByText(container, "Top 50 Essential Verses")).toBeDefined();
 			fireClick(getButton(container, "Add Gospel & Grace pack"));
 			await waitUntil(() => {
 				expect(getByText(container, "Added 5 verses from Gospel & Grace.")).toBeDefined();

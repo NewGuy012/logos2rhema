@@ -106,7 +106,7 @@ describe("Verse of the Day & Starter Packs data integrity", () => {
 				}
 			}
 		}
-		expect(MEMORIZE_STARTER_PACKS.find((p) => p.id === "top-20")?.refs).toHaveLength(20);
+		expect(MEMORIZE_STARTER_PACKS.find((p) => p.id === "top-50")?.refs).toHaveLength(50);
 		expect(bookDataCache.size).toBeLessThanOrEqual(BIBLE_BOOKS.length);
 	});
 
