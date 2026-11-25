@@ -54,10 +54,11 @@ const BLOCK_BOUNDARY_TAGS = new Set(["p", "div", "br", "li", "blockquote", "h1",
 type TagRole =
 	"skip" | "heading" | "speaker" | "verse-num" | "small-caps" | "selah" | "block" | "inline";
 
-type FetchEsvChapterResult =
-	{ status: "ok"; verses: VerseEntry[] } | { status: "rate_limited" } | { status: "error" };
-
-type FetchEsvPassageResult = FetchEsvChapterResult | { status: "not_found" };
+type FetchEsvResult =
+	| { status: "ok"; verses: VerseEntry[] }
+	| { status: "not_found" }
+	| { status: "rate_limited" }
+	| { status: "error" };
 
 function decodeHtmlEntities(input: string): string {
 	return input.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
@@ -309,7 +310,7 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 	return verses;
 }
 
-async function fetchEsvHtmlVerses(
+export async function fetchEsvVerses(
 	apiKey: string,
 	options: {
 		bookEn: string;
@@ -319,7 +320,7 @@ async function fetchEsvHtmlVerses(
 		verseEnd?: number;
 	},
 	fetcher: FetchLike = fetch,
-): Promise<FetchEsvPassageResult> {
+): Promise<FetchEsvResult> {
 	const query = formatEsvPassageQuery(
 		options.bookEn,
 		options.chapter,
@@ -369,31 +370,4 @@ async function fetchEsvHtmlVerses(
 	const filtered = parsed.filter((v) => v.verse >= start && v.verse <= end);
 	if (filtered.length > 0) return { status: "ok", verses: filtered };
 	return parsed.length > 0 ? { status: "not_found" } : { status: "error" };
-}
-
-export async function fetchEsvChapterVerses(
-	apiKey: string,
-	options: {
-		bookEn: string;
-		chapter: number;
-		chaptersInBook: number;
-	},
-	fetcher: FetchLike = fetch,
-): Promise<FetchEsvChapterResult> {
-	const result = await fetchEsvHtmlVerses(apiKey, options, fetcher);
-	return result.status === "not_found" ? { status: "error" } : result;
-}
-
-export function fetchEsvPassageVerses(
-	apiKey: string,
-	options: {
-		bookEn: string;
-		chapter: number;
-		chaptersInBook: number;
-		verseStart: number;
-		verseEnd?: number;
-	},
-	fetcher: FetchLike = fetch,
-): Promise<FetchEsvPassageResult> {
-	return fetchEsvHtmlVerses(apiKey, options, fetcher);
 }

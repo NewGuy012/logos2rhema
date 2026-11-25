@@ -17,7 +17,7 @@ import type {
 } from "../shared/types";
 import { isSafeHttpsUrl } from "../shared/url";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
-import { fetchEsvChapterVerses, fetchEsvPassageVerses } from "./esv-text";
+import { fetchEsvVerses } from "./esv-text";
 import { fetchHelloAoCommentaryChapter } from "./helloao";
 import { cancelBody, type FetchLike } from "./http";
 
@@ -81,6 +81,7 @@ type ParsedByteRange =
 function parseByteRangeHeader(
 	rawHeader: string,
 ): { ok: true; value: ParsedByteRange } | { ok: false; status: 400 | 416 } {
+	if (rawHeader.length > 128) return { ok: false, status: 400 };
 	const match = RANGE_HEADER_RE.exec(rawHeader.trim());
 	if (!match) return { ok: false, status: 400 };
 
@@ -306,9 +307,10 @@ function finalizeResponse(response: Response, isHead: boolean): Response {
 	return response;
 }
 
-async function handleEsvChapter(
+async function handleEsvText(
 	usfmRaw: string,
 	chapterRaw: string,
+	verseRangeRaw: string | undefined,
 	env: WorkerBindings,
 	fetcher: FetchLike,
 	localEsvLoader?: WorkerDeps["localEsvLoader"],
@@ -316,62 +318,30 @@ async function handleEsvChapter(
 	const parsed = parseChapterRef(usfmRaw, chapterRaw);
 	if (!parsed) {
 		return jsonError(400, "Invalid book or chapter reference", NO_STORE_PRIVATE);
+	}
+	const range = verseRangeRaw !== undefined ? parseVerseRangeParam(verseRangeRaw) : undefined;
+	if (range === null) {
+		return jsonError(400, "Invalid verse range", NO_STORE_PRIVATE);
 	}
 	const { book, usfm, chapter } = parsed;
 
 	let verses = localEsvLoader ? await localEsvLoader(usfm, chapter).catch(() => null) : null;
-
-	if (!verses || verses.length === 0) {
-		const esvApiKey = env.ESV_API_KEY?.trim();
-		if (!esvApiKey) {
-			return jsonError(503, "ESV text is not configured", NO_STORE_PRIVATE);
+	if (verses && verses.length > 0) {
+		if (range) {
+			const end = range.verseEnd ?? range.verseStart;
+			verses = verses.filter((v) => v.verse >= range.verseStart && v.verse <= end);
+			if (verses.length === 0) return esvFetchErrorResponse("not_found");
 		}
-		const result = await fetchEsvChapterVerses(esvApiKey, esvPassageOpts(book, chapter), fetcher);
-		if (result.status !== "ok") {
-			return esvFetchErrorResponse(result.status);
-		}
-		verses = result.verses;
-	}
-
-	return esvTextSuccess(book, usfm, chapter, verses);
-}
-
-async function handleEsvPassage(
-	usfmRaw: string,
-	chapterRaw: string,
-	verseRangeRaw: string,
-	env: WorkerBindings,
-	fetcher: FetchLike,
-	localEsvLoader?: WorkerDeps["localEsvLoader"],
-): Promise<Response> {
-	const parsed = parseChapterRef(usfmRaw, chapterRaw);
-	if (!parsed) {
-		return jsonError(400, "Invalid book or chapter reference", NO_STORE_PRIVATE);
-	}
-	const range = parseVerseRangeParam(verseRangeRaw);
-	if (!range) {
-		return jsonError(400, "Invalid verse range", NO_STORE_PRIVATE);
-	}
-	const { book, usfm, chapter } = parsed;
-	const { verseStart, verseEnd } = range;
-	const end = verseEnd ?? verseStart;
-
-	const localVerses = localEsvLoader ? await localEsvLoader(usfm, chapter).catch(() => null) : null;
-	if (localVerses && localVerses.length > 0) {
-		const sliced = localVerses.filter((v) => v.verse >= verseStart && v.verse <= end);
-		if (sliced.length === 0) {
-			return esvFetchErrorResponse("not_found");
-		}
-		return esvTextSuccess(book, usfm, chapter, sliced);
+		return esvTextSuccess(book, usfm, chapter, verses);
 	}
 
 	const esvApiKey = env.ESV_API_KEY?.trim();
 	if (!esvApiKey) {
 		return jsonError(503, "ESV text is not configured", NO_STORE_PRIVATE);
 	}
-	const result = await fetchEsvPassageVerses(
+	const result = await fetchEsvVerses(
 		esvApiKey,
-		{ ...esvPassageOpts(book, chapter), verseStart, verseEnd },
+		{ ...esvPassageOpts(book, chapter), ...(range ?? {}) },
 		fetcher,
 	);
 	if (result.status !== "ok") {
@@ -635,7 +605,7 @@ export function createApp(deps: WorkerDeps = {}): WorkerApp {
 
 		if (parts.length === 4) {
 			if (parts[1] === "esv") {
-				return handleEsvChapter(parts[2], parts[3], env, fetcher, deps.localEsvLoader);
+				return handleEsvText(parts[2], parts[3], undefined, env, fetcher, deps.localEsvLoader);
 			}
 			if (parts[1] === "audio") {
 				return handleAudioTracks(request, parts[2], parts[3], env, fetcher);
@@ -644,7 +614,7 @@ export function createApp(deps: WorkerDeps = {}): WorkerApp {
 
 		if (parts.length === 5) {
 			if (parts[1] === "esv") {
-				return handleEsvPassage(parts[2], parts[3], parts[4], env, fetcher, deps.localEsvLoader);
+				return handleEsvText(parts[2], parts[3], parts[4], env, fetcher, deps.localEsvLoader);
 			}
 			if (parts[1] === "audio" && parts[2] === "krv") {
 				return handleKrvAudio(request, parts[3], parts[4], env);

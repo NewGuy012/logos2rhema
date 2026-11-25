@@ -195,6 +195,7 @@ describe("Worker API & Security Boundaries", () => {
 			"https://0x7f000001/a.mp3",
 			"https://[::1]/a.mp3",
 			"https://localhost/a.mp3",
+			"https://host.localdomain/a.mp3",
 			"https://cdn.example.com:8443/a.mp3",
 			"https://cdn.example.com/\na.mp3",
 		]) {
@@ -415,7 +416,14 @@ describe("Worker API & Security Boundaries", () => {
 		}
 		expect((await requestApp(app, "/api/audio/krv/GEN/1")).status).toBe(503);
 
-		for (const badRange of ["bytes=abc-def", "bytes=5-2", "bytes=0-1, 2-3", "items=0-3", ""]) {
+		for (const badRange of [
+			"bytes=abc-def",
+			"bytes=5-2",
+			"bytes=0-1, 2-3",
+			"items=0-3",
+			"",
+			`bytes=0-${"1".repeat(130)}`,
+		]) {
 			expect(
 				(await requestR2("/api/audio/krv/GEN/1", { headers: { Range: badRange } })).status,
 			).toBe(400);

@@ -8,7 +8,7 @@ export function cancelBody(
 	target?.body?.cancel?.().catch(() => {});
 }
 
-export function fetchWithTimeout(
+function fetchWithTimeout(
 	fetcher: FetchLike,
 	input: string | URL,
 	init: RequestInit = {},
