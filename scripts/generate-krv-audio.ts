@@ -1,22 +1,11 @@
 import { join } from "node:path";
 
 import { loadDevVarsRecord, ROOT_DIR } from "./lib/common";
-import {
-	buildPythonSynthArgs,
-	type CliOptions,
-	type CommandRunner,
-	createDefaultCommandRunner,
-	getUsageText,
-	hasRemoteOnlyFlags,
-	parseCliOptions,
-	resolveOutputPaths,
-	resolveUvBinary,
-	runRemoteWorkflow,
-	selectBooksForOptions,
-} from "./lib/remote-tts";
+import { runRemoteWorkflow } from "./lib/remote-tts";
+import { type CommandRunner, createDefaultCommandRunner, resolveUvBinary } from "./lib/ssh-session";
+import { type CliOptions, getUsageText, parseCliOptions, resolveOutputPaths } from "./lib/tts-cli";
 
 const PYTHON_SCRIPT_PATH = join(ROOT_DIR, "scripts", "generate-krv-audio.py");
-const UPLOAD_SCRIPT_PATH = join(ROOT_DIR, "scripts", "upload-krv-audio.ts");
 
 function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 	const args = ["run", PYTHON_SCRIPT_PATH];
@@ -33,9 +22,9 @@ function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 		args.push("--chapters", options.chapters.join(","));
 	}
 
-	args.push(...buildPythonSynthArgs(options, { device: options.device }));
+	args.push("--device", "cpu", ...options.synthArgs);
 
-	if (options.staging !== undefined || options.outDir !== undefined) {
+	if (options.staging !== undefined) {
 		const paths = resolveOutputPaths(options, rootDir);
 		args.push(
 			"--audio-dir",
@@ -47,25 +36,8 @@ function buildLocalPythonArgs(options: CliOptions, rootDir: string): string[] {
 		);
 	}
 
+	if (options.force) args.push("--force");
 	if (options.dryRun) args.push("--dry-run");
-	return args;
-}
-
-function buildUploadArgs(options: CliOptions): string[] {
-	const args = ["run", UPLOAD_SCRIPT_PATH];
-	if (options.books && options.books.length > 0) {
-		args.push("--books", options.books.join(","));
-	} else if (options.testament) {
-		args.push(
-			"--books",
-			selectBooksForOptions(options)
-				.map((b) => b.usfm)
-				.join(","),
-		);
-	}
-	if (options.r2Bucket) {
-		args.push("--bucket", options.r2Bucket);
-	}
 	return args;
 }
 
@@ -92,41 +64,24 @@ export async function runCli(
 		return 0;
 	}
 
-	let exitCode: number;
 	if (options.remote) {
 		try {
-			exitCode = await runRemoteWorkflow(options, rootDir, runner);
+			return await runRemoteWorkflow(options, rootDir, runner);
 		} catch (err) {
 			console.error(err instanceof Error ? err.message : String(err));
 			return 1;
 		}
-	} else {
-		if (hasRemoteOnlyFlags(options)) {
-			console.error(
-				"Remote/Thunder Compute options (--delete-after, --gpu, --template, --mode, --ssh-*, --remote-dir, --transfer, etc.) require --thunder <id>, --ssh <target>, or --remote.",
-			);
-			return 1;
-		}
-		const uvBin = resolveUvBinary(runner);
-		if (!uvBin) {
-			console.error("`uv` not found in PATH. Install uv (e.g. `brew install uv`) first.");
-			return 1;
-		}
-		const res = await runner.runStreaming(uvBin, buildLocalPythonArgs(options, rootDir), {
-			cwd: rootDir,
-		});
-		exitCode = res.exitCode;
 	}
 
-	if (exitCode === 0 && options.upload) {
-		console.log("\nRunning explicit R2 upload (`--upload`)...");
-		const uploadRes = await runner.runStreaming(process.execPath, buildUploadArgs(options), {
-			cwd: rootDir,
-		});
-		return uploadRes.exitCode;
+	const uvBin = resolveUvBinary(runner);
+	if (!uvBin) {
+		console.error("`uv` not found in PATH. Install uv (e.g. `brew install uv`) first.");
+		return 1;
 	}
-
-	return exitCode;
+	const res = await runner.runStreaming(uvBin, buildLocalPythonArgs(options, rootDir), {
+		cwd: rootDir,
+	});
+	return res.exitCode;
 }
 
 if (import.meta.main) {

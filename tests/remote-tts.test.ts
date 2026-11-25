@@ -5,31 +5,35 @@ import { join } from "node:path";
 
 import { runCli } from "../scripts/generate-krv-audio";
 import { resolveBookList, resolveBookToken } from "../scripts/lib/book-selection";
+import { loadDevVarsRecord } from "../scripts/lib/common";
+import { runRemoteWorkflow } from "../scripts/lib/remote-tts";
 import {
-	buildPendingJobPlan,
 	buildRsyncRshCommand,
-	buildTnrCreateArgs,
 	type CommandResult,
 	type CommandRunner,
-	DEFAULT_THUNDER_VM_SPEC,
-	findSshConfigMatch,
-	formatShardSummary,
-	loadDevVarsRecord,
-	mergeBookTimingsPayload,
-	mergeGenerationReportPayload,
-	normalizePreArgs,
-	parseCliOptions,
 	parseProbeOutput,
-	parseSshTarget,
-	parseThunderStatusOutput,
-	partitionJobPlan,
 	quotePosix,
 	remoteDirBashExpr,
 	remoteDirTransferPath,
-	resolveOutputPaths,
+	resolveThunderEndpoint,
 	selectOnnxGpuSpec,
+	withRemoteSession,
+} from "../scripts/lib/ssh-session";
+import {
+	buildTnrCreateArgs,
+	parseThunderStatusOutput,
+	THUNDER_VM_SPEC,
+} from "../scripts/lib/thunder";
+import { normalizePreArgs, parseCliOptions, resolveOutputPaths } from "../scripts/lib/tts-cli";
+import {
+	buildPendingJobPlan,
+	chooseOptimalShards,
+	formatShardSummary,
+	mergeBookTimingsPayload,
+	mergeGenerationReportPayload,
+	partitionJobPlan,
 	verifyAndSummarizeOutputs,
-} from "../scripts/lib/remote-tts";
+} from "../scripts/lib/tts-plan";
 import { parseUploadArgs } from "../scripts/upload-krv-audio";
 
 const parseOpts = (argv: readonly string[], env?: Record<string, string | undefined>) => {
@@ -93,9 +97,6 @@ function createMockRunner(handlers: {
 			const res = await handlers.onStream?.(cmd, args, opts);
 			return res ?? { exitCode: 0 };
 		},
-		async runInteractive() {
-			return 0;
-		},
 	};
 }
 
@@ -115,7 +116,7 @@ describe("book selection, CLI options, and .dev.vars", () => {
 		expect(() => resolveBookToken("Narnia")).toThrow("Unknown book identifier");
 	});
 
-	it("parses staging/remote options, guards R2 upload & unsafe paths, and respects .dev.vars defaults", async () => {
+	it("parses lean CLI options, guards staging & remote-only flags, and respects .dev.vars", async () => {
 		expect(normalizePreArgs(["--book", "RUT", "--staging", "--force"])).toEqual([
 			"--book",
 			"RUT",
@@ -131,87 +132,81 @@ describe("book selection, CLI options, and .dev.vars", () => {
 			"RUT",
 			"--staging",
 			"rut-test",
-			"--gpus",
-			"4",
-			"--batch-size",
-			"32",
+			"--mp3-quality",
+			"2",
+			"--speed",
+			"1.05",
+			"--voice",
+			"M5",
+			"--verbose",
 		]);
 		expect(stageOpts).toMatchObject({
-			remote: true,
-			thunder: "0",
 			books: ["RUT"],
 			staging: "rut-test",
-			gpus: 4,
-			batchSize: 32,
-			upload: false,
+			synthArgs: ["--voice", "M5", "--speed", "1.05", "--mp3-quality", "2", "--verbose"],
+			remote: {
+				thunder: "0",
+				create: false,
+				keepVms: false,
+				deleteAfter: false,
+			},
 		});
 
-		expect(() =>
-			parseCliOptions(["--thunder", "0", "--book", "RUT", "--staging", "t", "--upload"]),
-		).toThrow("Refusing to upload to R2");
-		expect(() =>
-			parseCliOptions(["--thunder", "0", "--book", "RUT", "--out-dir", "/tmp/out", "--upload"]),
-		).toThrow("Refusing to upload to R2");
 		expect(() => parseCliOptions(["--staging", "../escape"])).toThrow("Invalid --staging name");
-		for (const badDir of ["~/../escape", "~/bad;rm -rf /", "~/bad$(id)"]) {
-			expect(() => parseCliOptions(["--remote-dir", badDir])).toThrow("Unsafe --remote-dir");
+		expect(() => parseCliOptions(["--shards", "0", "--create"])).toThrow("Out-of-range");
+		expect(() => parseCliOptions(["--shards", "9", "--create"])).toThrow("Out-of-range");
+		expect(() => parseCliOptions(["--shards", "2", "--thunder", "0,1,2"])).toThrow(
+			"exceeds --shards 2",
+		);
+		expect(() => parseCliOptions(["--create", "--keep-vms", "--delete-after"])).toThrow(
+			"mutually exclusive",
+		);
+
+		// Removed flags are rejected by strict parsing
+		for (const dropped of [
+			["--ssh", "ubuntu@h1"],
+			["--out-dir", "/tmp/out"],
+			["--upload"],
+			["--gpu", "a100"],
+			["--gpus", "4"],
+		]) {
+			expect(() => parseCliOptions(dropped)).toThrow();
 		}
 
-		// Local mode keeps THUNDER_* dormant and rejects remote-only flags
+		// Local mode keeps THUNDER_INSTANCE dormant and rejects remote-only flags
 		const dir = await makeTempDir("l2r-devvars-");
 		const devVarsPath = join(dir, ".dev.vars");
-		await writeFile(
-			devVarsPath,
-			'THUNDER_INSTANCE=0\nTHUNDER_SSH_TARGET="tnr-0"\nTHUNDER_SSH_PORT=2222\nTHUNDER_REMOTE_DIR=~/custom-tts\nTHUNDER_DEVICE=cuda\n',
-			"utf8",
-		);
+		await writeFile(devVarsPath, "THUNDER_INSTANCE=0\n", "utf8");
 		const loaded = await loadDevVarsRecord(devVarsPath);
-		expect(parseOpts(["--book", "RUT"], loaded)).toMatchObject({
-			remote: false,
-			thunder: undefined,
-			ssh: undefined,
-		});
-		expect(parseOpts(["--remote", "--books", "RUT,PHM"], loaded)).toMatchObject({
-			remote: true,
+
+		expect(parseOpts(["--book", "RUT"], loaded).remote).toBeUndefined();
+		expect(parseOpts(["--remote", "--books", "RUT,PHM"], loaded).remote).toMatchObject({
 			thunder: "0",
-			ssh: "tnr-0",
-			sshPort: 2222,
-			remoteDir: "~/custom-tts",
-			device: "cuda",
-			gpu: DEFAULT_THUNDER_VM_SPEC.gpu,
+			create: false,
 		});
-		// Explicit --ssh overrides .dev.vars THUNDER_INSTANCE
-		expect(parseOpts(["--ssh", "ubuntu@h1", "--book", "RUT"], loaded).thunder).toBeUndefined();
+		// --create ignores .dev.vars THUNDER_INSTANCE unless --thunder is explicitly passed
+		expect(parseOpts(["--create", "--all"], loaded).remote?.thunder).toBeUndefined();
+		expect(parseOpts(["--remote", "--create", "--all"], loaded).remote?.thunder).toBeUndefined();
 
 		const mockLocal = createMockRunner({});
-		for (const badLocal of [
-			["--book", "RUT", "--ssh-port", "2222"],
-			["--book", "RUT", "--remote-dir", "~/custom"],
-			["--book", "RUT", "--transfer", "tar"],
-		]) {
-			expect(await runCli(badLocal, dir, mockLocal)).toBe(1);
-		}
+		expect(await runCli(["--book", "RUT", "--delete-after"], dir, mockLocal)).toBe(1);
+		expect(await runCli(["--book", "RUT", "--keep-vms"], dir, mockLocal)).toBe(1);
 
-		expect(buildTnrCreateArgs(parseOpts(["--create", "--book", "RUT"]))).toEqual([
+		expect(buildTnrCreateArgs()).toEqual([
 			"--json",
 			"-y",
 			"create",
 			"--mode",
-			"prototyping",
+			THUNDER_VM_SPEC.mode,
 			"--gpu",
-			"a6000",
+			THUNDER_VM_SPEC.gpu,
 			"--vcpus",
-			"8",
+			String(THUNDER_VM_SPEC.vcpus),
 			"--template",
-			"cuda12-8",
+			THUNDER_VM_SPEC.template,
 			"--disk-size-gb",
-			"100",
+			String(THUNDER_VM_SPEC.diskSizeGb),
 		]);
-		expect(
-			buildTnrCreateArgs(
-				parseOpts(["--create", "--mode", "production", "--gpu", "a100", "--num-gpus", "2"]),
-			),
-		).toContain("--num-gpus");
 
 		const prodPaths = resolveOutputPaths(parseOpts(["--thunder", "0", "--book", "RUT"]), "/ws");
 		const stagePaths = resolveOutputPaths(
@@ -225,55 +220,44 @@ describe("book selection, CLI options, and .dev.vars", () => {
 		);
 	});
 
-	it("validates SSH targets, POSIX quoting, tnr parsing, SSH config wildcards, probes, and upload args", () => {
-		expect(parseSshTarget("ubuntu@203.0.113.10:2222")).toMatchObject({
-			target: "ubuntu@203.0.113.10",
-			port: 2222,
-		});
-		expect(parseSshTarget("ssh://ubuntu@203.0.113.10:2200", 2222)).toMatchObject({
-			target: "ubuntu@203.0.113.10",
-			port: 2222,
-		});
-		expect(parseSshTarget("ubuntu@[2001:db8::1]:2222")).toMatchObject({
-			target: "ubuntu@[2001:db8::1]",
-			port: 2222,
-		});
-		for (const badTarget of [
-			"-oProxyCommand=evil",
-			"ubuntu@host;rm -rf /",
-			"ubuntu@host|id",
-			"ubuntu@host$(id)",
-			"ubuntu@host\nid",
-		]) {
-			expect(() => parseSshTarget(badTarget)).toThrow("Invalid SSH target");
-		}
-		expect(() => parseSshTarget("ubuntu@host", undefined, undefined, ["bad\nopt"])).toThrow(
-			"Invalid SSH option",
-		);
-
+	it("handles POSIX quoting, tnr parsing, direct Thunder SSH endpoint resolution, probes, and upload args", async () => {
 		expect(quotePosix("it's clean")).toBe("'it'\"'\"'s clean'");
 		expect(remoteDirBashExpr("~/dir/sub")).toBe("\"$HOME\"/'dir/sub'");
 		expect(remoteDirTransferPath("~/dir/sub")).toBe("dir/sub");
-		expect(buildRsyncRshCommand(parseSshTarget("ubuntu@198.51.100.2:2222"))).toContain("'2222'");
+		expect(
+			buildRsyncRshCommand({
+				target: "ubuntu@198.51.100.2",
+				port: 2222,
+				strictHostKeyChecking: "accept-new",
+			}),
+		).toContain("'2222'");
 
 		const instances = parseThunderStatusOutput(
-			`Fetching...\n[{"id":"0","uuid":"inst-abc","status":"RUNNING","gpuType":"a100","ip":"198.51.100.42","port":22}]`,
+			`Fetching...\n[{"id":"0","uuid":"inst-abc","status":"RUNNING","gpuType":"a6000","ip":"198.51.100.42","port":22}]`,
 		);
 		expect(instances[0]).toMatchObject({ id: "0", status: "RUNNING", ip: "198.51.100.42" });
 
-		const matched = findSshConfigMatch(
-			`Host *\n  ServerAliveInterval 60\nHost * tnr-0\n  HostName 198.51.100.42\n  User ubuntu\n`,
-			instances[0],
+		// Endpoint prefers ~/.thunder/keys/<uuid> and connects directly to ubuntu@<ip>
+		const fakeHome = await makeTempDir("l2r-home-");
+		const keyDir = join(fakeHome, ".thunder", "keys");
+		await mkdir(keyDir, { recursive: true });
+		const thunderKeyPath = join(keyDir, "inst-abc");
+		await writeFile(thunderKeyPath, "FAKE-KEY", "utf8");
+		expect(await resolveThunderEndpoint(instances[0], fakeHome)).toMatchObject({
+			target: "ubuntu@198.51.100.42",
+			port: 22,
+			keyPath: thunderKeyPath,
+		});
+		await expect(resolveThunderEndpoint({ id: "0", status: "RUNNING" }, fakeHome)).rejects.toThrow(
+			"Could not resolve IP address",
 		);
-		expect(matched?.patterns).toContain("tnr-0");
 
 		expect(
 			parseProbeOutput(
-				"OS=Linux\nARCH=x86_64\nCPUS=8\nGPU=NVIDIA A100\nGPU_COUNT=4\nCUDA_VER=12.8\nHAS_RSYNC=1",
+				"OS=Linux\nARCH=x86_64\nCPUS=8\nGPU=NVIDIA RTX A6000\nCUDA_VER=12.8\nHAS_RSYNC=1",
 			),
 		).toMatchObject({
 			cpuCount: 8,
-			gpuCount: 4,
 			cudaMajor: 12,
 			hasNvidiaGpu: true,
 			hasRsync: true,
@@ -292,7 +276,14 @@ describe("book selection, CLI options, and .dev.vars", () => {
 		expect(() => parseUploadArgs(["--retries", "99"])).toThrow("Out-of-range");
 	});
 
-	it("merges partial chapter timings/reports safely and partitions 1,189 Bible chapters across shards", async () => {
+	it("auto-sizes shards to matrix sweet spots, merges timings/reports, and partitions 1,189 chapters", async () => {
+		expect(chooseOptimalShards(4)).toBe(1);
+		expect(chooseOptimalShards(25)).toBe(1);
+		expect(chooseOptimalShards(26)).toBe(2);
+		expect(chooseOptimalShards(150)).toBe(2);
+		expect(chooseOptimalShards(151)).toBe(4);
+		expect(chooseOptimalShards(1189)).toBe(4);
+
 		const mergedBook = mergeBookTimingsPayload(
 			{ chapters: { "1": { "1": 1.1 }, "2": { "1": 2.2 }, "4": { "1": 4.4 } } },
 			{ chapters: { "3": { "1": 3.3 }, "1": { "1": 1.5 } } },
@@ -315,14 +306,6 @@ describe("book selection, CLI options, and .dev.vars", () => {
 		);
 		expect((mergedReport.chapters as Record<string, { duration: number }>)["RUT:1"].duration).toBe(
 			91.2,
-		);
-
-		expect(() => parseCliOptions(["--shards", "4", "--shell"])).toThrow("Cannot combine --shards");
-		expect(() => parseCliOptions(["--shards", "4", "--ssh", "ubuntu@onlyone"])).toThrow(
-			"requires 4 comma-separated SSH target",
-		);
-		expect(() => parseCliOptions(["--shards", "2", "--thunder", "0,1,2"])).toThrow(
-			"exceeds --shards 2",
 		);
 
 		const realRoot = join(import.meta.dir, "..");
@@ -348,8 +331,8 @@ describe("book selection, CLI options, and .dev.vars", () => {
 	});
 });
 
-describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
-	it("runs isolated staging via tnr without touching prod, and verifies outputs", async () => {
+describe("mocked Thunder Compute orchestration", () => {
+	it("runs isolated staging via --thunder without touching prod or deleting existing VM, and verifies outputs", async () => {
 		const rootDir = await makeTempDir("l2r-e2e-stage-");
 		await seedMockWorkspace(rootDir, { RUT: [1, 2, 3, 4], PHM: [1] });
 
@@ -362,8 +345,10 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 
 		let uploadedManifestBooks = null as Record<string, number[]> | null;
 		let uploadedBookFiles: string[] = [];
+		let bootstrapRanVerifyEnv = false;
 		let remoteScriptRan = "";
 		let tnrCreates = 0;
+		let tnrDeletes = 0;
 
 		const runner = createMockRunner({
 			async onRun(cmd, args) {
@@ -371,11 +356,15 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 					tnrCreates++;
 					return { exitCode: 0, stdout: "{}", stderr: "" };
 				}
+				if (cmd === "/usr/local/bin/tnr" && args.includes("delete")) {
+					tnrDeletes++;
+					return { exitCode: 0, stdout: "{}", stderr: "" };
+				}
 				if (cmd === "/usr/local/bin/tnr" && args.includes("status")) {
 					return {
 						exitCode: 0,
 						stdout: JSON.stringify([
-							{ id: "0", status: "RUNNING", gpuType: "a100", ip: "198.51.100.99", port: 22 },
+							{ id: "0", status: "RUNNING", gpuType: "a6000", ip: "198.51.100.99", port: 22 },
 						]),
 						stderr: "",
 					};
@@ -383,7 +372,8 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 				if (cmd === "ssh" && args.some((a) => a.includes("nvidia-smi"))) {
 					return {
 						exitCode: 0,
-						stdout: "OS=Linux\nARCH=x86_64\nCPUS=8\nGPU=NVIDIA A100\nCUDA_VER=12.8\nHAS_RSYNC=1\n",
+						stdout:
+							"OS=Linux\nARCH=x86_64\nCPUS=8\nGPU=NVIDIA RTX A6000\nCUDA_VER=12.8\nHAS_RSYNC=1\n",
 						stderr: "",
 					};
 				}
@@ -426,14 +416,18 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 				return undefined;
 			},
 			async onStream(cmd, args) {
-				if (cmd === "ssh" && args.at(-1)?.includes("generate-krv-audio.py")) {
-					remoteScriptRan = args.at(-1)!;
+				const script = args.at(-1) ?? "";
+				if (cmd === "ssh" && script.includes("--verify-env --device cuda")) {
+					bootstrapRanVerifyEnv = true;
+				}
+				if (cmd === "ssh" && script.includes("--job-manifest")) {
+					remoteScriptRan = script;
 				}
 				return { exitCode: 0 };
 			},
 		});
 
-		// Single-VM --create --dry-run must NOT provision a billable VM
+		// --create --dry-run must NOT provision any billable VM
 		expect(
 			await runCli(["--create", "--book", "RUT", "--staging", "dry", "--dry-run"], rootDir, runner),
 		).toBe(0);
@@ -448,7 +442,10 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 		).toBe(0);
 		expect(uploadedManifestBooks).toEqual({ RUT: [1, 2, 3, 4] });
 		expect(uploadedBookFiles).toEqual(["RUT.json"]);
+		expect(bootstrapRanVerifyEnv).toBe(true);
 		expect(remoteScriptRan).toContain("staging/rut-test/out/audio");
+		expect(remoteScriptRan).toContain("--device cuda");
+		expect(tnrDeletes).toBe(0);
 		expect(await readFile(prodTiming, "utf8")).toBe(prodTimingContent);
 		expect(Buffer.from(await readFile(prodMp3))).toEqual(Buffer.alloc(2048, 0xaa));
 		expect(
@@ -470,22 +467,23 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 		expect(bad.ok).toBe(false);
 	});
 
-	it("runs direct --ssh with opt-in --upload, and orchestrates parallel --shards 2 --create --delete-after VMs", async () => {
+	it("auto-sizes shards, auto-deletes --create VMs by default, respects --keep-vms, and fails fast without CUDA", async () => {
 		const rootDir = await makeTempDir("l2r-e2e-shards-");
 		await seedMockWorkspace(rootDir, { RUT: [1, 2, 3, 4], PHM: [1], JUD: [1] });
 
-		const created: Array<{ id: string; uuid: string; status: string; ip: string; port: number }> =
-			[];
-		const deletedIds: string[] = [];
-		const tnrCalls: string[] = [];
-		const streamCmds: string[] = [];
+		let created: Array<{ id: string; uuid: string; status: string; ip: string; port: number }> = [];
+		let deletedIds: string[] = [];
 		const streamPrefixes: string[] = [];
+		let probeWithoutGpu = false;
+		let failSecondCreate = false;
 
 		const runner = createMockRunner({
 			async onRun(cmd, args) {
 				if (cmd === "/usr/local/bin/tnr") {
-					tnrCalls.push(args.join(" "));
 					if (args.includes("create")) {
+						if (failSecondCreate && created.length === 1) {
+							return { exitCode: 1, stdout: "", stderr: "quota exceeded" };
+						}
 						const idx = created.length;
 						const uuid = `uuid-shard-${idx}`;
 						created.push({
@@ -506,6 +504,13 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 					}
 				}
 				if (cmd === "ssh" && args.some((a) => a.includes("HAS_RSYNC"))) {
+					if (probeWithoutGpu) {
+						return {
+							exitCode: 0,
+							stdout: "OS=Linux\nARCH=x86_64\nCPUS=8\nGPU=\nCUDA_VER=\nHAS_RSYNC=1\n",
+							stderr: "",
+						};
+					}
 					return {
 						exitCode: 0,
 						stdout:
@@ -517,9 +522,7 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 					const script = args[args.length - 1];
 					const chs = script.includes("shard-1")
 						? { "RUT:1": { status: "ok" }, "RUT:2": { status: "ok" } }
-						: script.includes("shard-2")
-							? { "RUT:3": { status: "ok" }, "RUT:4": { status: "ok" } }
-							: { "PHM:1": { status: "ok" }, "JUD:1": { status: "ok" } };
+						: { "RUT:3": { status: "ok" }, "RUT:4": { status: "ok" } };
 					return { exitCode: 0, stdout: JSON.stringify({ chapters: chs }), stderr: "" };
 				}
 				if (cmd === "rsync") {
@@ -539,66 +542,30 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 							for (const ch of chList) chapters[String(ch)] = { "1": 1.2 + ch * 0.1 };
 							await writeFile(join(dst, "RUT.json"), JSON.stringify({ chapters }), "utf8");
 						}
-					} else if (src.includes("out/audio/")) {
-						for (const usfm of ["PHM", "JUD"]) {
-							await mkdir(join(dst, usfm), { recursive: true });
-							await writeFile(join(dst, usfm, "1.mp3"), Buffer.alloc(1500, 1));
-						}
-					} else if (src.includes("out/timings/")) {
-						await mkdir(dst, { recursive: true });
-						for (const usfm of ["PHM", "JUD"]) {
-							await writeFile(
-								join(dst, `${usfm}.json`),
-								JSON.stringify({ chapters: { "1": { "1": 1.4 } } }),
-								"utf8",
-							);
-						}
 					}
 				}
 				return undefined;
 			},
-			async onStream(cmd, args, opts) {
-				streamCmds.push(`${cmd} ${args.join(" ")}`);
+			async onStream(_cmd, _args, opts) {
 				if (opts?.logPrefix) streamPrefixes.push(opts.logPrefix);
 				return { exitCode: 0 };
 			},
 		});
 
-		// Direct --ssh with --upload skips tnr and triggers upload-krv-audio.ts
+		// Whole-Bible --create --all --dry-run uses real rootDir books to auto-size to 4 shards, zero VMs created (even without tnr)
 		expect(
-			await runCli(
-				["--ssh", "ubuntu@203.0.113.5:2222", "--books", "PHM,JUD", "--force", "--upload"],
-				rootDir,
-				runner,
-			),
-		).toBe(0);
-		expect(tnrCalls).toHaveLength(0);
-		expect(streamCmds.find((c) => c.includes("upload-krv-audio.ts"))).toContain("--books PHM,JUD");
-
-		// Parallel 2-shard dry-run skips provisioning
-		expect(
-			await runCli(
-				["--shards", "2", "--create", "--book", "RUT", "--staging", "shard-dry", "--dry-run"],
-				rootDir,
-				runner,
+			await runRemoteWorkflow(
+				parseOpts(["--create", "--all", "--dry-run"]),
+				join(import.meta.dir, ".."),
+				createMockRunner({ hasTnr: false }),
 			),
 		).toBe(0);
 		expect(created).toHaveLength(0);
 
-		// Parallel 2-shard full run creates 2 VMs, splits RUT, merges timings & report, deletes both VMs
+		// Explicit --shards 2 --create auto-deletes both VMs by default after clean sync
 		expect(
 			await runCli(
-				[
-					"--shards",
-					"2",
-					"--create",
-					"--delete-after",
-					"--book",
-					"RUT",
-					"--staging",
-					"shard-test",
-					"--force",
-				],
+				["--shards", "2", "--create", "--book", "RUT", "--staging", "shard-test", "--force"],
 				rootDir,
 				runner,
 			),
@@ -623,5 +590,77 @@ describe("mocked Thunder Compute & SSH end-to-end orchestration", () => {
 			),
 		) as { chapters: Record<string, unknown> };
 		expect(Object.keys(mergedReport.chapters).sort()).toEqual(["RUT:1", "RUT:2", "RUT:3", "RUT:4"]);
+
+		// --create --keep-vms leaves newly created VMs running
+		created = [];
+		deletedIds = [];
+		expect(
+			await runCli(
+				[
+					"--shards",
+					"2",
+					"--create",
+					"--keep-vms",
+					"--book",
+					"RUT",
+					"--staging",
+					"shard-keep",
+					"--force",
+				],
+				rootDir,
+				runner,
+			),
+		).toBe(0);
+		expect(created).toHaveLength(2);
+		expect(deletedIds).toEqual([]);
+
+		// Fail-fast when Thunder VM lacks CUDA GPU (no silent CPU fallback)
+		probeWithoutGpu = true;
+		await expect(
+			runRemoteWorkflow(
+				parseOpts(["--thunder", "0", "--book", "RUT", "--staging", "no-gpu", "--force"]),
+				rootDir,
+				runner,
+			),
+		).rejects.toThrow("found none");
+		probeWithoutGpu = false;
+
+		// Partial multi-shard create failure cleans up earlier created VM(s)
+		created = [];
+		deletedIds = [];
+		failSecondCreate = true;
+		await expect(
+			runRemoteWorkflow(
+				parseOpts(["--shards", "2", "--create", "--book", "RUT", "--staging", "partial-fail"]),
+				rootDir,
+				runner,
+			),
+		).rejects.toThrow("quota exceeded");
+		expect(deletedIds).toEqual(["0"]);
+		failSecondCreate = false;
+
+		// withRemoteSession closes ControlMaster even on error
+		const sshCommands: string[] = [];
+		const cmRunner = createMockRunner({
+			async onRun(cmd, args) {
+				if (cmd === "ssh") sshCommands.push(args.join(" "));
+				return { exitCode: 0, stdout: "", stderr: "" };
+			},
+		});
+		await expect(
+			withRemoteSession(
+				{
+					runner: cmRunner,
+					endpoint: { target: "ubuntu@198.51.100.1", strictHostKeyChecking: "accept-new" },
+					instanceId: "0",
+					freshVm: false,
+				},
+				async () => {
+					throw new Error("boom");
+				},
+			),
+		).rejects.toThrow("boom");
+		expect(sshCommands.some((c) => c.includes("-M -N -f"))).toBe(true);
+		expect(sshCommands.some((c) => c.includes("-O exit"))).toBe(true);
 	});
 });
