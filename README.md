@@ -22,7 +22,7 @@
 ## Features
 
 - **Side-by-Side Scripture** — Read English (**ESV®** via Crossway's live ESV API) and bundled Korean (**개역한글**, KRV 1961) stacked verse by verse, flip stack order (`EN / 한` ↔ `한 / EN`), and practice recall with hover-to-reveal **Study Mode** blur.
-- **Verse of the Day & Memorize** — Daily rotating bilingual **Verse of the Day** card on Home with previous/next day browsing, plus a `#/memorize` saved-verse view displaying English (`ESV®`) and Korean (`개역한글`) side-by-side with inline **Supertonic 3** Korean verse audio, multi-verse ranges, and curated starter packs.
+- **Verse of the Day & Memorize** — Daily rotating bilingual **Verse of the Day** card on Home with previous/next day browsing, plus a `#/memorize` view displaying English (`ESV®`) and Korean (`개역한글`) side-by-side (all at once or one-at-a-time flashcard mode) with inline **Supertonic 3** Korean verse audio, multi-verse ranges, and curated starter packs.
 - **Instant Korean Dictionary & Grammar** — Hover or tap any Korean word for morphological analysis, **Revised Romanization**, **Web Speech (`ko-KR`)** pronunciation, and a chapter-synced **Words & Grammar** panel.
 - **Verse-Synced Audio** — Listen to **Supertonic 3 (`Daniel`)** AI-generated Korean narration (`개역한글 · AI 낭독`) synced verse by verse (two-way scroll follow, preset and custom `0.1x–2.0x` playback speed, `±10s` skip) alongside **Crossway ESV** English audio.
 - **Integrated Commentary** — Switch between **Tyndale Open Study Notes** and **Matthew Henry Commentary** synced to your active verse, with keyword/verse search and book/chapter introductions.

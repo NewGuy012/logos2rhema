@@ -148,8 +148,11 @@ describe("Memorize Simplified UI & End-to-End Integration", () => {
 			fireClick(getButton(container, "Memorize"));
 			await waitUntil(() => {
 				expect(window.location.hash).toBe("#/memorize");
-				expect(container.querySelector(".memorize-title")?.textContent).toBe("Memorize");
+				expect(container.querySelector("h1.memorize-eyebrow")?.textContent).toContain(
+					"Scripture Memorization",
+				);
 			});
+			expect(container.querySelector(".memorize-title")).toBeNull();
 
 			// Appearance settings work on Memorize view and omit Reader-only Study Mode blur
 			fireClick(getButton(container, "Reader appearance settings"));
@@ -322,20 +325,105 @@ describe("Memorize Simplified UI & End-to-End Integration", () => {
 				});
 				expect(mockAudio.latest()?.paused).toBe(false);
 
-				// Removing the currently playing verse stops audio
-				fireClick(getButton(proItem, "Remove Proverbs 3:5–6"));
+				// Toggle to Flashcard mode to focus on one verse at a time (keeps playing active verse seamlessly)
+				expect(container.querySelectorAll(".memorize-verse-item")).toHaveLength(2);
+				fireClick(getButton(container, "Flashcard"));
+				await waitUntil(() =>
+					expect(container.querySelectorAll(".memorize-verse-status")).toHaveLength(0),
+				);
+				expect(container.querySelectorAll(".memorize-verse-item")).toHaveLength(1);
+				expect(container.querySelector('[data-card-id="20:3:5-6"]')).not.toBeNull();
+				expect(container.querySelector('[data-card-id="43:3:16"]')).toBeNull();
+				expect(getByText(container, "1 / 2")).toBeDefined();
+				expect(getButton(container, /Pause Korean verse/).getAttribute("aria-pressed")).toBe(
+					"true",
+				);
+				expect(mockAudio.latest()?.paused).toBe(false);
+
+				// Going to the next verse in Flashcard mode stops the previous verse's audio
+				fireClick(getButton(container, "Next"));
+				await waitUntil(() => {
+					expect(mockAudio.latest()?.paused).toBe(true);
+					expect(getByText(container, "2 / 2")).toBeDefined();
+					expect(getByText(container, "For God so loved the world,")).toBeDefined();
+				});
+				expect(container.querySelector('[data-card-id="20:3:5-6"]')).toBeNull();
+
+				// Wraps cleanly and supports keyboard Left/Right arrows
+				fireClick(getButton(container, "Next"));
+				await waitUntil(() => {
+					expect(getByText(container, "1 / 2")).toBeDefined();
+					expect(getByText(container, "Trust in the LORD with all your heart,")).toBeDefined();
+				});
+
+				await act(async () => {
+					window.dispatchEvent(
+						new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+					);
+				});
+				await waitUntil(() => {
+					expect(getByText(container, "2 / 2")).toBeDefined();
+					expect(getByText(container, "For God so loved the world,")).toBeDefined();
+				});
+
+				await act(async () => {
+					window.dispatchEvent(
+						new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+					);
+				});
+				await waitUntil(() => {
+					expect(getByText(container, "1 / 2")).toBeDefined();
+					expect(getByText(container, "Trust in the LORD with all your heart,")).toBeDefined();
+				});
+
+				// Switch back to All mode
+				fireClick(getButton(container, "All"));
+				await waitUntil(() => {
+					expect(container.querySelectorAll(".memorize-verse-item")).toHaveLength(2);
+					expect(container.querySelectorAll(".memorize-verse-status")).toHaveLength(0);
+				});
+
+				// Removing the currently playing verse in All mode stops audio
+				fireClick(
+					getButton(
+						container.querySelector('[data-card-id="20:3:5-6"]')!,
+						/Listen to Korean verse/,
+					),
+				);
+				await waitUntil(() => {
+					const audio = mockAudio.latest();
+					expect(audio?.src).toBe("/api/audio/PRO/3?lang=ko&track=supertonic");
+					expect(audio?.paused).toBe(false);
+				});
+				fireClick(
+					getButton(container.querySelector('[data-card-id="20:3:5-6"]')!, "Remove Proverbs 3:5–6"),
+				);
 				await waitUntil(() => {
 					expect(container.querySelector('[data-card-id="20:3:5-6"]')).toBeNull();
 					expect(mockAudio.latest()?.paused).toBe(true);
 				});
 
+				// Single remaining verse in Flashcard mode disables Previous/Next safely
+				fireClick(getButton(container, "Flashcard"));
+				await waitUntil(() =>
+					expect(container.querySelectorAll(".memorize-verse-status")).toHaveLength(0),
+				);
+				expect(getByText(container, "1 / 1")).toBeDefined();
+				expect(getButton(container, "Previous").disabled).toBe(true);
+				expect(getButton(container, "Next").disabled).toBe(true);
+				fireClick(getButton(container, "All"));
+				await waitUntil(() =>
+					expect(container.querySelectorAll(".memorize-verse-status")).toHaveLength(0),
+				);
+
 				// Respects TopBar Stack Order (EN / 한 <-> 한 / EN)
-				expect(jhnItem.querySelector(".memorize-verse-body > div p")?.className).toContain(
+				const activeJhnItem = container.querySelector('[data-card-id="43:3:16"]') as HTMLElement;
+				expect(activeJhnItem.querySelector(".memorize-verse-body > div p")?.className).toContain(
 					"memorize-verse-en",
 				);
 				fireClick(getButton(container, "Reader appearance settings"));
 				fireClick(getButton(container.querySelector(".settings-popover")!, "한 / EN"));
-				expect(jhnItem.querySelector(".memorize-verse-body > div p")?.className).toContain(
+				expect(activeJhnItem.querySelector(".memorize-verse-body > div p")?.className).toContain(
 					"memorize-verse-ko",
 				);
 				fireClick(getButton(container, "Reader appearance settings"));

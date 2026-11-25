@@ -18,10 +18,18 @@ import {
 import { loadTranslationPassage } from "../lib/bible-loader";
 import { makeMemorizeCardId } from "../lib/memorize";
 import { VerseAudioButton } from "./AudioShared";
-import { ChevronDown, ChevronRight, Layers, Plus, Sparkles, X } from "./Icons";
+import { ChevronDown, ChevronLeft, ChevronRight, Layers, Plus, Sparkles, X } from "./Icons";
 import { KoreanTokensLine } from "./KoreanToken";
 import { LegalFooter } from "./LegalFooter";
+import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder } from "./VerseBlock";
+
+type MemorizeViewMode = "all" | "flashcard";
+
+const VIEW_MODE_OPTIONS: ReadonlyArray<SegmentedOption<MemorizeViewMode>> = [
+	{ value: "all", label: "All" },
+	{ value: "flashcard", label: "Flashcard" },
+];
 
 interface MemorizePageProps {
 	cards: readonly MemorizeCard[];
@@ -219,6 +227,8 @@ export function MemorizePage({
 	const [addQuery, setAddQuery] = useState("");
 	const [addingVerse, setAddingVerse] = useState(false);
 	const [packsOpen, setPacksOpen] = useState(false);
+	const [viewMode, setViewMode] = useState<MemorizeViewMode>("all");
+	const [activeIndex, setActiveIndex] = useState(0);
 	const [statusMessage, setStatusMessage] = useState<{
 		kind: "ok" | "error";
 		text: string;
@@ -235,11 +245,20 @@ export function MemorizePage({
 	}, []);
 
 	const cardIds = useMemo(() => new Set(cards.map((c) => c.id)), [cards]);
+	const safeIndex = cards.length === 0 ? 0 : Math.min(activeIndex, cards.length - 1);
+	const activeCard = viewMode === "flashcard" ? (cards[safeIndex] ?? null) : null;
 
-	// Stop audio if the verse being played is removed or cleared.
+	useEffect(() => {
+		if (safeIndex !== activeIndex) {
+			setActiveIndex(safeIndex);
+		}
+	}, [safeIndex, activeIndex]);
+
+	// Stop audio if the playing verse is removed, cleared, or paged away in flashcard mode.
 	useEffect(() => {
 		if (!activeTargetKey) return;
-		const stillPresent = cards.some((card) => {
+		const visibleCards = viewMode === "flashcard" ? (activeCard ? [activeCard] : []) : cards;
+		const stillVisible = visibleCards.some((card) => {
 			const book = getBookOrDefault(card.bookNumber);
 			return (
 				getVerseAudioTargetKey({
@@ -250,10 +269,32 @@ export function MemorizePage({
 				}) === activeTargetKey
 			);
 		});
-		if (!stillPresent) {
+		if (!stillVisible) {
 			stopAudio();
 		}
-	}, [cards, activeTargetKey, stopAudio]);
+	}, [cards, viewMode, activeCard, activeTargetKey, stopAudio]);
+
+	useEffect(() => {
+		if (viewMode !== "flashcard" || cards.length <= 1) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.metaKey || e.ctrlKey || e.altKey) return;
+			const target = e.target as HTMLElement | null;
+			const tag = target?.tagName;
+			if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) {
+				return;
+			}
+			if (document.querySelector(".modal-panel")) return;
+			if (e.key === "ArrowLeft") {
+				e.preventDefault();
+				setActiveIndex((prev) => (prev - 1 + cards.length) % cards.length);
+			} else if (e.key === "ArrowRight") {
+				e.preventDefault();
+				setActiveIndex((prev) => (prev + 1) % cards.length);
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [viewMode, cards.length]);
 
 	const importableBookmarksCount = useMemo(() => {
 		let count = 0;
@@ -299,6 +340,7 @@ export function MemorizePage({
 				return;
 			}
 			const res = onAddCard(parsed);
+			if (res.added) setActiveIndex(0);
 			setAddQuery("");
 			setStatusMessage({
 				kind: "ok",
@@ -307,6 +349,7 @@ export function MemorizePage({
 		} catch {
 			if (!mountedRef.current) return;
 			const res = onAddCard(parsed);
+			if (res.added) setActiveIndex(0);
 			setAddQuery("");
 			setStatusMessage({
 				kind: "ok",
@@ -319,6 +362,7 @@ export function MemorizePage({
 
 	const handleAddPack = (pack: MemorizeStarterPack) => {
 		const addedCount = onAddStarterPack(pack);
+		if (addedCount > 0) setActiveIndex(0);
 		setStatusMessage({
 			kind: "ok",
 			text:
@@ -328,21 +372,37 @@ export function MemorizePage({
 		});
 	};
 
+	const handlePrevVerse = () => {
+		if (cards.length <= 1) return;
+		setActiveIndex((safeIndex - 1 + cards.length) % cards.length);
+	};
+
+	const handleNextVerse = () => {
+		if (cards.length <= 1) return;
+		setActiveIndex((safeIndex + 1) % cards.length);
+	};
+
 	return (
 		<main className="memorize-container">
 			<header className="memorize-header">
-				<div className="memorize-title-group">
-					<p className="memorize-eyebrow">
-						<Layers size={13} />
-						<span>Scripture Memorization · 말씀 암송</span>
-					</p>
-					<h1 className="memorize-title">Memorize</h1>
-				</div>
+				<h1 className="memorize-eyebrow">
+					<Layers size={13} />
+					<span>Scripture Memorization · 말씀 암송</span>
+				</h1>
 
 				{cards.length > 0 && (
-					<span className="memorize-count">
-						{cards.length} {cards.length === 1 ? "verse" : "verses"}
-					</span>
+					<div className="memorize-header-controls">
+						<span className="memorize-count">
+							{cards.length} {cards.length === 1 ? "verse" : "verses"}
+						</span>
+						<SegmentedControl
+							value={viewMode}
+							options={VIEW_MODE_OPTIONS}
+							onChange={setViewMode}
+							ariaLabel="Memorize view mode"
+							className="memorize-view-toggle"
+						/>
+					</div>
 				)}
 			</header>
 
@@ -385,6 +445,7 @@ export function MemorizePage({
 								className="votd-action-btn"
 								onClick={() => {
 									const addedCount = onImportBookmarks();
+									if (addedCount > 0) setActiveIndex(0);
 									setStatusMessage({
 										kind: "ok",
 										text: `Imported ${addedCount} bookmarked verse${addedCount === 1 ? "" : "s"}.`,
@@ -477,6 +538,50 @@ export function MemorizePage({
 							Add a verse above, pick from Starter Packs, or tap the save icon next to any verse in
 							the Reader.
 						</p>
+					</div>
+				) : viewMode === "flashcard" && activeCard ? (
+					<div className="memorize-flashcard-stage">
+						<div className="memorize-flashcard-card">
+							<MemorizeVerseItem
+								key={activeCard.id}
+								card={activeCard}
+								stackOrder={stackOrder}
+								wordTooltip={wordTooltip}
+								lexicon={lexicon}
+								activeAudioKey={verseAudio.activeTargetKey}
+								isAudioPlaying={verseAudio.isPlaying}
+								isAudioLoading={verseAudio.isLoading}
+								audioSource={verseAudio.source}
+								onToggleAudio={verseAudio.togglePlay}
+								onRemove={onRemoveCard}
+							/>
+
+							<nav className="memorize-flashcard-nav" aria-label="Flashcard verse navigation">
+								<button
+									type="button"
+									className="nav-chapter-btn nav-chapter-btn-compact"
+									disabled={cards.length <= 1}
+									onClick={handlePrevVerse}
+								>
+									<ChevronLeft size={15} />
+									<span>Previous</span>
+								</button>
+
+								<span className="memorize-flashcard-counter">
+									{safeIndex + 1} / {cards.length}
+								</span>
+
+								<button
+									type="button"
+									className="nav-chapter-btn nav-chapter-btn-compact"
+									disabled={cards.length <= 1}
+									onClick={handleNextVerse}
+								>
+									<span>Next</span>
+									<ChevronRight size={15} />
+								</button>
+							</nav>
+						</div>
 					</div>
 				) : (
 					<div className="memorize-verses-list">
