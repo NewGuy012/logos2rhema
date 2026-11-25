@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export const ROOT_DIR = join(import.meta.dir, "..", "..");
 export const CACHE_DIR = join(ROOT_DIR, ".cache");
-export const AUDIO_CACHE_DIR = join(CACHE_DIR, "krv-supertonic-audio");
-export const TIMINGS_OUT_DIR = join(ROOT_DIR, "public", "data", "timings", "krv-supertonic");
+export const KRV_AUDIO_REL_DIR = join(".cache", "krv-supertonic-audio");
+export const KRV_TIMINGS_REL_DIR = join("public", "data", "timings", "krv-supertonic");
+export const KRV_REPORT_REL_PATH = join(".cache", "krv-supertonic-report.json");
+export const AUDIO_CACHE_DIR = join(ROOT_DIR, KRV_AUDIO_REL_DIR);
+export const TIMINGS_OUT_DIR = join(ROOT_DIR, KRV_TIMINGS_REL_DIR);
 
 export function stripOptionalQuotes(value: string): string {
 	if (
@@ -70,6 +73,43 @@ export async function atomicWriteFile(
 export function atomicWriteJson(path: string, data: unknown, pretty = false): Promise<void> {
 	const body = pretty ? `${JSON.stringify(data, null, 2)}\n` : JSON.stringify(data);
 	return atomicWriteFile(path, body);
+}
+
+export async function atomicCopyFile(src: string, dst: string): Promise<void> {
+	await mkdir(dirname(dst), { recursive: true });
+	const tmpPath = `${dst}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await cp(src, tmpPath);
+		await rename(tmpPath, dst);
+	} catch (err) {
+		await rm(tmpPath, { force: true }).catch(() => {});
+		throw err;
+	}
+}
+
+export async function readJsonIfExists<T>(path: string): Promise<T | null> {
+	try {
+		return JSON.parse(await readFile(path, "utf8")) as T;
+	} catch {
+		return null;
+	}
+}
+
+export function createSerialLock(): <T>(fn: () => Promise<T>) => Promise<T> {
+	let chain: Promise<void> = Promise.resolve();
+	return async <T>(fn: () => Promise<T>): Promise<T> => {
+		const prev = chain;
+		let release!: () => void;
+		chain = new Promise<void>((res) => {
+			release = res;
+		});
+		await prev;
+		try {
+			return await fn();
+		} finally {
+			release();
+		}
+	};
 }
 
 export async function pathExists(path: string): Promise<boolean> {

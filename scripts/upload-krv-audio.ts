@@ -9,6 +9,7 @@ import {
 	atomicWriteJson,
 	AUDIO_CACHE_DIR,
 	CACHE_DIR,
+	createSerialLock,
 	parseNumberInRange,
 	ROOT_DIR,
 } from "./lib/common";
@@ -166,13 +167,10 @@ async function loadCheckpoint(): Promise<CheckpointData> {
 	return { version: 1, buckets: {} };
 }
 
-let checkpointSaveChain: Promise<void> = Promise.resolve();
+const saveCheckpointLock = createSerialLock();
 
 function saveCheckpoint(data: CheckpointData): Promise<void> {
-	checkpointSaveChain = checkpointSaveChain
-		.catch(() => {})
-		.then(() => atomicWriteJson(CHECKPOINT_PATH, data, true));
-	return checkpointSaveChain;
+	return saveCheckpointLock(() => atomicWriteJson(CHECKPOINT_PATH, data, true));
 }
 
 async function resolveWranglerRunner(): Promise<{ cmd: string[]; env: Record<string, string> }> {
