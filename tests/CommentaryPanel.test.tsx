@@ -222,7 +222,8 @@ describe("CommentaryPanel & StudyRightRail", () => {
 			expect(panel.className).not.toContain("floating");
 			expect(panel.style.width).toBe("350px");
 			expect(panel.style.height).toBe("440px");
-			expect(document.body.classList.contains("is-panel-resizing-nesw")).toBe(false);
+			expect(document.body.classList.contains("is-panel-resizing")).toBe(false);
+			expect(document.body.style.cursor).toBe("");
 
 			// Single header reset button appears when resized and resets width and height
 			fireClick(getButton(panel, "Reset dictionary to original position and size"));

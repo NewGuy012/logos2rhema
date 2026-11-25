@@ -56,8 +56,6 @@ export function AudioControlRail({
 	onActivateFloating,
 	railSize,
 	onRailSizeChange,
-	maxRailWidth,
-	maxRailHeight,
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
@@ -93,9 +91,8 @@ export function AudioControlRail({
 			onActivateFloating={onActivateFloating}
 			railSize={railSize}
 			onRailSizeChange={onRailSizeChange}
-			maxRailWidth={maxRailWidth ?? DEFAULT_MAX_AUDIO_RAIL_WIDTH}
+			maxRailWidth={DEFAULT_MAX_AUDIO_RAIL_WIDTH}
 			minRailHeight={DEFAULT_MIN_AUDIO_HEIGHT}
-			maxRailHeight={maxRailHeight}
 		>
 			{({ isModified, resetPanel }) => (
 				<div className="rail-card">

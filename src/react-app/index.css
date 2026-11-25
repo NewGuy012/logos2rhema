@@ -852,9 +852,9 @@ button:focus-visible {
 	max-width: none;
 	display: grid;
 	grid-template-columns:
-		var(--audio-rail-width, var(--rail-width))
+		minmax(200px, var(--audio-rail-width, var(--rail-width)))
 		minmax(430px, 1fr)
-		var(--dict-rail-width, var(--rail-width));
+		minmax(200px, var(--dict-rail-width, var(--rail-width)));
 	justify-content: center;
 	align-items: start;
 	gap: clamp(1.65rem, 3vw, 4rem);
@@ -1370,6 +1370,7 @@ button:focus-visible {
 	overflow: hidden;
 }
 
+.audio-rail,
 .dict-panel-sidebar {
 	position: relative;
 	/* Match the 2.5rem gap below the sticky top bar (6rem top + 2.5rem bottom). */
@@ -1416,22 +1417,14 @@ button:focus-visible {
 
 .audio-rail.is-resizing,
 .dict-panel-sidebar.is-resizing,
-body.is-panel-resizing-nwse,
-body.is-panel-resizing-nwse *,
-body.is-panel-resizing-nesw,
-body.is-panel-resizing-nesw * {
+body.is-panel-resizing,
+body.is-panel-resizing * {
 	user-select: none !important;
 	-webkit-user-select: none !important;
 }
 
-body.is-panel-resizing-nwse,
-body.is-panel-resizing-nwse * {
-	cursor: nwse-resize !important;
-}
-
-body.is-panel-resizing-nesw,
-body.is-panel-resizing-nesw * {
-	cursor: nesw-resize !important;
+body.is-panel-resizing * {
+	cursor: inherit !important;
 }
 
 .panel-resize-handle {
@@ -3901,11 +3894,10 @@ body.is-panel-resizing-nesw * {
 
 /* Left Margin Audio & Verse Sync Rail */
 .audio-rail {
-	position: relative;
 	width: 100%;
+	max-width: 100%;
 	display: flex;
 	flex-direction: column;
-	max-height: calc(100vh - var(--topbar-height) - 5rem);
 }
 
 .rail-card {

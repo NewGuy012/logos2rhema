@@ -26,6 +26,44 @@ export const VIEWPORT_MARGIN_PX = 8;
 const INTERACTIVE_SELECTOR =
 	"button, a, input, select, textarea, label, [role='button'], [role='tab'], [role='switch'], [role='menuitemradio'], [role='separator'], [data-resize-handle]";
 
+/** Measure an element's viewport origin, falling back to tracked coordinates for synthetic rects. */
+export function measurePanelOrigin(
+	el: HTMLElement | null,
+	existingPos?: { x: number; y: number } | null,
+): { rect: DOMRect | undefined; left: number; top: number } {
+	const rect = el?.getBoundingClientRect();
+	// Fall back to tracked position when synthetic DOM rect is (0, 0).
+	const hasMeasuredPos = Boolean(rect && (rect.left !== 0 || rect.top !== 0 || !existingPos));
+	return {
+		rect,
+		left: hasMeasuredPos && rect ? rect.left : (existingPos?.x ?? 0),
+		top: hasMeasuredPos && rect ? rect.top : (existingPos?.y ?? 0),
+	};
+}
+
+/** Register window mousemove/mouseup/blur drag listeners with idempotent cleanup. */
+export function attachWindowDrag(
+	cleanupRef: { current: (() => void) | null },
+	onMove: (moveEvent: MouseEvent) => void,
+	onEnd: () => void,
+): () => void {
+	cleanupRef.current?.();
+	const cleanup = () => {
+		window.removeEventListener("mousemove", onMove);
+		window.removeEventListener("mouseup", cleanup);
+		window.removeEventListener("blur", cleanup);
+		if (cleanupRef.current === cleanup) {
+			cleanupRef.current = null;
+		}
+		onEnd();
+	};
+	cleanupRef.current = cleanup;
+	window.addEventListener("mousemove", onMove);
+	window.addEventListener("mouseup", cleanup);
+	window.addEventListener("blur", cleanup);
+	return cleanup;
+}
+
 function clampPosition(
 	x: number,
 	y: number,
@@ -129,12 +167,11 @@ export function useDraggablePanel<T extends HTMLElement>({
 			e.preventDefault();
 			cleanupDragRef.current?.();
 
-			const rect = panelRef.current?.getBoundingClientRect();
-			const existingPos = positionRef.current;
-			// Fall back to tracked position when synthetic DOM rect is (0, 0).
-			const hasMeasuredPos = Boolean(rect && (rect.left !== 0 || rect.top !== 0 || !existingPos));
-			const originLeft = hasMeasuredPos && rect ? rect.left : (existingPos?.x ?? 0);
-			const originTop = hasMeasuredPos && rect ? rect.top : (existingPos?.y ?? 0);
+			const {
+				rect,
+				left: originLeft,
+				top: originTop,
+			} = measurePanelOrigin(panelRef.current, positionRef.current);
 			const panelWidth = rect?.width ?? 0;
 			const panelHeight = rect?.height ?? 0;
 			const startClientX = e.clientX;
@@ -154,20 +191,7 @@ export function useDraggablePanel<T extends HTMLElement>({
 				commitPosition(clampPosition(originLeft + dx, originTop + dy, panelWidth, panelHeight));
 			};
 
-			const cleanup = () => {
-				window.removeEventListener("mousemove", handleMouseMove);
-				window.removeEventListener("mouseup", cleanup);
-				window.removeEventListener("blur", cleanup);
-				if (cleanupDragRef.current === cleanup) {
-					cleanupDragRef.current = null;
-				}
-				setIsDragging(false);
-			};
-
-			cleanupDragRef.current = cleanup;
-			window.addEventListener("mousemove", handleMouseMove);
-			window.addEventListener("mouseup", cleanup);
-			window.addEventListener("blur", cleanup);
+			attachWindowDrag(cleanupDragRef, handleMouseMove, () => setIsDragging(false));
 		},
 		[enabled, ignoreSelector, onActivate, commitPosition],
 	);

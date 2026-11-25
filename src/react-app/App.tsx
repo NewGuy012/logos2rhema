@@ -44,24 +44,19 @@ import { PanelStatus } from "./components/RailShared";
 import { StudyRightRail } from "./components/StudyRightRail";
 import { TopBar, type TopBarDisplayPrefs } from "./components/TopBar";
 import { VerseBlock } from "./components/VerseBlock";
-import { type PanelPosition, VIEWPORT_MARGIN_PX } from "./hooks/useDraggablePanel";
+import type { PanelPosition } from "./hooks/useDraggablePanel";
 import { useChapterAudioTracks, useHumanAudio } from "./hooks/useHumanAudio";
 import { useIsDesktopLayout } from "./hooks/useMediaQuery";
 import { anchorPosStyle, computeAnchorPos } from "./hooks/usePopover";
 import {
-	clampDimension,
-	computeMaxDockedRailHeight,
-	computeWorkspaceAvailableRailBudget,
 	DEFAULT_MAX_AUDIO_RAIL_WIDTH,
 	DEFAULT_MAX_DICT_RAIL_WIDTH,
 	DEFAULT_MAX_RAIL_HEIGHT,
 	DEFAULT_MIN_AUDIO_HEIGHT,
 	DEFAULT_MIN_DICT_HEIGHT,
 	DEFAULT_MIN_RAIL_WIDTH,
-	getDefaultRailWidthPx,
 	type PanelSize,
 	parseStoredRailDimension,
-	resolveDockedRailWidths,
 } from "./hooks/useResizablePanel";
 import { useVisibleVerse } from "./hooks/useVisibleVerse";
 import { alignChapterVerses, loadLexicon, loadTranslationChapter } from "./lib/bible-loader";
@@ -343,12 +338,6 @@ export default function App() {
 	const [dictFloatingPos, setDictFloatingPos] = useState<PanelPosition | null>(null);
 	const [activeFloatingPanel, setActiveFloatingPanel] = useState<"audio" | "dictionary" | null>(
 		null,
-	);
-	const workspaceRef = useRef<HTMLDivElement | null>(null);
-	const [viewportSize, setViewportSize] = useState(() =>
-		typeof window !== "undefined"
-			? { width: window.innerWidth || 0, height: window.innerHeight || 0 }
-			: { width: 0, height: 0 },
 	);
 	const lastRouteHashRef = useRef(getNormalizedHash());
 
@@ -943,15 +932,6 @@ export default function App() {
 	);
 
 	useEffect(() => {
-		if (view !== "reader" || !isDesktop || typeof window === "undefined") return;
-		const syncViewportSize = () =>
-			setViewportSize({ width: window.innerWidth || 0, height: window.innerHeight || 0 });
-		syncViewportSize();
-		window.addEventListener("resize", syncViewportSize);
-		return () => window.removeEventListener("resize", syncViewportSize);
-	}, [view, isDesktop]);
-
-	useEffect(() => {
 		return () => {
 			if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
 		};
@@ -987,68 +967,16 @@ export default function App() {
 		view === "reader" && isDesktop && audioRailOpen && audioFloatingPos === null;
 	const dictDockedOpen =
 		view === "reader" && isDesktop && showDictionary && sidebarOpen && dictFloatingPos === null;
-	const railBudget = computeWorkspaceAvailableRailBudget(workspaceRef.current, viewportSize.width);
-	const defaultRailWidth = getDefaultRailWidthPx(viewportSize.width);
-	const dockedRailLayout = resolveDockedRailWidths({
-		audioWidth: prefs.audioRailWidth,
-		dictWidth: prefs.dictRailWidth,
-		audioDockedOpen,
-		dictDockedOpen,
-		budget: railBudget,
-		defaultRailWidth,
-	});
-	const clampFloatingWidth = (width: number | null, maxW: number): number | null => {
-		if (width === null) return null;
-		const vpMax =
-			viewportSize.width > 0
-				? Math.max(DEFAULT_MIN_RAIL_WIDTH, viewportSize.width - VIEWPORT_MARGIN_PX * 2)
-				: maxW;
-		return clampDimension(width, DEFAULT_MIN_RAIL_WIDTH, Math.min(maxW, vpMax));
-	};
-	const maxDockedAudioHeight = computeMaxDockedRailHeight(
-		viewportSize.height,
-		DEFAULT_MIN_AUDIO_HEIGHT,
-	);
-	const maxDockedDictHeight = computeMaxDockedRailHeight(
-		viewportSize.height,
-		DEFAULT_MIN_DICT_HEIGHT,
-	);
-	const maxFloatingAudioHeight =
-		viewportSize.height > 0
-			? Math.max(DEFAULT_MIN_AUDIO_HEIGHT, viewportSize.height - VIEWPORT_MARGIN_PX * 2)
-			: DEFAULT_MAX_RAIL_HEIGHT;
-	const maxFloatingDictHeight =
-		viewportSize.height > 0
-			? Math.max(DEFAULT_MIN_DICT_HEIGHT, viewportSize.height - VIEWPORT_MARGIN_PX * 2)
-			: DEFAULT_MAX_RAIL_HEIGHT;
-	const clampRailHeight = (height: number | null, minH: number, maxH: number): number | null =>
-		height === null ? null : clampDimension(height, minH, maxH);
-	const effectiveAudioWidth = audioFloatingPos
-		? clampFloatingWidth(prefs.audioRailWidth, DEFAULT_MAX_AUDIO_RAIL_WIDTH)
-		: dockedRailLayout.audioWidth;
-	const effectiveDictWidth = dictFloatingPos
-		? clampFloatingWidth(prefs.dictRailWidth, DEFAULT_MAX_DICT_RAIL_WIDTH)
-		: dockedRailLayout.dictWidth;
-	const effectiveAudioHeight = clampRailHeight(
-		prefs.audioRailHeight,
-		DEFAULT_MIN_AUDIO_HEIGHT,
-		audioFloatingPos ? maxFloatingAudioHeight : maxDockedAudioHeight,
-	);
-	const effectiveDictHeight = clampRailHeight(
-		prefs.dictRailHeight,
-		DEFAULT_MIN_DICT_HEIGHT,
-		dictFloatingPos ? maxFloatingDictHeight : maxDockedDictHeight,
-	);
 	const workspaceStyle =
 		isDesktop &&
-		((audioDockedOpen && dockedRailLayout.audioWidth !== null) ||
-			(dictDockedOpen && dockedRailLayout.dictWidth !== null))
+		((audioDockedOpen && prefs.audioRailWidth !== null) ||
+			(dictDockedOpen && prefs.dictRailWidth !== null))
 			? ({
-					...(audioDockedOpen && dockedRailLayout.audioWidth !== null
-						? { "--audio-rail-width": `${dockedRailLayout.audioWidth}px` }
+					...(audioDockedOpen && prefs.audioRailWidth !== null
+						? { "--audio-rail-width": `${prefs.audioRailWidth}px` }
 						: {}),
-					...(dictDockedOpen && dockedRailLayout.dictWidth !== null
-						? { "--dict-rail-width": `${dockedRailLayout.dictWidth}px` }
+					...(dictDockedOpen && prefs.dictRailWidth !== null
+						? { "--dict-rail-width": `${prefs.dictRailWidth}px` }
 						: {}),
 				} as CSSProperties)
 			: undefined;
@@ -1159,24 +1087,10 @@ export default function App() {
 			}
 			railSize={
 				variant === "sidebar"
-					? { width: effectiveDictWidth, height: effectiveDictHeight }
+					? { width: prefs.dictRailWidth, height: prefs.dictRailHeight }
 					: undefined
 			}
 			onRailSizeChange={variant === "sidebar" ? handleDictRailSizeChange : undefined}
-			maxRailWidth={
-				variant === "sidebar"
-					? dictFloatingPos
-						? DEFAULT_MAX_DICT_RAIL_WIDTH
-						: dockedRailLayout.maxDictWidth
-					: undefined
-			}
-			maxRailHeight={
-				variant === "sidebar"
-					? dictFloatingPos
-						? maxFloatingDictHeight
-						: maxDockedDictHeight
-					: undefined
-			}
 			bookEn={currentBook.en}
 			bookKo={currentBook.ko}
 			chapter={chapter}
@@ -1252,7 +1166,6 @@ export default function App() {
 			) : (
 				<>
 					<div
-						ref={workspaceRef}
 						className={`reader-workspace ${isDesktop ? "desktop-layout" : ""}`.trim()}
 						style={workspaceStyle}
 					>
@@ -1271,14 +1184,8 @@ export default function App() {
 										onFloatingPositionChange={handleAudioFloatingPosChange}
 										isActiveFloating={activeFloatingPanel === "audio"}
 										onActivateFloating={() => setActiveFloatingPanel("audio")}
-										railSize={{ width: effectiveAudioWidth, height: effectiveAudioHeight }}
+										railSize={{ width: prefs.audioRailWidth, height: prefs.audioRailHeight }}
 										onRailSizeChange={handleAudioRailSizeChange}
-										maxRailWidth={
-											audioFloatingPos
-												? DEFAULT_MAX_AUDIO_RAIL_WIDTH
-												: dockedRailLayout.maxAudioWidth
-										}
-										maxRailHeight={audioFloatingPos ? maxFloatingAudioHeight : maxDockedAudioHeight}
 										onToggleAutoSync={() => patchPrefs({ autoSync: !prefs.autoSync })}
 										onSyncToVisibleVerse={() => jumpToVerse(visibleVerse)}
 										onFollowActiveVerse={handleFollowActiveVerse}

@@ -5,7 +5,6 @@ import type { FootnoteVocabEntry, LexiconEntry } from "../../shared/types";
 import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
 import {
 	DEFAULT_MAX_DICT_RAIL_WIDTH,
-	DEFAULT_MAX_RAIL_HEIGHT,
 	DEFAULT_MIN_DICT_HEIGHT,
 	DEFAULT_MIN_RAIL_WIDTH,
 	type PanelSize,
@@ -116,8 +115,6 @@ export interface DraggableRailProps {
 	onActivateFloating?: () => void;
 	railSize?: PanelSize;
 	onRailSizeChange?: (size: PanelSize) => void;
-	maxRailWidth?: number;
-	maxRailHeight?: number;
 }
 
 export function DraggableRailShell({
@@ -137,7 +134,6 @@ export function DraggableRailShell({
 	minRailWidth = DEFAULT_MIN_RAIL_WIDTH,
 	maxRailWidth = DEFAULT_MAX_DICT_RAIL_WIDTH,
 	minRailHeight = DEFAULT_MIN_DICT_HEIGHT,
-	maxRailHeight = DEFAULT_MAX_RAIL_HEIGHT,
 	children,
 }: DraggableRailProps & {
 	id?: string;
@@ -148,15 +144,9 @@ export function DraggableRailShell({
 	resizeLabel?: string;
 	ignoreSelector?: string;
 	minRailWidth?: number;
+	maxRailWidth?: number;
 	minRailHeight?: number;
-	children: (state: {
-		isFloating: boolean;
-		isResized: boolean;
-		isModified: boolean;
-		resetPosition: () => void;
-		resetSize: () => void;
-		resetPanel: () => void;
-	}) => ReactNode;
+	children: (state: { isModified: boolean; resetPanel: () => void }) => ReactNode;
 }) {
 	const { panelProps, position, setPosition, isFloating, isDragging, resetPosition } =
 		useDraggablePanel<HTMLElement>({
@@ -168,21 +158,24 @@ export function DraggableRailShell({
 			ignoreSelector,
 		});
 
-	const { currentSize, isResizing, resizingEdge, getHandleProps, resetSize } =
-		useResizablePanel<HTMLElement>({
-			enabled: draggable,
-			panelRef: panelProps.ref,
-			size: railSize,
-			onSizeChange: onRailSizeChange,
-			minWidth: minRailWidth,
-			maxWidth: maxRailWidth,
-			minHeight: minRailHeight,
-			maxHeight: maxRailHeight,
-			isFloating,
-			position,
-			onPositionChange: setPosition,
-			onActivate: onActivateFloating,
-		});
+	const {
+		size: currentSize,
+		isResizing,
+		resizingEdge,
+		getHandleProps,
+		resetSize,
+	} = useResizablePanel<HTMLElement>({
+		disabled: !draggable,
+		panelRef: panelProps.ref,
+		size: railSize,
+		onSizeChange: onRailSizeChange,
+		minWidth: minRailWidth,
+		maxWidth: maxRailWidth,
+		minHeight: minRailHeight,
+		floatingPosition: position,
+		onFloatingPositionChange: setPosition,
+		onActivate: onActivateFloating,
+	});
 
 	const isResized = currentSize.width !== null || currentSize.height !== null;
 	const isModified = isFloating || isResized;
@@ -210,7 +203,7 @@ export function DraggableRailShell({
 			className={`${className} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""} ${isResizing ? "is-resizing" : ""} ${currentSize.height !== null ? "has-custom-height" : ""}`.trim()}
 			aria-label={ariaLabel}
 		>
-			{children({ isFloating, isResized, isModified, resetPosition, resetSize, resetPanel })}
+			{children({ isModified, resetPanel })}
 			{draggable && (
 				<div
 					{...getHandleProps(resizeEdge, resizeLabel, resizeCorner)}

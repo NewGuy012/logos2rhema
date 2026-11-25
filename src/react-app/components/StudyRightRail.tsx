@@ -79,8 +79,6 @@ export function StudyRightRail({
 	onActivateFloating,
 	railSize,
 	onRailSizeChange,
-	maxRailWidth,
-	maxRailHeight,
 	bookEn,
 	bookKo,
 	chapter,
@@ -118,11 +116,8 @@ export function StudyRightRail({
 			onActivateFloating={onActivateFloating}
 			railSize={variant === "sidebar" ? railSize : undefined}
 			onRailSizeChange={variant === "sidebar" ? onRailSizeChange : undefined}
-			maxRailWidth={
-				variant === "sidebar" ? (maxRailWidth ?? DEFAULT_MAX_DICT_RAIL_WIDTH) : undefined
-			}
+			maxRailWidth={variant === "sidebar" ? DEFAULT_MAX_DICT_RAIL_WIDTH : undefined}
 			minRailHeight={DEFAULT_MIN_DICT_HEIGHT}
-			maxRailHeight={variant === "sidebar" ? maxRailHeight : undefined}
 		>
 			{({ isModified, resetPanel }) => (
 				<>

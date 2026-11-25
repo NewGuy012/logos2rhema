@@ -1055,34 +1055,6 @@ describe("Reader UI & Audio Hooks", () => {
 					expect(audioPanel.style.height).toBe("486px");
 					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("366px");
 
-					// Shrinking viewport clamps docked rails in both dimensions without erasing stored preferences
-					act(() => {
-						Object.defineProperty(window, "innerWidth", { value: 1120, configurable: true });
-						Object.defineProperty(window, "innerHeight", { value: 520, configurable: true });
-						window.dispatchEvent(new window.Event("resize"));
-					});
-					const clampedAudioW = Number.parseInt(audioPanel.style.width, 10);
-					const clampedDictW = Number.parseInt(dictPanel.style.width, 10);
-					const clampedAudioH = Number.parseInt(audioPanel.style.height, 10);
-					const clampedDictH = Number.parseInt(dictPanel.style.height, 10);
-					expect(clampedAudioW).toBeLessThan(366);
-					expect(clampedDictW).toBeLessThan(380);
-					expect(clampedAudioW).toBeGreaterThanOrEqual(200);
-					expect(clampedDictW).toBeGreaterThanOrEqual(200);
-					expect(clampedAudioH).toBe(384);
-					expect(clampedDictH).toBe(384);
-
-					// Restoring wide/tall viewport restores full persisted sizes
-					act(() => {
-						Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
-						Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
-						window.dispatchEvent(new window.Event("resize"));
-					});
-					expect(audioPanel.style.width).toBe("366px");
-					expect(audioPanel.style.height).toBe("486px");
-					expect(dictPanel.style.width).toBe("380px");
-					expect(dictPanel.style.height).toBe("480px");
-
 					const savedPrefs = localStorage.getItem("logos.reader.preferences.v1") ?? "";
 					expect(savedPrefs).toContain('"audioRailWidth":366');
 					expect(savedPrefs).toContain('"audioRailHeight":486');
