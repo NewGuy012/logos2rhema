@@ -11,6 +11,10 @@
 ![React](https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react&logoColor=white)
 ![Bun](https://img.shields.io/badge/Bun-runtime_%26_test-000000?style=flat-square&logo=bun&logoColor=white)
 
+<br />
+
+<img src="docs/home-page.png" alt="Logos2Rhema home page" width="720" />
+
 </div>
 
 ---
