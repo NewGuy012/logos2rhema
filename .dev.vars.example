@@ -10,17 +10,6 @@
 # Used for live ESV chapter text (/api/esv/:usfm/:chapter) and English audio playback (David Cochran Heath).
 # ESV_API_KEY=
 
-# Optional Thunder Compute (`tnr` CLI) & SSH offload defaults for `bun run audio:generate-krv:remote`
+# Optional Thunder Compute (`tnr` CLI) default instance ID for `bun run audio:generate-krv:remote`
+# (`--create` auto-sizes 1/2/4 shards of 1x A6000 / 8 vCPUs / cuda12-8 / 100 GB / q=5 and auto-deletes on clean sync)
 # THUNDER_INSTANCE=0
-# THUNDER_SSH_TARGET=tnr-0
-# THUNDER_SSH_PORT=
-# THUNDER_SSH_KEY=~/.ssh/id_ed25519
-# THUNDER_REMOTE_DIR=~/logos2rhema-krv-tts
-# THUNDER_DEVICE=auto
-# Provisioning defaults when `--create` is used (already saved as code defaults in scripts/lib/remote-tts.ts):
-# THUNDER_MODE=prototyping
-# THUNDER_GPU=a6000
-# THUNDER_NUM_GPUS=1
-# THUNDER_VCPUS=8
-# THUNDER_TEMPLATE=cuda12-8
-# THUNDER_DISK_SIZE_GB=100

@@ -61,8 +61,8 @@ Bundled Korean Scripture (`public/data/bibles/krv/`), Korean lexicon, and HelloA
 | `bun run build`                     | Typecheck and build client SPA bundle into `dist/client/` (fails if static ESV files exist)                                                                        |
 | `bun run deploy`                    | Deploy to Cloudflare Workers via Wrangler                                                                                                                          |
 | `bun run data:build`                | Rebuild bundled KRV chapters and Korean lexicon (and optional local-only `.cache/esv-local/` if `data-sources/esv.spb` exists)                                     |
-| `bun run audio:generate-krv`        | Generate Supertonic 3 KRV audio and verse timings locally or remotely (`--thunder` / `--ssh`)                                                                      |
-| `bun run audio:generate-krv:remote` | Offload Supertonic 3 KRV generation to Thunder Compute using `.dev.vars` defaults or `tnr`                                                                         |
+| `bun run audio:generate-krv`        | Generate Supertonic 3 KRV audio and verse timings locally (multi-core CPU) or on Thunder Compute (`--create` / `--thunder`)                                        |
+| `bun run audio:generate-krv:remote` | Offload Supertonic 3 KRV generation to Thunder Compute using `THUNDER_INSTANCE` or a single running `tnr` instance                                                 |
 | `bun run audio:upload-krv`          | Upload local KRV MP3s to private Cloudflare R2 via Wrangler                                                                                                        |
 
 ## API Endpoints
@@ -91,29 +91,29 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, CORP (`same-orig
 
    _(Optional private dev cache)_: If you keep a personal `data-sources/esv.spb` locally (gitignored), `bun run data:build` writes `.cache/esv-local/{USFM}.json` (gitignored, never bundled into `dist/client/`) for fast offline local `bun run dev`.
 
-2. _(Optional)_ Generate Supertonic 3 (`Daniel`, AI TTS) Korean MP3s and verse timings locally (requires [`uv`](https://docs.astral.sh/uv/)), or offload to a **Thunder Compute VM** via the `tnr` CLI or direct SSH:
+2. _(Optional)_ Generate Supertonic 3 (`Daniel`, AI TTS) Korean MP3s and verse timings locally via multi-core CPU (requires [`uv`](https://docs.astral.sh/uv/)), or offload to **Thunder Compute (`1× RTX A6000`)** via the `tnr` CLI:
 
    ```bash
-   # Local dry-run / generation
+   # Local dry-run / multi-core CPU generation (free; defaults tuned to q=5)
    bun run audio:generate-krv --dry-run
-   caffeinate -i bun run audio:generate-krv --testament NT --voice Daniel --speed 0.95 --steps 10
+   caffeinate -i bun run audio:generate-krv --testament NT
 
-   # Remote Thunder Compute (`tnr` CLI) — isolated 4-chapter RUT test (does not touch production audio or R2)
-   # `--create` defaults to prototyping / 1x RTX A6000 / 8 vCPUs / cuda12-8 / 100 GB disk
-   bun run audio:generate-krv --thunder 0 --book RUT --staging rut-test --force --dry-run
-   bun run audio:generate-krv --thunder 0 --book RUT --staging rut-test --force
+   # Isolated 4-chapter RUT test on Thunder (auto 1x A6000, q=5, auto-deleted; prod & R2 untouched)
+   bun run audio:generate-krv --create --book RUT --staging rut-test --force --dry-run
    bun run audio:generate-krv --create --book RUT --staging rut-test --force
 
-   # Direct SSH option & multi-book runs (also supports Korean/English names, e.g. "룻기", "Philemon")
-   bun run audio:generate-krv --ssh tnr-0 --books RUT,PHM,JUD --staging multi-test --force
-   bun run audio:generate-krv --thunder 0 --books GEN,EXO --force
+   # Whole Bible — zero-config matrix sweet spot (auto 4x 1x A6000 VMs, q=5, ~12-15 min, ~$0.30-$0.35, auto-deleted)
+   bun run audio:generate-krv --create --all --dry-run
+   bun run audio:generate-krv --create --all
 
-   # Parallel multi-VM sharding (e.g. 4x cheap 1x A6000 VMs for ~12-16 min whole-Bible runs, auto-deleted after sync)
-   bun run audio:generate-krv --shards 4 --create --mp3-quality 5 --delete-after --all --dry-run
-   bun run audio:generate-krv --shards 4 --create --mp3-quality 5 --delete-after --all
+   # Fastest low-cost whole Bible (8x 1x A6000 VMs, q=5, ~8-10 min, ~$0.40-$0.50, auto-deleted)
+   bun run audio:generate-krv --create --shards 8 --all
+
+   # Reuse an existing VM (kept running unless --delete-after is passed; use --keep-vms with --create to keep fresh VMs)
+   bun run audio:generate-krv --thunder 0 --books GEN,EXO --force
    ```
 
-   Remote runs cache `.venv` (with CUDA `onnxruntime-gpu` when a GPU is detected) and Supertonic 3 weights on the VM, auto-shard batches across all detected GPUs (`--gpus`) with pipelined multi-vCPU MP3 encoding (`--mp3-quality 2`, or `5` for faster encoding), and never upload to R2 unless `--upload` is explicitly passed outside staging mode. Use `--shell` for an interactive `tnr connect` / SSH session, or `--setup-only` to pre-warm the VM environment.
+   Thunder runs provision `1× RTX A6000` (`8 vCPUs`, `prototyping`, `cuda12-8`, `100 GB` disk) VMs via `tnr`, cache `.venv` (CUDA `onnxruntime-gpu`) and Supertonic 3 weights on the VM, auto-size parallel shards (`1` for `<=25` ch, `2` for `26–150` ch, `4` for `>150` ch, overrideable up to `--shards 8`), run pipelined multi-vCPU MP3 encoding (`--mp3-quality 5` default), and automatically delete newly created VMs after clean sync (pass `--keep-vms` to keep them, or use `tnr connect <id>` for a shell). R2 uploads are always separate via `bun run audio:upload-krv`.
 
    When `.cache/krv-supertonic-audio/` exists locally (and `AUDIO_BASE_URL` is unset), `bun run dev` and `bun run preview` serve chapters directly from disk via `GET /api/audio/krv/:usfm/:chapter`.
 
