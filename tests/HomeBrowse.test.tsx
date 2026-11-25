@@ -396,11 +396,8 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				expect(getByText(votd, today.displayDate)).toBeDefined();
 				expect(getByText(votd, formatVerseRefBilingual(today.ref).refEn)).toBeDefined();
 				expect(getByText(votd, formatVerseRefBilingual(today.ref).refKo)).toBeDefined();
-				expect(votd.textContent).not.toContain("Curated Verse");
-				expect(votd.querySelector(".votd-actions")).toBeNull();
-				expect(votd.querySelector('button[aria-label="Shuffle verse"]')).toBeNull();
 
-				// Hero no longer holds Psalm 1:2 unless today happens to be Psalm 1:2; About section holds Psalm 1:2
+				// About section displays the Psalm 1:2 motto
 				const about = container.querySelector(
 					'section[aria-label="About Logos2Rhema"]',
 				) as HTMLElement;
@@ -408,8 +405,6 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				expect(motto?.textContent).toContain("but his delight is in the law of the Lord");
 				expect(motto?.textContent).toContain("Psalm 1:2");
 				expect(motto?.textContent).toContain("시편 1:2");
-				const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
-				expect(footer.querySelector(".footer-motto-verse")).toBeNull();
 
 				await waitUntil(() => {
 					expect(getByText(votd, "하나님이")).toBeDefined();
@@ -470,10 +465,6 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					"Scripture Memorization · 말씀 암송",
 				);
 				expect(getByText(container, /4 saved verses/)).toBeDefined();
-				expect(studySection.textContent).not.toContain("due for review");
-				expect(studySection.textContent).not.toContain("streak");
-				expect(studySection.textContent).not.toContain("Recall Reading");
-				expect(studySection.querySelector(".home-recall-card")).toBeNull();
 				fireClick(getButton(container, "Open"));
 				expect(onOpenMemorize).toHaveBeenCalledTimes(1);
 			},

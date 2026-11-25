@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
 import {
@@ -21,24 +21,7 @@ import {
 import { MEMORIZE_STARTER_PACKS } from "../src/shared/memorize-packs";
 import type { BookBibleData } from "../src/shared/types";
 import { getVerseOfTheDay, VERSE_OF_THE_DAY_REFS } from "../src/shared/verse-of-the-day";
-
-function createMemoryStorage(): Storage {
-	const store = new Map<string, string>();
-	return {
-		get length() {
-			return store.size;
-		},
-		clear: () => store.clear(),
-		getItem: (k: string) => store.get(k) ?? null,
-		key: (i: number) => Array.from(store.keys())[i] ?? null,
-		removeItem: (k: string) => {
-			store.delete(k);
-		},
-		setItem: (k: string, v: string) => {
-			store.set(k, v);
-		},
-	};
-}
+import { installMemoryStorage } from "./helpers";
 
 describe("Verse of the Day & Starter Packs data integrity", () => {
 	it("validates all 366 VOTD references and all starter packs against bundled KRV JSON", async () => {
@@ -126,19 +109,7 @@ describe("Verse of the Day & Starter Packs data integrity", () => {
 });
 
 describe("Memorize CRUD and storage migration", () => {
-	const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-
-	beforeEach(() => {
-		Object.defineProperty(globalThis, "localStorage", {
-			configurable: true,
-			value: createMemoryStorage(),
-		});
-	});
-
-	afterEach(() => {
-		if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
-		else delete (globalThis as { localStorage?: unknown }).localStorage;
-	});
+	installMemoryStorage();
 
 	it("persists saved verses without storing ESV text and cleanly migrates legacy SRS/note records", () => {
 		const now = new Date(2026, 10, 24, 15, 0, 0).getTime();

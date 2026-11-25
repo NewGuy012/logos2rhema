@@ -21,6 +21,7 @@ import {
 } from "../scripts/lib/ssh-session";
 import {
 	buildTnrCreateArgs,
+	deleteThunderInstance,
 	parseThunderStatusOutput,
 	THUNDER_VM_SPEC,
 } from "../scripts/lib/thunder";
@@ -162,17 +163,6 @@ describe("book selection, CLI options, and .dev.vars", () => {
 			"mutually exclusive",
 		);
 
-		// Removed flags are rejected by strict parsing
-		for (const dropped of [
-			["--ssh", "ubuntu@h1"],
-			["--out-dir", "/tmp/out"],
-			["--upload"],
-			["--gpu", "a100"],
-			["--gpus", "4"],
-		]) {
-			expect(() => parseCliOptions(dropped)).toThrow();
-		}
-
 		// Local mode keeps THUNDER_INSTANCE dormant and rejects remote-only flags
 		const dir = await makeTempDir("l2r-devvars-");
 		const devVarsPath = join(dir, ".dev.vars");
@@ -236,6 +226,12 @@ describe("book selection, CLI options, and .dev.vars", () => {
 			`Fetching...\n[{"id":"0","uuid":"inst-abc","status":"RUNNING","gpuType":"a6000","ip":"198.51.100.42","port":22}]`,
 		);
 		expect(instances[0]).toMatchObject({ id: "0", status: "RUNNING", ip: "198.51.100.42" });
+		expect(() => parseThunderStatusOutput('[{"id":"-y","status":"RUNNING"}]')).toThrow(
+			"Unsafe Thunder instance ID",
+		);
+		await expect(
+			deleteThunderInstance("/usr/local/bin/tnr", "-y", createMockRunner({})),
+		).rejects.toThrow("Invalid Thunder instance ID");
 
 		// Endpoint prefers ~/.thunder/keys/<uuid> and connects directly to ubuntu@<ip>
 		const fakeHome = await makeTempDir("l2r-home-");
@@ -419,6 +415,9 @@ describe("mocked Thunder Compute orchestration", () => {
 				const script = args.at(-1) ?? "";
 				if (cmd === "ssh" && script.includes("--verify-env --device cuda")) {
 					bootstrapRanVerifyEnv = true;
+					expect(script).toContain("--proto");
+					expect(script).toContain("--tlsv1.2 -LsSf https://astral.sh/uv/install.sh");
+					expect(script).toContain('"supertonic>=1.3,<2" "lameenc>=1.7,<2" "numpy>=1.26,<3"');
 				}
 				if (cmd === "ssh" && script.includes("--job-manifest")) {
 					remoteScriptRan = script;

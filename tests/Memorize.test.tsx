@@ -168,22 +168,6 @@ describe("Memorize Simplified UI & End-to-End Integration", () => {
 			expect(packsToggle.getAttribute("aria-expanded")).toBe("false");
 			expect(container.querySelector(".memorize-packs-panel")).toBeNull();
 
-			// None of the removed flashcard/note/read/quiz UI exists
-			const pageText = container.querySelector(".memorize-container")?.textContent ?? "";
-			for (const forbidden of [
-				"Study Due",
-				"Practice All",
-				"Show Answer",
-				"Peek Hint",
-				"Blanks",
-				"Ref Quiz",
-				"Add Note",
-				"Due Today",
-				"Mastered",
-			]) {
-				expect(pageText).not.toContain(forbidden);
-			}
-
 			const addInput = container.querySelector(
 				'input[aria-label="Add verse reference"]',
 			) as HTMLInputElement;

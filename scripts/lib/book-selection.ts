@@ -14,9 +14,7 @@ function isExactBookMatch(book: BookMeta, raw: string, normalized: string): bool
 	);
 }
 
-/**
- * Resolve a single book identifier (USFM, English, Korean, short form, alias, or unambiguous prefix).
- */
+/** Resolve a single book token (USFM, English, Korean, alias, or unambiguous prefix). */
 export function resolveBookToken(rawToken: string): BookMeta {
 	const raw = rawToken.trim();
 	if (!raw) {
@@ -55,9 +53,7 @@ export function resolveBookToken(rawToken: string): BookMeta {
 	throw new Error(`Unknown book identifier: "${rawToken}"`);
 }
 
-/**
- * Parse repeatable / comma-separated `--book` and `--books` arguments into deduplicated BookMeta entries.
- */
+/** Parse repeatable or comma-separated `--book` / `--books` tokens into unique `BookMeta` entries. */
 export function resolveBookList(rawValues: readonly string[]): BookMeta[] {
 	const seen = new Set<string>();
 	const resolved: BookMeta[] = [];

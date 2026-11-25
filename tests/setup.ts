@@ -149,19 +149,7 @@ export function mockMatchMedia(matches = true): () => void {
 	};
 }
 
-export async function withMockFetch(
-	handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
-	fn: () => Promise<void> | void,
-): Promise<void> {
-	const original = globalThis.fetch;
-	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-		Promise.resolve(handler(String(input), init))) as unknown as typeof fetch;
-	try {
-		await fn();
-	} finally {
-		globalThis.fetch = original;
-	}
-}
+export { withMockFetch } from "./helpers";
 
 export interface MockAudioInstance {
 	preload: string;
