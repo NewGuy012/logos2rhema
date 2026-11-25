@@ -4069,6 +4069,10 @@ button:focus-visible {
 	flex-wrap: wrap;
 }
 
+.memorize-clear-btn {
+	background: var(--bg-surface);
+}
+
 .memorize-feedback {
 	margin: 0;
 	font-size: 0.82rem;

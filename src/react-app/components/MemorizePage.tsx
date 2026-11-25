@@ -461,7 +461,7 @@ export function MemorizePage({
 					{cards.length > 0 && (
 						<button
 							type="button"
-							className="home-clear-btn"
+							className="home-clear-btn memorize-clear-btn"
 							onClick={() => {
 								onClearDeck();
 								setStatusMessage(null);
