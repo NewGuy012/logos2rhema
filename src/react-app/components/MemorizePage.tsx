@@ -18,7 +18,7 @@ import {
 import { loadTranslationPassage } from "../lib/bible-loader";
 import { makeMemorizeCardId } from "../lib/memorize";
 import { VerseAudioButton } from "./AudioShared";
-import { ChevronDown, ChevronLeft, ChevronRight, Layers, Plus, Sparkles, X } from "./Icons";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Sparkles, X } from "./Icons";
 import { KoreanTokensLine } from "./KoreanToken";
 import { LegalFooter } from "./LegalFooter";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
@@ -385,13 +385,7 @@ export function MemorizePage({
 	return (
 		<main className="memorize-container">
 			<header className="memorize-header">
-				<h1 className="memorize-title">
-					<Layers size={22} className="memorize-title-icon" />
-					<span>Scripture Memorization</span>
-					<span className="memorize-title-ko" lang="ko">
-						· 말씀 암송
-					</span>
-				</h1>
+				<h1 className="memorize-title">Scripture Memorization</h1>
 
 				{cards.length > 0 && (
 					<div className="memorize-header-controls">
