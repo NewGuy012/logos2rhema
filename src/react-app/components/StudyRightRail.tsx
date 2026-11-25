@@ -5,6 +5,7 @@ import type {
 	KrvGrammarNote,
 	RightRailTab,
 } from "../../shared/types";
+import { DEFAULT_MAX_DICT_RAIL_WIDTH, DEFAULT_MIN_DICT_HEIGHT } from "../hooks/useResizablePanel";
 import { CommentaryPanel } from "./CommentaryPanel";
 import { FootnotesGuide } from "./FootnotesGuide";
 import { BookOpen, BookText, ChevronDown, ChevronRight } from "./Icons";
@@ -12,7 +13,7 @@ import {
 	type DraggableRailProps,
 	DraggableRailShell,
 	PanelHeaderText,
-	PanelSnapBackButton,
+	PanelHeaderUtilityActions,
 	SegmentedControl,
 	type SegmentedOption,
 } from "./RailShared";
@@ -76,6 +77,10 @@ export function StudyRightRail({
 	onFloatingPositionChange,
 	isActiveFloating = false,
 	onActivateFloating,
+	railSize,
+	onRailSizeChange,
+	maxRailWidth,
+	maxRailHeight,
 	bookEn,
 	bookKo,
 	chapter,
@@ -104,27 +109,41 @@ export function StudyRightRail({
 			className={`dict-panel dict-panel-${variant}`}
 			ariaLabel={isDictionary ? "Korean Dictionary & Grammar Guide" : "Bible Commentary"}
 			draggable={canDrag}
+			dockSide="right"
+			resizeLabel={isDictionary ? "Resize dictionary panel" : "Resize commentary panel"}
 			ignoreSelector=".right-rail-tabpanel"
 			floatingPosition={floatingPosition}
 			onFloatingPositionChange={onFloatingPositionChange}
 			isActiveFloating={isActiveFloating}
 			onActivateFloating={onActivateFloating}
+			railSize={variant === "sidebar" ? railSize : undefined}
+			onRailSizeChange={variant === "sidebar" ? onRailSizeChange : undefined}
+			maxRailWidth={
+				variant === "sidebar" ? (maxRailWidth ?? DEFAULT_MAX_DICT_RAIL_WIDTH) : undefined
+			}
+			minRailHeight={DEFAULT_MIN_DICT_HEIGHT}
+			maxRailHeight={variant === "sidebar" ? maxRailHeight : undefined}
 		>
-			{({ isFloating, resetPosition }) => (
+			{({ isFloating, isResized, resetPosition, resetSize }) => (
 				<>
 					<div className={`dict-panel-header ${canDrag ? "panel-drag-handle" : ""}`.trim()}>
-						{isFloating ? (
-							<PanelSnapBackButton
-								onClick={resetPosition}
-								ariaLabel={
-									isDictionary
-										? "Snap dictionary back to original position"
-										: "Snap commentary back to original position"
-								}
-							/>
-						) : (
-							<span aria-hidden="true" />
-						)}
+						<PanelHeaderUtilityActions
+							align="start"
+							isFloating={isFloating}
+							isResized={isResized}
+							onResetPosition={resetPosition}
+							onResetSize={resetSize}
+							snapAriaLabel={
+								isDictionary
+									? "Snap dictionary back to original position"
+									: "Snap commentary back to original position"
+							}
+							resetSizeAriaLabel={
+								isDictionary
+									? "Reset dictionary to original width and height"
+									: "Reset commentary to original width and height"
+							}
+						/>
 						<PanelHeaderText
 							title={isDictionary ? "Dictionary" : "Commentary"}
 							bookEn={bookEn}

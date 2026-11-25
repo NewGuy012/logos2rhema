@@ -1,9 +1,18 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { containsHangul, romanizeHangul } from "../../shared/hangul";
 import type { FootnoteVocabEntry, LexiconEntry } from "../../shared/types";
 import { type PanelPosition, useDraggablePanel } from "../hooks/useDraggablePanel";
-import { ChevronDown, ChevronRight, Loader2, Pin, Search, Volume2, X } from "./Icons";
+import {
+	DEFAULT_MAX_DICT_RAIL_WIDTH,
+	DEFAULT_MAX_RAIL_HEIGHT,
+	DEFAULT_MIN_DICT_HEIGHT,
+	DEFAULT_MIN_RAIL_WIDTH,
+	type PanelSize,
+	type ResizeEdge,
+	useResizablePanel,
+} from "../hooks/useResizablePanel";
+import { ChevronDown, ChevronRight, Loader2, Pin, RotateCcw, Search, Volume2, X } from "./Icons";
 
 export interface SegmentedOption<T extends string | number> {
 	value: T;
@@ -105,6 +114,10 @@ export interface DraggableRailProps {
 	onFloatingPositionChange?: (pos: PanelPosition | null) => void;
 	isActiveFloating?: boolean;
 	onActivateFloating?: () => void;
+	railSize?: PanelSize;
+	onRailSizeChange?: (size: PanelSize) => void;
+	maxRailWidth?: number;
+	maxRailHeight?: number;
 }
 
 export function DraggableRailShell({
@@ -112,37 +125,102 @@ export function DraggableRailShell({
 	className,
 	ariaLabel,
 	draggable = true,
+	dockSide = "left",
+	resizeLabel = "Resize panel",
 	ignoreSelector,
 	floatingPosition,
 	onFloatingPositionChange,
 	isActiveFloating = false,
 	onActivateFloating,
+	railSize,
+	onRailSizeChange,
+	minRailWidth = DEFAULT_MIN_RAIL_WIDTH,
+	maxRailWidth = DEFAULT_MAX_DICT_RAIL_WIDTH,
+	minRailHeight = DEFAULT_MIN_DICT_HEIGHT,
+	maxRailHeight = DEFAULT_MAX_RAIL_HEIGHT,
 	children,
 }: DraggableRailProps & {
 	id?: string;
 	className: string;
 	ariaLabel: string;
 	draggable?: boolean;
+	dockSide?: "left" | "right";
+	resizeLabel?: string;
 	ignoreSelector?: string;
-	children: (state: { isFloating: boolean; resetPosition: () => void }) => ReactNode;
+	minRailWidth?: number;
+	minRailHeight?: number;
+	children: (state: {
+		isFloating: boolean;
+		isResized: boolean;
+		resetPosition: () => void;
+		resetSize: () => void;
+	}) => ReactNode;
 }) {
-	const { panelProps, isFloating, isDragging, resetPosition } = useDraggablePanel<HTMLElement>({
-		enabled: draggable,
-		position: floatingPosition,
-		onPositionChange: onFloatingPositionChange,
-		onActivate: onActivateFloating,
-		isActive: isActiveFloating,
-		ignoreSelector,
-	});
+	const { panelProps, position, setPosition, isFloating, isDragging, resetPosition } =
+		useDraggablePanel<HTMLElement>({
+			enabled: draggable,
+			position: floatingPosition,
+			onPositionChange: onFloatingPositionChange,
+			onActivate: onActivateFloating,
+			isActive: isActiveFloating,
+			ignoreSelector,
+		});
+
+	const { currentSize, isResizing, resizingEdge, getHandleProps, resetSize } =
+		useResizablePanel<HTMLElement>({
+			enabled: draggable,
+			panelRef: panelProps.ref,
+			size: railSize,
+			onSizeChange: onRailSizeChange,
+			minWidth: minRailWidth,
+			maxWidth: maxRailWidth,
+			minHeight: minRailHeight,
+			maxHeight: maxRailHeight,
+			isFloating,
+			position,
+			onPositionChange: setPosition,
+			onActivate: onActivateFloating,
+		});
+
+	const isResized = currentSize.width !== null || currentSize.height !== null;
+	const mergedStyle: CSSProperties | undefined =
+		panelProps.style || isResized
+			? {
+					...panelProps.style,
+					...(currentSize.width !== null ? { width: `${currentSize.width}px` } : {}),
+					...(currentSize.height !== null ? { height: `${currentSize.height}px` } : {}),
+				}
+			: undefined;
+
+	const resizeEdge: ResizeEdge = dockSide === "left" ? "right" : "left";
+	const resizeCorner = dockSide === "left" ? "bottom-right" : "bottom-left";
 
 	return (
 		<aside
 			{...panelProps}
+			style={mergedStyle}
 			id={id}
-			className={`${className} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""}`.trim()}
+			className={`${className} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""} ${isResizing ? "is-resizing" : ""} ${currentSize.height !== null ? "has-custom-height" : ""}`.trim()}
 			aria-label={ariaLabel}
 		>
-			{children({ isFloating, resetPosition })}
+			{children({ isFloating, isResized, resetPosition, resetSize })}
+			{draggable && (
+				<div
+					{...getHandleProps(resizeEdge, resizeLabel, resizeCorner)}
+					className={`panel-resize-handle panel-resize-handle-${resizeCorner} ${resizingEdge === resizeEdge ? "active" : ""}`.trim()}
+				>
+					<svg
+						className="panel-resize-grip"
+						width="18"
+						height="18"
+						viewBox="0 0 20 20"
+						aria-hidden="true"
+					>
+						<path d="M13.9 5.6A15 15 0 0 1 5.6 13.9" />
+						<path d="M9.9 4.8A11 11 0 0 1 4.8 9.9" />
+					</svg>
+				</div>
+			)}
 		</aside>
 	);
 }
@@ -256,6 +334,67 @@ export function PanelSnapBackButton({
 		>
 			<Pin size={14} />
 		</button>
+	);
+}
+
+export function PanelResetSizeButton({
+	onClick,
+	ariaLabel,
+}: {
+	onClick: () => void;
+	ariaLabel: string;
+}) {
+	return (
+		<button
+			type="button"
+			className="pill-nav-btn panel-reset-size-btn"
+			onClick={onClick}
+			aria-label={ariaLabel}
+			title="Reset to original width and height"
+		>
+			<RotateCcw size={13} />
+		</button>
+	);
+}
+
+export function PanelHeaderUtilityActions({
+	align,
+	isFloating,
+	isResized,
+	onResetPosition,
+	onResetSize,
+	snapAriaLabel,
+	resetSizeAriaLabel,
+}: {
+	align: "start" | "end";
+	isFloating: boolean;
+	isResized: boolean;
+	onResetPosition: () => void;
+	onResetSize: () => void;
+	snapAriaLabel: string;
+	resetSizeAriaLabel: string;
+}) {
+	if (!isFloating && !isResized) return <span aria-hidden="true" />;
+	const snapBtn = isFloating ? (
+		<PanelSnapBackButton key="snap" onClick={onResetPosition} ariaLabel={snapAriaLabel} />
+	) : null;
+	const resetBtn = isResized ? (
+		<PanelResetSizeButton key="size" onClick={onResetSize} ariaLabel={resetSizeAriaLabel} />
+	) : null;
+	return (
+		<div className={`panel-header-actions panel-header-actions-${align}`}>
+			{align === "start" ? (
+				<>
+					{snapBtn}
+					{resetBtn}
+				</>
+			) : (
+				<>
+					{resetBtn}
+					{snapBtn}
+				</>
+			)}
+		</div>
 	);
 }
 

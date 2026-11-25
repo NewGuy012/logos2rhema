@@ -2,7 +2,7 @@ import "./dom";
 
 import { afterEach, describe, expect, it, mock } from "bun:test";
 
-import type { ComponentProps } from "react";
+import { act, type ComponentProps } from "react";
 
 import { CommentaryPanel } from "../src/react-app/components/CommentaryPanel";
 import { StudyRightRail } from "../src/react-app/components/StudyRightRail";
@@ -199,5 +199,106 @@ describe("CommentaryPanel & StudyRightRail", () => {
 		expect(
 			getByText(container, "No notes available in Tyndale Open Study Notes for Judges 1."),
 		).toBeDefined();
+	});
+
+	it("resizes StudyRightRail width and height via bottom-left corner mouse drag, keyboard, reset button, and double-click", () => {
+		const origInnerWidth = window.innerWidth;
+		const origInnerHeight = window.innerHeight;
+		Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+		Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+		try {
+			const { container, rerender } = render(<StudyRightRail {...makeRailProps()} />);
+			const panel = container.querySelector("#footnotes") as HTMLElement;
+
+			// Dictionary exposes only bottom-left corner resize handle and no reset button initially
+			expect(panel.querySelector('[data-resize-handle="bottom-right"]')).toBeNull();
+			expect(panel.querySelector(".panel-reset-size-btn")).toBeNull();
+			const cornerHandle = panel.querySelector('[data-resize-handle="bottom-left"]') as HTMLElement;
+			expect(cornerHandle.getAttribute("role")).toBe("separator");
+			expect(cornerHandle.getAttribute("aria-label")).toBe("Resize dictionary panel");
+
+			// Dragging bottom-left corner down-left widens (230 -> 350) and increases height (320 -> 440)
+			fireDrag(cornerHandle, [300, 320], [180, 440]);
+			expect(panel.className).not.toContain("floating");
+			expect(panel.style.width).toBe("350px");
+			expect(panel.style.height).toBe("440px");
+			expect(document.body.classList.contains("is-panel-resizing-nesw")).toBe(false);
+
+			// Header reset button appears when resized and resets both width and height
+			fireClick(getButton(panel, "Reset dictionary to original width and height"));
+			expect(panel.style.width).toBe("");
+			expect(panel.style.height).toBe("");
+			expect(panel.querySelector(".panel-reset-size-btn")).toBeNull();
+
+			// Dragging bottom-left corner up-right clamps to minWidth (200px) and minHeight (220px)
+			fireDrag(cornerHandle, [180, 320], [500, 100]);
+			expect(panel.style.width).toBe("200px");
+			expect(panel.style.height).toBe("220px");
+
+			// Keyboard ArrowLeft widens, ArrowDown heightens, Enter resets both
+			act(() => {
+				cornerHandle.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+				);
+				cornerHandle.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+				);
+			});
+			expect(panel.style.width).toBe("216px");
+			expect(panel.style.height).toBe("236px");
+			act(() => {
+				cornerHandle.dispatchEvent(
+					new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+				);
+			});
+			expect(panel.style.width).toBe("");
+			expect(panel.style.height).toBe("");
+
+			// Switching to Commentary updates labels while preserving resized dimensions
+			fireDrag(cornerHandle, [300, 320], [210, 410]);
+			expect(panel.style.width).toBe("320px");
+			expect(panel.style.height).toBe("410px");
+			rerender(<StudyRightRail {...makeRailProps({ activeTab: "commentary" })} />);
+			expect(cornerHandle.getAttribute("aria-label")).toBe("Resize commentary panel");
+			expect(getButton(panel, "Reset commentary to original width and height")).toBeDefined();
+			expect(panel.style.width).toBe("320px");
+			expect(panel.style.height).toBe("410px");
+
+			// Floating panel keeps bottom-left corner handle, exposes both Snap Back & Reset Size, and anchors right boundary
+			fireDrag(panel.querySelector(".dict-panel-header") as Element, [50, 50], [450, 170]);
+			expect(panel.className).toContain("floating");
+			expect(panel.style.left).toBe("400px");
+			expect(panel.style.width).toBe("320px");
+			expect(panel.style.height).toBe("410px");
+			expect(getButton(panel, "Snap commentary back to original position")).toBeDefined();
+			expect(getButton(panel, "Reset commentary to original width and height")).toBeDefined();
+
+			const floatingCorner = panel.querySelector(
+				'[data-resize-handle="bottom-left"]',
+			) as HTMLElement;
+			expect(floatingCorner).not.toBeNull();
+			expect(panel.querySelector('[data-resize-handle="bottom-right"]')).toBeNull();
+
+			// Drag bottom-left corner down-left by (-80, +60) -> width 320 -> 400, height 410 -> 470, left 400 -> 320
+			fireDrag(floatingCorner, [400, 580], [320, 640]);
+			expect(panel.style.width).toBe("400px");
+			expect(panel.style.height).toBe("470px");
+			expect(panel.style.left).toBe("320px");
+
+			// Double-click resets both width and height back to default while keeping floating position
+			act(() => {
+				floatingCorner.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true }));
+			});
+			expect(panel.style.width).toBe("");
+			expect(panel.style.height).toBe("");
+			expect(panel.className).toContain("floating");
+
+			// Sheet variant disables resizing completely
+			rerender(<StudyRightRail {...makeRailProps({ variant: "sheet" })} />);
+			expect(container.querySelector("[data-resize-handle]")).toBeNull();
+		} finally {
+			Object.defineProperty(window, "innerWidth", { value: origInnerWidth, configurable: true });
+			Object.defineProperty(window, "innerHeight", { value: origInnerHeight, configurable: true });
+		}
 	});
 });

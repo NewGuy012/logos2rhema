@@ -115,6 +115,7 @@ export function PassagePicker({
 						selectedBook={activeBook}
 						currentBookNumber={currentBookNumber}
 						currentChapter={currentChapter}
+						verticalLayout={true}
 						onSelectBook={setActiveBook}
 						onSelectChapter={selectChapter}
 					/>

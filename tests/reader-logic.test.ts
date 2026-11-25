@@ -7,6 +7,15 @@ import {
 	resolveVerseAtTime,
 } from "../src/react-app/hooks/useHumanAudio";
 import {
+	computeMaxDockedRailHeight,
+	DEFAULT_FALLBACK_RAIL_WIDTH,
+	DEFAULT_MIN_DICT_HEIGHT,
+	DEFAULT_MIN_RAIL_WIDTH,
+	getDefaultRailWidthPx,
+	parseStoredRailDimension,
+	resolveDockedRailWidths,
+} from "../src/react-app/hooks/useResizablePanel";
+import {
 	clearLoaderCaches,
 	getEsvCacheStats,
 	loadChapterCommentary,
@@ -694,5 +703,62 @@ describe("Reader pure logic (no DOM)", () => {
 				expect(fetchedUrls.filter((u) => u === "/api/esv/RUT/2/1")).toHaveLength(2);
 			},
 		);
+	});
+
+	it("validates stored rail dimensions and resolves docked rail budgets without crowding main text", () => {
+		expect(getDefaultRailWidthPx(0)).toBe(DEFAULT_FALLBACK_RAIL_WIDTH);
+		expect(getDefaultRailWidthPx(1024)).toBe(216);
+		expect(getDefaultRailWidthPx(1440)).toBe(230);
+		expect(getDefaultRailWidthPx(1920)).toBe(250);
+
+		expect(parseStoredRailDimension("300", DEFAULT_MIN_RAIL_WIDTH, 480)).toBeNull();
+		expect(parseStoredRailDimension(Number.NaN, DEFAULT_MIN_RAIL_WIDTH, 480)).toBeNull();
+		expect(parseStoredRailDimension(120, DEFAULT_MIN_RAIL_WIDTH, 480)).toBe(DEFAULT_MIN_RAIL_WIDTH);
+		expect(parseStoredRailDimension(999, DEFAULT_MIN_RAIL_WIDTH, 480)).toBe(480);
+		expect(parseStoredRailDimension(342.6, DEFAULT_MIN_RAIL_WIDTH, 480)).toBe(343);
+
+		expect(computeMaxDockedRailHeight(0, DEFAULT_MIN_DICT_HEIGHT, 900)).toBe(900);
+		expect(computeMaxDockedRailHeight(900, DEFAULT_MIN_DICT_HEIGHT)).toBe(764);
+		expect(computeMaxDockedRailHeight(300, DEFAULT_MIN_DICT_HEIGHT)).toBe(DEFAULT_MIN_DICT_HEIGHT);
+
+		// Plenty of room on 1440px-like budget: preserves both custom widths
+		const roomy = resolveDockedRailWidths({
+			audioWidth: 320,
+			dictWidth: 460,
+			audioDockedOpen: true,
+			dictDockedOpen: true,
+			budget: 866,
+			defaultRailWidth: 230,
+		});
+		expect(roomy.audioWidth).toBe(320);
+		expect(roomy.dictWidth).toBe(460);
+		expect(roomy.maxAudioWidth).toBe(406);
+		expect(roomy.maxDictWidth).toBe(546);
+
+		// Tight viewport budget scales both custom widths proportionally while respecting minWidth
+		const tight = resolveDockedRailWidths({
+			audioWidth: 380,
+			dictWidth: 520,
+			audioDockedOpen: true,
+			dictDockedOpen: true,
+			budget: 650,
+			defaultRailWidth: 216,
+		});
+		expect(tight.audioWidth).toBe(290);
+		expect(tight.dictWidth).toBe(360);
+		expect(tight.audioWidth! + tight.dictWidth!).toBeLessThanOrEqual(650);
+
+		// Floating or minimized rail leaves its column at default width
+		const audioFloating = resolveDockedRailWidths({
+			audioWidth: 400,
+			dictWidth: 500,
+			audioDockedOpen: false,
+			dictDockedOpen: true,
+			budget: 800,
+			defaultRailWidth: 230,
+		});
+		expect(audioFloating.audioWidth).toBeNull();
+		expect(audioFloating.dictWidth).toBe(500);
+		expect(audioFloating.maxDictWidth).toBe(570);
 	});
 });

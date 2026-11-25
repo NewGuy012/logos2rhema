@@ -326,6 +326,8 @@ button {
 .speed-menu-option,
 .quick-dict-btn,
 .home-clear-btn,
+.home-continue-btn,
+.home-memorize-btn,
 .home-open-reader-btn,
 .rail-skip-btn,
 .rail-sync-toggle,
@@ -480,6 +482,8 @@ button:focus-visible {
 .home-clear-btn:active,
 .pill-chapter-btn:active,
 .segmented-btn:active,
+.home-continue-btn:active,
+.home-memorize-btn:active,
 .home-open-reader-btn:active,
 .rail-sync-btn:active,
 .dict-disclosure-btn:active,
@@ -499,13 +503,13 @@ button:focus-visible {
 }
 
 .rail-minimize-btn,
-.dict-panel .panel-snap-btn,
+.panel-header-actions-start,
 .rail-skip-back {
 	justify-self: start;
 }
 
 .dict-minimize-btn,
-.audio-rail .panel-snap-btn,
+.panel-header-actions-end,
 .rail-skip-forward,
 .rail-duration {
 	justify-self: end;
@@ -847,7 +851,10 @@ button:focus-visible {
 .reader-workspace.desktop-layout {
 	max-width: none;
 	display: grid;
-	grid-template-columns: var(--rail-width) minmax(430px, 1fr) var(--rail-width);
+	grid-template-columns:
+		var(--audio-rail-width, var(--rail-width))
+		minmax(430px, 1fr)
+		var(--dict-rail-width, var(--rail-width));
 	justify-content: center;
 	align-items: start;
 	gap: clamp(1.65rem, 3vw, 4rem);
@@ -1364,6 +1371,7 @@ button:focus-visible {
 }
 
 .dict-panel-sidebar {
+	position: relative;
 	/* Match the 2.5rem gap below the sticky top bar (6rem top + 2.5rem bottom). */
 	max-height: calc(100vh - var(--topbar-height) - 5rem);
 }
@@ -1380,6 +1388,7 @@ button:focus-visible {
 	overflow-y: auto;
 }
 
+.audio-rail.floating,
 .audio-rail.floating .rail-card,
 .dict-panel-sidebar.floating {
 	max-height: var(--floating-max-height, calc(100vh - 16px));
@@ -1405,6 +1414,83 @@ button:focus-visible {
 	cursor: grabbing;
 }
 
+.audio-rail.is-resizing,
+.dict-panel-sidebar.is-resizing,
+body.is-panel-resizing-nwse,
+body.is-panel-resizing-nwse *,
+body.is-panel-resizing-nesw,
+body.is-panel-resizing-nesw * {
+	user-select: none !important;
+	-webkit-user-select: none !important;
+}
+
+body.is-panel-resizing-nwse,
+body.is-panel-resizing-nwse * {
+	cursor: nwse-resize !important;
+}
+
+body.is-panel-resizing-nesw,
+body.is-panel-resizing-nesw * {
+	cursor: nesw-resize !important;
+}
+
+.panel-resize-handle {
+	position: absolute;
+	bottom: 0;
+	width: 18px;
+	height: 18px;
+	z-index: 3;
+	display: inline-flex;
+	align-items: flex-end;
+	touch-action: none;
+	color: var(--text-muted);
+}
+
+.panel-resize-handle-bottom-right {
+	right: 0;
+	justify-content: flex-end;
+	border-bottom-right-radius: 20px;
+	cursor: nwse-resize;
+}
+
+.panel-resize-handle-bottom-left {
+	left: 0;
+	justify-content: flex-start;
+	border-bottom-left-radius: 20px;
+	cursor: nesw-resize;
+}
+
+.panel-resize-grip {
+	display: block;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	opacity: 0.42;
+	transition:
+		opacity 150ms ease,
+		color 150ms ease;
+}
+
+.panel-resize-handle-bottom-left .panel-resize-grip {
+	transform: scaleX(-1);
+}
+
+.panel-resize-handle:hover .panel-resize-grip,
+.panel-resize-handle:focus-visible .panel-resize-grip {
+	color: var(--accent);
+	opacity: 0.85;
+}
+
+.panel-resize-handle.active .panel-resize-grip {
+	color: var(--accent);
+	opacity: 1;
+}
+
+.panel-resize-handle:focus-visible {
+	outline: none;
+}
+
 .dict-sheet-wrap {
 	width: min(560px, calc(100vw - 24px));
 }
@@ -1417,12 +1503,19 @@ button:focus-visible {
 .dict-panel-header,
 .rail-panel-header {
 	display: grid;
-	grid-template-columns: 36px minmax(0, 1fr) 36px;
+	grid-template-columns: minmax(36px, auto) minmax(0, 1fr) minmax(36px, auto);
 	align-items: center;
 	gap: 0.25rem;
 	padding: 6px 6px 8px;
 	min-height: 48px;
 	border-bottom: 1px solid var(--border-hairline);
+}
+
+.panel-header-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	align-self: start;
 }
 
 .rail-panel-header {
@@ -1666,7 +1759,7 @@ button:focus-visible {
 	min-height: 0;
 	display: flex;
 	flex-direction: column;
-	overflow: hidden;
+	overflow-y: auto;
 }
 
 .footnotes-subtitle {
@@ -2205,18 +2298,31 @@ button:focus-visible {
 /* Rail header button overrides (after .pill-nav-btn for cascade priority) */
 .dict-minimize-btn,
 .rail-minimize-btn,
-.panel-snap-btn {
+.panel-snap-btn,
+.panel-reset-size-btn {
 	width: 36px;
 	height: 36px;
 	border-radius: 12px;
 	align-self: start;
 }
 
-.panel-snap-btn {
+.panel-header-actions .pill-nav-btn {
+	width: 30px;
+	border-radius: 10px;
+}
+
+.panel-header-actions > .pill-nav-btn:only-child {
+	width: 36px;
+	border-radius: 12px;
+}
+
+.panel-snap-btn,
+.panel-reset-size-btn {
 	color: var(--accent);
 }
 
-.panel-snap-btn:hover {
+.panel-snap-btn:hover,
+.panel-reset-size-btn:hover {
 	background: var(--accent-soft);
 	color: var(--accent);
 }
@@ -3025,15 +3131,22 @@ button:focus-visible {
 	gap: 0.45rem;
 	padding: 0.58rem 1.05rem;
 	font-size: 0.85rem;
+}
+
+.home-continue-btn,
+.home-memorize-btn,
+.home-open-reader-btn {
 	font-weight: 600;
-	background: var(--accent);
-	color: var(--text-on-accent);
-	transition: opacity 140ms ease;
+	background: var(--accent-soft);
+	color: var(--accent);
+	border: 1px solid var(--accent-border);
+	white-space: nowrap;
 }
 
 .home-continue-btn:hover,
-.home-memorize-btn:hover {
-	opacity: 0.9;
+.home-memorize-btn:hover,
+.home-open-reader-btn:hover {
+	background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .home-search-form {
@@ -3516,15 +3629,6 @@ button:focus-visible {
 	gap: 0.38rem;
 	padding: 0.44rem 0.85rem;
 	font-size: 0.78rem;
-	font-weight: 600;
-	background: var(--accent-soft);
-	color: var(--accent);
-	border: 1px solid var(--accent-border);
-	white-space: nowrap;
-}
-
-.home-open-reader-btn:hover {
-	background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .home-study-passage-title {
@@ -3808,16 +3912,27 @@ button:focus-visible {
 
 /* Left Margin Audio & Verse Sync Rail */
 .audio-rail {
+	position: relative;
 	width: 100%;
+	display: flex;
+	flex-direction: column;
+	max-height: calc(100vh - var(--topbar-height) - 5rem);
 }
 
 .rail-card {
+	flex: 1 1 auto;
+	min-height: 0;
 	border-radius: 20px;
 	padding: 0.72rem 0.75rem 0.82rem;
 	display: flex;
 	flex-direction: column;
 	gap: 0.62rem;
-	overflow: hidden;
+	overflow-x: hidden;
+	overflow-y: auto;
+}
+
+.rail-card > * {
+	flex-shrink: 0;
 }
 
 .rail-divider {
@@ -4075,6 +4190,7 @@ button:focus-visible {
 }
 
 .memorize-clear-btn {
+	color: var(--text-primary);
 	background: var(--bg-surface);
 }
 

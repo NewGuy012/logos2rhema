@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { hasVerseTimings } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
+import { DEFAULT_MAX_AUDIO_RAIL_WIDTH, DEFAULT_MIN_AUDIO_HEIGHT } from "../hooks/useResizablePanel";
 import {
 	AudioFallbackAction,
 	AudioLanguageToggle,
@@ -17,7 +18,7 @@ import {
 	type DraggableRailProps,
 	DraggableRailShell,
 	PanelHeaderText,
-	PanelSnapBackButton,
+	PanelHeaderUtilityActions,
 } from "./RailShared";
 
 interface AudioControlRailProps extends SharedAudioControlProps, DraggableRailProps {
@@ -53,6 +54,10 @@ export function AudioControlRail({
 	onFloatingPositionChange,
 	isActiveFloating = false,
 	onActivateFloating,
+	railSize,
+	onRailSizeChange,
+	maxRailWidth,
+	maxRailHeight,
 	onTogglePlay,
 	onSeek,
 	onSkipBy,
@@ -80,12 +85,19 @@ export function AudioControlRail({
 		<DraggableRailShell
 			className="audio-rail"
 			ariaLabel="Audio Playback and Verse Sync"
+			dockSide="left"
+			resizeLabel="Resize audio panel"
 			floatingPosition={floatingPosition}
 			onFloatingPositionChange={onFloatingPositionChange}
 			isActiveFloating={isActiveFloating}
 			onActivateFloating={onActivateFloating}
+			railSize={railSize}
+			onRailSizeChange={onRailSizeChange}
+			maxRailWidth={maxRailWidth ?? DEFAULT_MAX_AUDIO_RAIL_WIDTH}
+			minRailHeight={DEFAULT_MIN_AUDIO_HEIGHT}
+			maxRailHeight={maxRailHeight}
 		>
-			{({ isFloating, resetPosition }) => (
+			{({ isFloating, isResized, resetPosition, resetSize }) => (
 				<div className="rail-card">
 					<div className="rail-panel-header panel-drag-handle">
 						{onMinimize ? (
@@ -103,14 +115,15 @@ export function AudioControlRail({
 							<span aria-hidden="true" />
 						)}
 						<PanelHeaderText title="Audio" bookEn={bookEn} bookKo={bookKo} chapter={chapter} />
-						{isFloating ? (
-							<PanelSnapBackButton
-								onClick={resetPosition}
-								ariaLabel="Snap audio back to original position"
-							/>
-						) : (
-							<span aria-hidden="true" />
-						)}
+						<PanelHeaderUtilityActions
+							align="end"
+							isFloating={isFloating}
+							isResized={isResized}
+							onResetPosition={resetPosition}
+							onResetSize={resetSize}
+							snapAriaLabel="Snap audio back to original position"
+							resetSizeAriaLabel="Reset audio to original width and height"
+						/>
 					</div>
 
 					<div className="rail-player">

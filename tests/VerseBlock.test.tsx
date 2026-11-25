@@ -412,6 +412,7 @@ describe("Reader UI & Audio Hooks", () => {
 				onNavigate={onOpenPassage}
 			/>,
 		);
+		expect(picker.container.querySelector(".books-grid-vertical")).not.toBeNull();
 		const pickerInput = picker.container.querySelector("input[type='search']") as HTMLInputElement;
 		setInputValue(pickerInput, "요 3:16");
 		submitForm(pickerInput.closest("form") as HTMLFormElement);
@@ -949,6 +950,169 @@ describe("Reader UI & Audio Hooks", () => {
 				},
 			);
 		} finally {
+			restoreMatchMedia();
+		}
+	});
+
+	it("resizes Audio and Dictionary rails in width and height, updates grid CSS variables, persists, clamps, and resets", async () => {
+		window.location.hash = "#/GEN/1";
+		const origInnerWidth = window.innerWidth;
+		const origInnerHeight = window.innerHeight;
+		Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+		Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+		const restoreMatchMedia = mockMatchMedia(true);
+
+		try {
+			await withMockFetch(
+				createReaderFetchHandler({
+					krv: () =>
+						makeBookResponse("krv", 1, "GEN", {
+							"1": [{ verse: 1, text: "태초에 하나님이 천지를 창조하시니라" }],
+							"2": [{ verse: 1, text: "천지와 만물이 다 이루니라" }],
+						}),
+					esv: () =>
+						makeChapterResponse("esv", 1, "GEN", 1, [
+							{ verse: 1, text: "In the beginning, God created the heavens and the earth." },
+						]),
+				}),
+				async () => {
+					const firstMount = render(<App />);
+
+					await waitUntil(() => {
+						expect(getByText(firstMount.container, "태초에")).toBeDefined();
+					});
+
+					const workspace = firstMount.container.querySelector(".reader-workspace") as HTMLElement;
+					const audioPanel = firstMount.container.querySelector(".audio-rail") as HTMLElement;
+					const dictPanel = firstMount.container.querySelector("#footnotes") as HTMLElement;
+
+					// Audio exposes bottom-right corner only; Dictionary exposes bottom-left corner only
+					expect(audioPanel.querySelector('[data-resize-handle="bottom-left"]')).toBeNull();
+					expect(dictPanel.querySelector('[data-resize-handle="bottom-right"]')).toBeNull();
+					const audioHandle = audioPanel.querySelector(
+						'[data-resize-handle="bottom-right"]',
+					) as HTMLElement;
+					const dictHandle = dictPanel.querySelector(
+						'[data-resize-handle="bottom-left"]',
+					) as HTMLElement;
+					expect(audioHandle.getAttribute("aria-label")).toBe("Resize audio panel");
+					expect(dictHandle.getAttribute("aria-label")).toBe("Resize dictionary panel");
+
+					// Drag Audio bottom-right corner (+90, +110) & Dictionary bottom-left corner (-150, +160)
+					fireDrag(audioHandle, [240, 320], [330, 430]);
+					expect(audioPanel.style.width).toBe("320px");
+					expect(audioPanel.style.height).toBe("430px");
+					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("320px");
+
+					fireDrag(dictHandle, [1180, 320], [1030, 480]);
+					expect(dictPanel.style.width).toBe("380px");
+					expect(dictPanel.style.height).toBe("480px");
+					expect(workspace.style.getPropertyValue("--dict-rail-width")).toBe("380px");
+
+					// Keyboard ArrowRight / ArrowDown on separator resizes without triggering chapter navigation
+					act(() => {
+						audioHandle.dispatchEvent(
+							new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+						);
+						audioHandle.dispatchEvent(
+							new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+						);
+					});
+					expect(audioPanel.style.width).toBe("336px");
+					expect(audioPanel.style.height).toBe("446px");
+					expect(window.location.hash).toBe("#/GEN/1");
+
+					// Dragging Audio into floating removes --audio-rail-width grid override while keeping panel size
+					fireDrag(audioPanel.querySelector(".rail-panel-header")!, [20, 20], [120, 140]);
+					expect(audioPanel.className).toContain("floating");
+					expect(audioPanel.style.width).toBe("336px");
+					expect(audioPanel.style.height).toBe("446px");
+					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("");
+					expect(getButton(audioPanel, "Snap audio back to original position")).toBeDefined();
+					expect(getButton(audioPanel, "Reset audio to original width and height")).toBeDefined();
+
+					// Floating Audio resizes width & height from its bottom-right corner while keeping left anchored
+					fireDrag(audioHandle, [436, 586], [466, 626]);
+					expect(audioPanel.style.width).toBe("366px");
+					expect(audioPanel.style.height).toBe("486px");
+					expect(audioPanel.style.left).toBe("100px");
+
+					// Snap back restores docked grid column at resized size
+					fireClick(getButton(firstMount.container, "Snap audio back to original position"));
+					expect(audioPanel.className).not.toContain("floating");
+					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("366px");
+
+					// Shrinking viewport clamps docked rails in both dimensions without erasing stored preferences
+					act(() => {
+						Object.defineProperty(window, "innerWidth", { value: 1120, configurable: true });
+						Object.defineProperty(window, "innerHeight", { value: 520, configurable: true });
+						window.dispatchEvent(new window.Event("resize"));
+					});
+					const clampedAudioW = Number.parseInt(audioPanel.style.width, 10);
+					const clampedDictW = Number.parseInt(dictPanel.style.width, 10);
+					const clampedAudioH = Number.parseInt(audioPanel.style.height, 10);
+					const clampedDictH = Number.parseInt(dictPanel.style.height, 10);
+					expect(clampedAudioW).toBeLessThan(366);
+					expect(clampedDictW).toBeLessThan(380);
+					expect(clampedAudioW).toBeGreaterThanOrEqual(200);
+					expect(clampedDictW).toBeGreaterThanOrEqual(200);
+					expect(clampedAudioH).toBe(384);
+					expect(clampedDictH).toBe(384);
+
+					// Restoring wide/tall viewport restores full persisted sizes
+					act(() => {
+						Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+						Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+						window.dispatchEvent(new window.Event("resize"));
+					});
+					expect(audioPanel.style.width).toBe("366px");
+					expect(audioPanel.style.height).toBe("486px");
+					expect(dictPanel.style.width).toBe("380px");
+					expect(dictPanel.style.height).toBe("480px");
+
+					const savedPrefs = localStorage.getItem("logos.reader.preferences.v1") ?? "";
+					expect(savedPrefs).toContain('"audioRailWidth":366');
+					expect(savedPrefs).toContain('"audioRailHeight":486');
+					expect(savedPrefs).toContain('"dictRailWidth":380');
+					expect(savedPrefs).toContain('"dictRailHeight":480');
+
+					// Re-mounting App restores saved widths and heights from localStorage
+					const secondMount = render(<App />);
+					await waitUntil(() => {
+						expect(getByText(secondMount.container, "태초에")).toBeDefined();
+					});
+					const restoredAudio = secondMount.container.querySelector(".audio-rail") as HTMLElement;
+					const restoredDict = secondMount.container.querySelector("#footnotes") as HTMLElement;
+					expect(restoredAudio.style.width).toBe("366px");
+					expect(restoredAudio.style.height).toBe("486px");
+					expect(restoredDict.style.width).toBe("380px");
+					expect(restoredDict.style.height).toBe("480px");
+
+					// Header reset buttons restore both width and height to default
+					fireClick(getButton(restoredAudio, "Reset audio to original width and height"));
+					expect(restoredAudio.style.width).toBe("");
+					expect(restoredAudio.style.height).toBe("");
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"audioRailWidth":null',
+					);
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"audioRailHeight":null',
+					);
+
+					fireClick(getButton(restoredDict, "Reset dictionary to original width and height"));
+					expect(restoredDict.style.width).toBe("");
+					expect(restoredDict.style.height).toBe("");
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"dictRailWidth":null',
+					);
+					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
+						'"dictRailHeight":null',
+					);
+				},
+			);
+		} finally {
+			Object.defineProperty(window, "innerWidth", { value: origInnerWidth, configurable: true });
+			Object.defineProperty(window, "innerHeight", { value: origInnerHeight, configurable: true });
 			restoreMatchMedia();
 		}
 	});

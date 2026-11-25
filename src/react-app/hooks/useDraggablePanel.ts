@@ -22,9 +22,9 @@ interface UseDraggablePanelOptions {
 }
 
 const DRAG_THRESHOLD_PX = 4;
-const VIEWPORT_MARGIN_PX = 8;
+export const VIEWPORT_MARGIN_PX = 8;
 const INTERACTIVE_SELECTOR =
-	"button, a, input, select, textarea, label, [role='button'], [role='tab'], [role='switch'], [role='menuitemradio']";
+	"button, a, input, select, textarea, label, [role='button'], [role='tab'], [role='switch'], [role='menuitemradio'], [role='separator'], [data-resize-handle]";
 
 function clampPosition(
 	x: number,
@@ -189,6 +189,7 @@ export function useDraggablePanel<T extends HTMLElement>({
 			...(enabled ? { onMouseDown, onMouseDownCapture } : {}),
 		},
 		position: currentPosition,
+		setPosition: commitPosition,
 		isFloating,
 		isDragging,
 		resetPosition,
