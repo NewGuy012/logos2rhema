@@ -233,7 +233,7 @@ export function HomePage({
 					<div className="home-continue-card home-memorize-card">
 						<div className="home-continue-meta">
 							<p className="home-continue-subtitle">
-								Memorize Scripture{" "}
+								Scripture Memorization{" "}
 								<span className="home-continue-subtitle-ko" lang="ko">
 									· 말씀 암송
 								</span>

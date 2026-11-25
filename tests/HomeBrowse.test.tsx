@@ -452,7 +452,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				});
 				expect(votd.querySelector(".votd-today-btn")).toBeNull();
 
-				// Collapsible Memorize section starts collapsed, then reveals Memorize Scripture card
+				// Collapsible Memorize section starts collapsed, then reveals Scripture Memorization card
 				const studySection = container.querySelector(".home-study-section") as HTMLElement;
 				const studyToggle = getButton(studySection, /Memorize/);
 				expect(studyToggle.getAttribute("aria-expanded")).toBe("false");
@@ -460,7 +460,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				fireClick(studyToggle);
 				expect(studyToggle.getAttribute("aria-expanded")).toBe("true");
 				expect(studySection.querySelector(".home-continue-subtitle")?.textContent).toBe(
-					"Memorize Scripture · 말씀 암송",
+					"Scripture Memorization · 말씀 암송",
 				);
 				expect(getByText(container, /4 saved verses/)).toBeDefined();
 				expect(studySection.textContent).not.toContain("due for review");
