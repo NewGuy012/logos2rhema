@@ -22,7 +22,8 @@ export function useBilingualPassage({
 	const [enLoading, setEnLoading] = useState(false);
 	const [koError, setKoError] = useState<string | null>(null);
 	const [enError, setEnError] = useState<string | null>(null);
-	const [retrySeq, setRetrySeq] = useState(0);
+	const [koRetrySeq, setKoRetrySeq] = useState(0);
+	const [enRetrySeq, setEnRetrySeq] = useState(0);
 
 	useEffect(() => {
 		if (!enabled || externalLexicon !== undefined) return;
@@ -43,25 +44,20 @@ export function useBilingualPassage({
 	const chapter = passageRef?.chapter ?? 0;
 	const verseStart = passageRef?.verseStart ?? 0;
 	const verseEnd = passageRef?.verseEnd ?? verseStart;
+	const isValidRef = enabled && bookNumber >= 1 && chapter >= 1 && verseStart >= 1;
 
 	useEffect(() => {
-		if (!enabled || !passageRef || bookNumber < 1 || chapter < 1 || verseStart < 1) {
+		if (!isValidRef) {
 			setKoVerses([]);
-			setEnVerses([]);
 			setKoLoading(false);
-			setEnLoading(false);
 			setKoError(null);
-			setEnError(null);
 			return;
 		}
 
 		const controller = new AbortController();
 		setKoVerses([]);
-		setEnVerses([]);
 		setKoLoading(true);
-		setEnLoading(loadEn);
 		setKoError(null);
-		setEnError(null);
 
 		loadTranslationPassage(
 			CANONICAL_BIBLES.ko.id,
@@ -82,36 +78,53 @@ export function useBilingualPassage({
 				setKoLoading(false);
 			});
 
-		if (loadEn) {
-			loadTranslationPassage(
-				CANONICAL_BIBLES.en.id,
-				bookNumber,
-				chapter,
-				verseStart,
-				verseEnd,
-				controller.signal,
-			)
-				.then((verses) => {
-					if (controller.signal.aborted) return;
-					setEnVerses(verses);
-					setEnLoading(false);
-				})
-				.catch((err) => {
-					if (controller.signal.aborted) return;
-					setEnError(err instanceof Error ? err.message : "English (ESV) unavailable.");
-					setEnLoading(false);
-				});
+		return () => controller.abort();
+	}, [isValidRef, bookNumber, chapter, verseStart, verseEnd, koRetrySeq]);
+
+	useEffect(() => {
+		if (!isValidRef || !loadEn) {
+			setEnVerses([]);
+			setEnLoading(false);
+			setEnError(null);
+			return;
 		}
 
+		const controller = new AbortController();
+		setEnVerses([]);
+		setEnLoading(true);
+		setEnError(null);
+
+		loadTranslationPassage(
+			CANONICAL_BIBLES.en.id,
+			bookNumber,
+			chapter,
+			verseStart,
+			verseEnd,
+			controller.signal,
+		)
+			.then((verses) => {
+				if (controller.signal.aborted) return;
+				setEnVerses(verses);
+				setEnLoading(false);
+			})
+			.catch((err) => {
+				if (controller.signal.aborted) return;
+				setEnError(err instanceof Error ? err.message : "English (ESV) unavailable.");
+				setEnLoading(false);
+			});
+
 		return () => controller.abort();
-	}, [enabled, passageRef, bookNumber, chapter, verseStart, verseEnd, loadEn, retrySeq]);
+	}, [isValidRef, loadEn, bookNumber, chapter, verseStart, verseEnd, enRetrySeq]);
 
 	const { aligned } = useMemo(
 		() => alignChapterVerses(enVerses, koVerses, activeLexicon),
 		[enVerses, koVerses, activeLexicon],
 	);
 
-	const retry = useCallback(() => setRetrySeq((s) => s + 1), []);
+	const retry = useCallback(() => {
+		if (koError || koVerses.length === 0) setKoRetrySeq((s) => s + 1);
+		if (loadEn && (enError || enVerses.length === 0)) setEnRetrySeq((s) => s + 1);
+	}, [koError, koVerses.length, loadEn, enError, enVerses.length]);
 
 	const combinedEn = useMemo(
 		() =>

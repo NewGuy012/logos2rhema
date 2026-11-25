@@ -14,7 +14,13 @@ export interface VerseAudioTarget {
 	fallbackKoText?: string;
 }
 
-type VerseAudioSource = "supertonic" | "speech" | null;
+export function getVerseAudioTargetKey(
+	target: Pick<VerseAudioTarget, "usfm" | "chapter" | "verseStart" | "verseEnd">,
+): string {
+	return `${target.usfm}:${target.chapter}:${target.verseStart}-${target.verseEnd ?? target.verseStart}`;
+}
+
+export type VerseAudioSource = "supertonic" | "speech" | null;
 
 const NEXT_VERSE_STOP_LEAD_SEC = 0.12;
 const MIN_VERSE_SLICE_SEC = 0.25;
@@ -72,6 +78,7 @@ export function useVerseAudio(resetKey?: string) {
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [source, setSource] = useState<VerseAudioSource>(null);
+	const [activeTargetKey, setActiveTargetKey] = useState<string | null>(null);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -90,49 +97,58 @@ export function useVerseAudio(resetKey?: string) {
 	const isLoadingRef = useRef(isLoading);
 	isLoadingRef.current = isLoading;
 
-	const playFallbackSpeech = useCallback((text: string | undefined, seq: number) => {
-		const trimmed = text?.trim();
-		if (!trimmed) {
-			if (seq === playSeqRef.current) {
-				setIsPlaying(false);
-				setIsLoading(false);
-				setSource(null);
-				setErrorMessage("Korean audio unavailable.");
-			}
-			return;
-		}
-		if (seq !== playSeqRef.current) return;
-		setSource("speech");
-		setIsLoading(false);
-		speakKoreanWord(trimmed, {
-			onStart: () => {
-				if (seq === playSeqRef.current) {
-					setIsPlaying(true);
-					setIsLoading(false);
-				}
-			},
-			onEnd: () => {
-				if (seq === playSeqRef.current) {
-					setIsPlaying(false);
-					setIsLoading(false);
-					activeTargetKeyRef.current = null;
-				}
-			},
-			onError: () => {
+	const setActiveTarget = useCallback((key: string | null) => {
+		activeTargetKeyRef.current = key;
+		setActiveTargetKey(key);
+	}, []);
+
+	const playFallbackSpeech = useCallback(
+		(text: string | undefined, seq: number) => {
+			const trimmed = text?.trim();
+			if (!trimmed) {
 				if (seq === playSeqRef.current) {
 					setIsPlaying(false);
 					setIsLoading(false);
 					setSource(null);
-					activeTargetKeyRef.current = null;
+					setActiveTarget(null);
 					setErrorMessage("Korean audio unavailable.");
 				}
-			},
-		});
-	}, []);
+				return;
+			}
+			if (seq !== playSeqRef.current) return;
+			setSource("speech");
+			setIsLoading(false);
+			speakKoreanWord(trimmed, {
+				onStart: () => {
+					if (seq === playSeqRef.current) {
+						setIsPlaying(true);
+						setIsLoading(false);
+					}
+				},
+				onEnd: () => {
+					if (seq === playSeqRef.current) {
+						setIsPlaying(false);
+						setIsLoading(false);
+						setActiveTarget(null);
+					}
+				},
+				onError: () => {
+					if (seq === playSeqRef.current) {
+						setIsPlaying(false);
+						setIsLoading(false);
+						setSource(null);
+						setActiveTarget(null);
+						setErrorMessage("Korean audio unavailable.");
+					}
+				},
+			});
+		},
+		[setActiveTarget],
+	);
 
 	const stop = useCallback(() => {
 		playSeqRef.current++;
-		activeTargetKeyRef.current = null;
+		setActiveTarget(null);
 		pendingSeekRef.current = null;
 		boundsRef.current = null;
 		abortRef.current?.abort();
@@ -145,7 +161,7 @@ export function useVerseAudio(resetKey?: string) {
 		}
 		setIsPlaying(false);
 		setIsLoading(false);
-	}, []);
+	}, [setActiveTarget]);
 
 	const ensureAudioElement = useCallback((): HTMLAudioElement | null => {
 		if (audioRef.current) return audioRef.current;
@@ -194,14 +210,14 @@ export function useVerseAudio(resetKey?: string) {
 				(audio.currentTime || 0) >= bounds.stopAtSec
 			) {
 				audio.pause();
-				activeTargetKeyRef.current = null;
+				setActiveTarget(null);
 				setIsPlaying(false);
 				setIsLoading(false);
 			}
 		});
 		audio.addEventListener("ended", () => {
 			if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
-				activeTargetKeyRef.current = null;
+				setActiveTarget(null);
 				setIsPlaying(false);
 				setIsLoading(false);
 			}
@@ -218,7 +234,7 @@ export function useVerseAudio(resetKey?: string) {
 
 		audioRef.current = audio;
 		return audio;
-	}, [playFallbackSpeech]);
+	}, [playFallbackSpeech, setActiveTarget]);
 
 	useEffect(() => {
 		return () => {
@@ -241,7 +257,7 @@ export function useVerseAudio(resetKey?: string) {
 
 	const togglePlay = useCallback(
 		(target: VerseAudioTarget) => {
-			const targetKey = `${target.usfm}:${target.chapter}:${target.verseStart}-${target.verseEnd ?? target.verseStart}`;
+			const targetKey = getVerseAudioTargetKey(target);
 			if (
 				(isPlayingRef.current || isLoadingRef.current) &&
 				activeTargetKeyRef.current === targetKey
@@ -252,7 +268,7 @@ export function useVerseAudio(resetKey?: string) {
 
 			stop();
 			const seq = ++playSeqRef.current;
-			activeTargetKeyRef.current = targetKey;
+			setActiveTarget(targetKey);
 			setIsLoading(true);
 			setErrorMessage(null);
 			setSource(null);
@@ -317,13 +333,14 @@ export function useVerseAudio(resetKey?: string) {
 					playFallbackSpeech(target.fallbackKoText, seq);
 				});
 		},
-		[stop, ensureAudioElement, playFallbackSpeech],
+		[stop, setActiveTarget, ensureAudioElement, playFallbackSpeech],
 	);
 
 	return {
 		isPlaying,
 		isLoading,
 		source,
+		activeTargetKey,
 		errorMessage,
 		togglePlay,
 		stop,
