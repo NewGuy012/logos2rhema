@@ -60,10 +60,10 @@ export interface RemoteSession {
 	downloadDir(remoteDir: string, localDir: string, opts?: { compress?: boolean }): Promise<void>;
 }
 
-const SAFE_UUID_RE = /^[a-zA-Z0-9-]+$/;
-const SAFE_HOST_RE = /^[a-zA-Z0-9.:-]+$/;
+export const SAFE_UUID_RE = /^[a-zA-Z0-9-]+$/;
+const SAFE_HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/;
 
-export function expandLocalHome(rawPath: string, homeDir = homedir()): string {
+function expandLocalHome(rawPath: string, homeDir = homedir()): string {
 	if (rawPath === "~") return homeDir;
 	if (rawPath.startsWith("~/")) return join(homeDir, rawPath.slice(2));
 	return rawPath;
@@ -185,7 +185,7 @@ export function resolveUvBinary(runner: CommandRunner): string | null {
 	]);
 }
 
-export function buildSshBaseArgs(endpoint: SshEndpoint, controlPath?: string): string[] {
+function buildSshBaseArgs(endpoint: SshEndpoint, controlPath?: string): string[] {
 	const args: string[] = [
 		"-o",
 		"BatchMode=yes",

@@ -38,7 +38,7 @@ export function chooseOptimalShards(pendingChapters: number): number {
 	return 4;
 }
 
-export function selectBooksForOptions(options: CliOptions): BookMeta[] {
+function selectBooksForOptions(options: CliOptions): BookMeta[] {
 	if (options.testament) {
 		return BIBLE_BOOKS.filter((b) => b.testament === options.testament);
 	}

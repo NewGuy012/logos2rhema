@@ -8,9 +8,8 @@ export const KRV_AUDIO_REL_DIR = join(".cache", "krv-supertonic-audio");
 export const KRV_TIMINGS_REL_DIR = join("public", "data", "timings", "krv-supertonic");
 export const KRV_REPORT_REL_PATH = join(".cache", "krv-supertonic-report.json");
 export const AUDIO_CACHE_DIR = join(ROOT_DIR, KRV_AUDIO_REL_DIR);
-export const TIMINGS_OUT_DIR = join(ROOT_DIR, KRV_TIMINGS_REL_DIR);
 
-export function stripOptionalQuotes(value: string): string {
+function stripOptionalQuotes(value: string): string {
 	if (
 		(value.startsWith('"') && value.endsWith('"')) ||
 		(value.startsWith("'") && value.endsWith("'"))

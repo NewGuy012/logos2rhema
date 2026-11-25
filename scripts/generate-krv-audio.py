@@ -1,9 +1,9 @@
 # /// script
 # requires-python = ">=3.11,<3.15"
 # dependencies = [
-#   "lameenc>=1.7",
-#   "numpy>=1.26",
-#   "supertonic>=1.3",
+#   "lameenc>=1.7,<2",
+#   "numpy>=1.26,<3",
+#   "supertonic>=1.3,<2",
 # ]
 # ///
 """Offline Supertonic 3 (Daniel / M5) KRV chapter audio and verse timing generator."""

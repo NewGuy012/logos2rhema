@@ -134,9 +134,9 @@ async function bootstrapRemoteEnv(
 	const ortGpuSpec = selectOnnxGpuSpec(probe.cudaMajor);
 	const fingerprint = JSON.stringify({
 		ortGpuSpec,
-		supertonic: "supertonic>=1.3",
-		lameenc: "lameenc>=1.7",
-		numpy: "numpy>=1.26",
+		supertonic: "supertonic>=1.3,<2",
+		lameenc: "lameenc>=1.7,<2",
+		numpy: "numpy>=1.26,<3",
 	});
 	const baseExpr = remoteDirBashExpr(paths.remoteBaseDir);
 	const runExpr = remoteDirBashExpr(paths.remoteRunDir);
@@ -154,7 +154,7 @@ mkdir -p "$BASE_DIR"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv on remote VM..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | sh
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 
@@ -165,7 +165,7 @@ else
   CACHE_HIT=0
   echo "Provisioning remote Supertonic 3 CUDA environment..."
   uv venv --python 3.12 --allow-existing "$VENV_DIR" || uv venv --python 3.13 --allow-existing "$VENV_DIR" || uv venv --allow-existing "$VENV_DIR"
-  uv pip install --python "$VENV_DIR/bin/python" --upgrade "supertonic>=1.3" "lameenc>=1.7" "numpy>=1.26"
+  uv pip install --python "$VENV_DIR/bin/python" --upgrade "supertonic>=1.3,<2" "lameenc>=1.7,<2" "numpy>=1.26,<3"
   uv pip uninstall --python "$VENV_DIR/bin/python" onnxruntime || true
   uv pip install --python "$VENV_DIR/bin/python" --upgrade ${quotePosix(ortGpuSpec)}
   printf '%s' "$WANT_FINGERPRINT" > "$STAMP_FILE"

@@ -8,6 +8,7 @@ import { BIBLE_BOOKS } from "../src/shared/books";
 import { containsHangul, romanizeHangul } from "../src/shared/hangul";
 import { analyzeKoreanVerse } from "../src/shared/korean-morphology";
 import type { BookBibleData, LexiconEntry, LexiconMap, VerseEntry } from "../src/shared/types";
+import { isSafeHttpsUrl } from "../src/shared/url";
 import { atomicWriteFile, ROOT_DIR } from "./lib/common";
 import { parseSpbContent } from "./spb-parser";
 
@@ -54,6 +55,7 @@ interface EsvLemmaContext {
 	words: Map<string, number>;
 }
 
+const MAX_SOURCE_ARCHIVE_BYTES = 128 * 1024 * 1024;
 const MAX_ZIP_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_GZIP_BYTES = 512 * 1024 * 1024;
 
@@ -69,6 +71,9 @@ async function ensureSourceFile(
 	url: string,
 	expectedSha256?: string,
 ): Promise<string> {
+	if (!isSafeHttpsUrl(url)) {
+		throw new Error(`Refusing unsafe source URL: ${url}`);
+	}
 	const targetPath = join(DATA_SOURCES_DIR, filename);
 	const file = Bun.file(targetPath);
 	if (await file.exists()) {
@@ -79,10 +84,24 @@ async function ensureSourceFile(
 	}
 	console.log(`Downloading ${filename} from ${url}...`);
 	const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+	if (res.url && !isSafeHttpsUrl(res.url)) {
+		throw new Error(`Refusing unsafe redirect URL: ${res.url}`);
+	}
 	if (!res.ok) {
 		throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
 	}
+	const contentLength = Number(res.headers.get("content-length"));
+	if (Number.isFinite(contentLength) && contentLength > MAX_SOURCE_ARCHIVE_BYTES) {
+		throw new Error(
+			`Source archive ${filename} exceeds ${MAX_SOURCE_ARCHIVE_BYTES} bytes (${contentLength}).`,
+		);
+	}
 	const bytes = new Uint8Array(await res.arrayBuffer());
+	if (bytes.byteLength > MAX_SOURCE_ARCHIVE_BYTES) {
+		throw new Error(
+			`Source archive ${filename} exceeds ${MAX_SOURCE_ARCHIVE_BYTES} bytes (${bytes.byteLength}).`,
+		);
+	}
 	if (expectedSha256) {
 		verifySha256(bytes, expectedSha256, filename);
 	}

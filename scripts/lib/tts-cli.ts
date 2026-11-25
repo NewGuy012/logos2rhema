@@ -10,8 +10,8 @@ import {
 } from "./common";
 import { THUNDER_VM_SPEC } from "./thunder";
 
-export const DEFAULT_REMOTE_DIR = "~/logos2rhema-krv-tts";
-export const MAX_SHARDS = 8;
+const DEFAULT_REMOTE_DIR = "~/logos2rhema-krv-tts";
+const MAX_SHARDS = 8;
 
 export interface RemoteOptions {
 	thunder?: string;

@@ -13,6 +13,7 @@ import {
 	parseNumberInRange,
 	ROOT_DIR,
 } from "./lib/common";
+import { type CommandRunner, createDefaultCommandRunner } from "./lib/ssh-session";
 
 const CHECKPOINT_PATH = join(CACHE_DIR, "krv-r2-uploaded.json");
 
@@ -173,7 +174,14 @@ function saveCheckpoint(data: CheckpointData): Promise<void> {
 	return saveCheckpointLock(() => atomicWriteJson(CHECKPOINT_PATH, data, true));
 }
 
-async function resolveWranglerRunner(): Promise<{ cmd: string[]; env: Record<string, string> }> {
+interface WranglerRunner {
+	bin: string;
+	prefixArgs: string[];
+	env: Record<string, string>;
+	exec: CommandRunner;
+}
+
+async function resolveWranglerRunner(): Promise<WranglerRunner> {
 	const bunDir = dirname(process.execPath);
 	const currentPath = process.env.PATH ?? "";
 	const pathWithBun = currentPath.split(delimiter).includes(bunDir)
@@ -184,8 +192,12 @@ async function resolveWranglerRunner(): Promise<{ cmd: string[]; env: Record<str
 	const bunxInSameDir = join(bunDir, "bunx");
 	const bunxBin =
 		Bun.which("bunx") ?? ((await Bun.file(bunxInSameDir).exists()) ? bunxInSameDir : "");
-	const cmd = bunxBin ? [bunxBin, "wrangler"] : [process.execPath, "x", "wrangler"];
-	return { cmd, env };
+	return {
+		bin: bunxBin || process.execPath,
+		prefixArgs: bunxBin ? ["wrangler"] : ["x", "wrangler"],
+		env,
+		exec: createDefaultCommandRunner(),
+	};
 }
 
 function buildWranglerPutArgs(bucket: string, item: AudioUploadItem): string[] {
@@ -215,29 +227,21 @@ function isAuthError(output: string): boolean {
 }
 
 async function putObjectOnce(
-	runner: { cmd: string[]; env: Record<string, string> },
+	runner: WranglerRunner,
 	bucket: string,
 	item: AudioUploadItem,
 ): Promise<{ ok: boolean; output: string }> {
-	const proc = Bun.spawn([...runner.cmd, ...buildWranglerPutArgs(bucket, item)], {
-		cwd: ROOT_DIR,
-		env: runner.env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
-
-	const output = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
-	return { ok: exitCode === 0, output };
+	const res = await runner.exec.run(
+		runner.bin,
+		[...runner.prefixArgs, ...buildWranglerPutArgs(bucket, item)],
+		{ cwd: ROOT_DIR, env: runner.env, stdin: "ignore" },
+	);
+	const output = [res.stderr.trim(), res.stdout.trim()].filter(Boolean).join("\n");
+	return { ok: res.exitCode === 0, output };
 }
 
 async function putObjectWithRetries(
-	runner: { cmd: string[]; env: Record<string, string> },
+	runner: WranglerRunner,
 	bucket: string,
 	item: AudioUploadItem,
 	retries: number,

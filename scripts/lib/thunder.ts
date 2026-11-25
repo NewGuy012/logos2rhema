@@ -1,8 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { type CommandRunner, resolveExecutable } from "./ssh-session";
+import { type CommandRunner, resolveExecutable, SAFE_UUID_RE } from "./ssh-session";
 import { parseCommaList, type RemoteOptions } from "./tts-cli";
 
 export const THUNDER_VM_SPEC = {
@@ -24,7 +24,7 @@ export interface ThunderInstanceInfo {
 	port?: number;
 }
 
-const SAFE_UUID_RE = /^[a-zA-Z0-9-]+$/;
+const SAFE_INSTANCE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 function asOptionalString(value: unknown): string | undefined {
 	if (typeof value === "string" && value.trim()) return value.trim();
@@ -64,10 +64,15 @@ function extractJsonValue(rawText: string): unknown {
 }
 
 function normalizeThunderRecord(raw: Record<string, unknown>): ThunderInstanceInfo {
+	const id =
+		asOptionalString(raw.id) ?? asOptionalString(raw.index) ?? asOptionalString(raw.uuid) ?? "0";
+	if (!SAFE_INSTANCE_ID_RE.test(id)) {
+		throw new Error(`Unsafe Thunder instance ID: "${id}"`);
+	}
+	const rawUuid = asOptionalString(raw.uuid);
 	return {
-		id:
-			asOptionalString(raw.id) ?? asOptionalString(raw.index) ?? asOptionalString(raw.uuid) ?? "0",
-		uuid: asOptionalString(raw.uuid),
+		id,
+		uuid: rawUuid && SAFE_UUID_RE.test(rawUuid) ? rawUuid : undefined,
 		name: asOptionalString(raw.name),
 		status: (asOptionalString(raw.status) ?? "UNKNOWN").toUpperCase(),
 		gpuType: asOptionalString(raw.gpuType ?? raw.gpu_type ?? raw.gpu),
@@ -152,14 +157,15 @@ async function persistCreatedThunderKey(
 		const rawUuid = typeof parsed?.uuid === "string" ? parsed.uuid.trim() : "";
 		const uuid = SAFE_UUID_RE.test(rawUuid) ? rawUuid : undefined;
 		const rawId = parsed?.identifier ?? parsed?.id;
-		const id =
-			typeof rawId === "number" || (typeof rawId === "string" && rawId.trim())
-				? String(rawId).trim()
-				: undefined;
+		const idStr =
+			typeof rawId === "number" || typeof rawId === "string" ? String(rawId).trim() : "";
+		const id = idStr && SAFE_INSTANCE_ID_RE.test(idStr) ? idStr : undefined;
 		if (uuid && typeof parsed?.key === "string" && parsed.key.includes("PRIVATE KEY")) {
 			const keysDir = join(homedir(), ".thunder", "keys");
 			await mkdir(keysDir, { recursive: true, mode: 0o700 });
-			await writeFile(join(keysDir, uuid), parsed.key, { mode: 0o600 });
+			const keyPath = join(keysDir, uuid);
+			await writeFile(keyPath, parsed.key, { mode: 0o600 });
+			await chmod(keyPath, 0o600);
 		}
 		return { uuid, id };
 	} catch {
@@ -220,6 +226,9 @@ export async function deleteThunderInstance(
 	runner: CommandRunner,
 	reason = "auto-cleanup",
 ): Promise<boolean> {
+	if (!SAFE_INSTANCE_ID_RE.test(instanceId)) {
+		throw new Error(`Invalid Thunder instance ID: "${instanceId}"`);
+	}
 	console.log(`Deleting Thunder Compute instance ${instanceId} (${reason})...`);
 	const delRes = await runner.run(tnrBin, ["--json", "-y", "delete", instanceId], {
 		stdin: "ignore",
