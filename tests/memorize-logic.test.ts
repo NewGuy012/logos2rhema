@@ -95,11 +95,26 @@ describe("Verse of the Day & Starter Packs data integrity", () => {
 			}
 		}
 
-		expect(MEMORIZE_STARTER_PACKS.length).toBeGreaterThanOrEqual(4);
+		expect(MEMORIZE_STARTER_PACKS.length).toBeGreaterThanOrEqual(11);
+		const packIds = new Set<string>();
 		for (const pack of MEMORIZE_STARTER_PACKS) {
-			expect(pack.refs.length).toBeGreaterThanOrEqual(5);
+			expect(packIds.has(pack.id)).toBe(false);
+			packIds.add(pack.id);
+			expect(pack.refs.length).toBeGreaterThanOrEqual(6);
+
+			const refsInPack = new Set<string>();
 			for (const ref of pack.refs) {
 				expect(normalizeVerseRef(ref)).toEqual(ref);
+				const refId = makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd);
+				expect(refsInPack.has(refId)).toBe(false);
+				refsInPack.add(refId);
+
+				if (pack.id === "old-testament") {
+					expect(getBookByNumber(ref.bookNumber)?.testament).toBe("OT");
+				} else if (pack.id === "new-testament") {
+					expect(getBookByNumber(ref.bookNumber)?.testament).toBe("NT");
+				}
+
 				const data = await loadBook(ref.bookNumber);
 				const verses = data.chapters[String(ref.chapter)] ?? [];
 				const end = ref.verseEnd ?? ref.verseStart;
@@ -108,6 +123,7 @@ describe("Verse of the Day & Starter Packs data integrity", () => {
 				}
 			}
 		}
+		expect(MEMORIZE_STARTER_PACKS.find((p) => p.id === "top-20")?.refs).toHaveLength(20);
 		expect(bookDataCache.size).toBeLessThanOrEqual(BIBLE_BOOKS.length);
 	});
 

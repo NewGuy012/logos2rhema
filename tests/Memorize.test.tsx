@@ -202,8 +202,21 @@ describe("Memorize Flashcards UI & End-to-End Integration", () => {
 			submitForm(noteInput.closest("form") as HTMLFormElement);
 			expect(getByText(container, "Gospel summary")).toBeDefined();
 
-			// Starter Packs starts expanded when deck was initially empty; add Gospel & Grace (John 3:16 deduplicated -> adds 5)
-			fireClick(getButton(container, "Add 5"));
+			// Starter Packs starts expanded when deck was initially empty; filter categories, inspect Top 20, and add Gospel & Grace
+			expect(getByText(container, "Top 20 Essential Verses")).toBeDefined();
+			expect(getByText(container, "11 packs")).toBeDefined();
+
+			fireClick(getButton(container, "Essentials"));
+			expect(getByText(container, "1 pack")).toBeDefined();
+			fireClick(getButton(container, "+16 more"));
+			expect(getByText(container, /Phil 4:13/)).toBeDefined();
+
+			fireClick(getButton(container, "Testaments"));
+			expect(getByText(container, "Old Testament Treasures")).toBeDefined();
+			expect(getByText(container, "New Testament Pillars")).toBeDefined();
+
+			fireClick(getButton(container, "Themes"));
+			fireClick(getButton(container, "Add Gospel & Grace pack"));
 			await waitUntil(() =>
 				expect(getByText(container, "Added 5 verses from Gospel & Grace.")).toBeDefined(),
 			);

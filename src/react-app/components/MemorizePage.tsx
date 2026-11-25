@@ -5,7 +5,11 @@ import {
 	getBookOrDefault,
 	parseVerseRangeReference,
 } from "../../shared/books";
-import { MEMORIZE_STARTER_PACKS, type MemorizeStarterPack } from "../../shared/memorize-packs";
+import {
+	MEMORIZE_STARTER_PACKS,
+	type MemorizePackCategory,
+	type MemorizeStarterPack,
+} from "../../shared/memorize-packs";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type {
 	FavoriteItem,
@@ -42,6 +46,20 @@ import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder } from "./VerseBlock";
 
 type DeckFilter = "all" | "due" | "learning" | "mastered";
+type PackCategoryFilter = "all" | MemorizePackCategory;
+
+const PACK_FILTER_OPTIONS: ReadonlyArray<SegmentedOption<PackCategoryFilter>> = [
+	{ value: "all", label: "All Packs" },
+	{ value: "essential", label: "Essentials" },
+	{ value: "testament", label: "Testaments" },
+	{ value: "theme", label: "Themes" },
+];
+
+const PACK_CATEGORY_LABELS: Record<MemorizePackCategory, string> = {
+	essential: "Essential",
+	testament: "Collection",
+	theme: "Theme",
+};
 
 const DECK_FILTER_OPTIONS: ReadonlyArray<SegmentedOption<DeckFilter>> = [
 	{ value: "all", label: "All" },
@@ -100,6 +118,8 @@ export function MemorizePage({
 		text: string;
 	} | null>(null);
 	const [packsOpen, setPacksOpen] = useState(() => cards.length === 0);
+	const [packCategory, setPackCategory] = useState<PackCategoryFilter>("all");
+	const [expandedPackId, setExpandedPackId] = useState<string | null>(null);
 	const [addingPackId, setAddingPackId] = useState<string | null>(null);
 	const [filter, setFilter] = useState<DeckFilter>("all");
 	const [searchQuery, setSearchQuery] = useState("");
@@ -151,6 +171,14 @@ export function MemorizePage({
 			);
 		});
 	}, [cards, filter, searchQuery, now]);
+
+	const filteredPacks = useMemo(
+		() =>
+			MEMORIZE_STARTER_PACKS.filter(
+				(pack) => packCategory === "all" || pack.category === packCategory,
+			),
+		[packCategory],
+	);
 
 	const startSession = (mode: "due" | "all", shuffle = false, singleId?: string) => {
 		if (singleId) {
@@ -400,42 +428,97 @@ export function MemorizePage({
 				)}
 
 				{packsOpen && (
-					<div className="memorize-packs-grid">
-						{MEMORIZE_STARTER_PACKS.map((pack) => {
-							const inDeckCount = pack.refs.filter((ref) =>
-								cardIds.has(
-									makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd),
-								),
-							).length;
-							const allAdded = inDeckCount === pack.refs.length;
-							return (
-								<div key={pack.id} className="memorize-pack-card">
-									<div className="memorize-pack-head">
-										<div>
-											<h3 className="memorize-pack-title">
-												{pack.titleEn}{" "}
-												<span className="memorize-pack-ko" lang="ko">
-													· {pack.titleKo}
-												</span>
-											</h3>
-											<p className="memorize-pack-desc">{pack.description}</p>
+					<div className="memorize-packs-panel">
+						<div className="memorize-packs-toolbar">
+							<SegmentedControl
+								value={packCategory}
+								options={PACK_FILTER_OPTIONS}
+								onChange={setPackCategory}
+								ariaLabel="Filter starter packs by category"
+							/>
+							<span className="memorize-packs-count">
+								{filteredPacks.length === 1 ? "1 pack" : `${filteredPacks.length} packs`}
+							</span>
+						</div>
+
+						<div className="memorize-packs-grid">
+							{filteredPacks.map((pack) => {
+								const inDeckCount = pack.refs.filter((ref) =>
+									cardIds.has(
+										makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd),
+									),
+								).length;
+								const allAdded = inDeckCount === pack.refs.length;
+								const isExpanded = expandedPackId === pack.id;
+								const visibleRefs = isExpanded ? pack.refs : pack.refs.slice(0, 4);
+								const hiddenCount = pack.refs.length - visibleRefs.length;
+
+								return (
+									<div key={pack.id} className="memorize-pack-card">
+										<div className="memorize-pack-head">
+											<div>
+												<div className="memorize-pack-meta">
+													<span className="memorize-pack-badge">
+														{PACK_CATEGORY_LABELS[pack.category]} · {pack.refs.length} verses
+													</span>
+													{inDeckCount > 0 && !allAdded && (
+														<span className="memorize-pack-progress">
+															{inDeckCount}/{pack.refs.length} in deck
+														</span>
+													)}
+												</div>
+												<h3 className="memorize-pack-title">
+													{pack.titleEn}{" "}
+													<span className="memorize-pack-ko" lang="ko">
+														· {pack.titleKo}
+													</span>
+												</h3>
+												<p className="memorize-pack-desc">{pack.description}</p>
+											</div>
+											<button
+												type="button"
+												className={`votd-action-btn ${allAdded ? "active" : ""}`.trim()}
+												disabled={allAdded || addingPackId === pack.id}
+												onClick={() => handleAddPack(pack)}
+												aria-label={
+													allAdded
+														? `${pack.titleEn} already added`
+														: `Add ${pack.titleEn} pack (${pack.refs.length - inDeckCount} verses)`
+												}
+											>
+												{addingPackId === pack.id
+													? "Adding..."
+													: allAdded
+														? `Added (${pack.refs.length})`
+														: `Add ${pack.refs.length - inDeckCount}`}
+											</button>
 										</div>
-										<button
-											type="button"
-											className={`votd-action-btn ${allAdded ? "active" : ""}`.trim()}
-											disabled={allAdded || addingPackId === pack.id}
-											onClick={() => handleAddPack(pack)}
-										>
-											{addingPackId === pack.id
-												? "Adding..."
-												: allAdded
-													? `Added (${pack.refs.length})`
-													: `Add ${pack.refs.length - inDeckCount}`}
-										</button>
+
+										<div className="memorize-pack-refs">
+											<span>
+												{visibleRefs
+													.map((ref) => {
+														const book = getBookOrDefault(ref.bookNumber);
+														return ref.verseEnd && ref.verseEnd > ref.verseStart
+															? `${book.enShort} ${ref.chapter}:${ref.verseStart}–${ref.verseEnd}`
+															: `${book.enShort} ${ref.chapter}:${ref.verseStart}`;
+													})
+													.join(" · ")}
+											</span>
+											{pack.refs.length > 4 && (
+												<button
+													type="button"
+													className="memorize-pack-more-btn"
+													onClick={() => setExpandedPackId(isExpanded ? null : pack.id)}
+												>
+													{isExpanded ? "Show less" : `+${hiddenCount} more`}
+												</button>
+											)}
+										</div>
 									</div>
-								</div>
-							);
-						})}
+								);
+							})}
+						</div>
 					</div>
 				)}
 			</section>
