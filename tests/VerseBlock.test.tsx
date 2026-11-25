@@ -213,9 +213,34 @@ describe("Reader UI & Audio Hooks", () => {
 			fireClick(getButton(tooltip, "Pronounce root 창조하다"));
 			expect(spoken.map((s) => s.text)).toEqual(["창조하시니라", "창조하다"]);
 
+			// Leaving the word enters a brief grace period so moving into the tooltip stays open,
+			// then leaving the tooltip closes immediately
+			fireHover(wordBtn, false);
+			expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+			fireHover(tooltip, true);
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 70));
+			});
+			expect(document.body.querySelector('[role="tooltip"]')).not.toBeNull();
+			fireHover(tooltip, false);
+			expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+
+			// Hovering another Korean word immediately replaces any open tooltip, and leaving it closes promptly
+			const otherWordBtn = getButton(container, "하나님이");
+			fireHover(wordBtn, true);
+			fireHover(otherWordBtn, true);
+			const activeTooltips = document.body.querySelectorAll('[role="tooltip"]');
+			expect(activeTooltips.length).toBe(1);
+			expect(activeTooltips[0]?.textContent).toContain("하나님이");
+			fireHover(otherWordBtn, false);
+			await waitUntil(() => {
+				expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+			});
+
 			fireClick(wordBtn);
 			expect(onSelectFootnote).toHaveBeenCalledWith("vocab-창조하다");
 
+			fireHover(wordBtn, true);
 			act(() => {
 				document.dispatchEvent(
 					new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),

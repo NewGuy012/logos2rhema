@@ -16,13 +16,17 @@ interface KoreanTokenProps {
 	onSelectFootnote?: (footnoteId: string) => void;
 }
 
+const TOOLTIP_CLOSE_DELAY_MS = 50;
+
+let activeTooltipDismiss: (() => void) | null = null;
+
 function KoreanTokenTooltip({
 	token,
 	pos,
 	buttonRef,
 	tooltipRef,
 	onMouseEnter,
-	onMouseLeave,
+	onDismiss,
 	onSelectFootnote,
 }: {
 	token: GlossToken;
@@ -30,7 +34,7 @@ function KoreanTokenTooltip({
 	buttonRef: RefObject<HTMLButtonElement | null>;
 	tooltipRef: RefObject<HTMLDivElement | null>;
 	onMouseEnter: () => void;
-	onMouseLeave: () => void;
+	onDismiss: () => void;
 	onSelectFootnote?: (footnoteId: string) => void;
 }) {
 	const {
@@ -51,7 +55,16 @@ function KoreanTokenTooltip({
 			className={`ko-tooltip ${pos.placeBelow ? "place-below" : "place-above"}`}
 			style={anchorPosStyle(pos)}
 			onMouseEnter={onMouseEnter}
-			onMouseLeave={onMouseLeave}
+			onMouseLeave={(e) => {
+				const nextHovered = e.relatedTarget as Node | null;
+				if (
+					nextHovered &&
+					(nextHovered === buttonRef.current || buttonRef.current?.contains(nextHovered))
+				) {
+					return;
+				}
+				onDismiss();
+			}}
 			onBlur={(e) => {
 				const nextFocused = e.relatedTarget as Node | null;
 				if (
@@ -60,7 +73,7 @@ function KoreanTokenTooltip({
 				) {
 					return;
 				}
-				onMouseLeave();
+				onDismiss();
 			}}
 		>
 			<div className="ko-tooltip-head">
@@ -126,6 +139,7 @@ export function KoreanToken({
 }: KoreanTokenProps) {
 	const pointerDownRef = useRef(false);
 	const closeTimerRef = useRef<number | null>(null);
+	const dismissRef = useRef<() => void>(() => {});
 	const [open, setOpen] = useState(false);
 
 	const cancelClose = useCallback(() => {
@@ -135,27 +149,38 @@ export function KoreanToken({
 		}
 	}, []);
 
+	const dismiss = useCallback(() => {
+		cancelClose();
+		if (activeTooltipDismiss === dismissRef.current) {
+			activeTooltipDismiss = null;
+		}
+		setOpen(false);
+	}, [cancelClose]);
+	dismissRef.current = dismiss;
+
 	const scheduleClose = useCallback(() => {
 		cancelClose();
 		closeTimerRef.current = window.setTimeout(() => {
 			closeTimerRef.current = null;
-			setOpen(false);
-		}, 150);
+			dismissRef.current();
+		}, TOOLTIP_CLOSE_DELAY_MS);
 	}, [cancelClose]);
 
-	useEffect(() => () => cancelClose(), [cancelClose]);
+	useEffect(
+		() => () => {
+			cancelClose();
+			if (activeTooltipDismiss === dismissRef.current) {
+				activeTooltipDismiss = null;
+			}
+		},
+		[cancelClose],
+	);
 
 	useEffect(() => {
 		if (!tooltipEnabled) {
-			cancelClose();
-			setOpen(false);
+			dismiss();
 		}
-	}, [tooltipEnabled, cancelClose]);
-
-	const dismiss = useCallback(() => {
-		cancelClose();
-		setOpen(false);
-	}, [cancelClose]);
+	}, [tooltipEnabled, dismiss]);
 
 	const isTooltipOpen = tooltipEnabled && open;
 
@@ -171,6 +196,16 @@ export function KoreanToken({
 		onDismiss: dismiss,
 		onScroll: true,
 	});
+
+	const openTooltip = useCallback(() => {
+		cancelClose();
+		if (activeTooltipDismiss && activeTooltipDismiss !== dismissRef.current) {
+			activeTooltipDismiss();
+		}
+		activeTooltipDismiss = dismissRef.current;
+		updatePosition();
+		setOpen(true);
+	}, [cancelClose, updatePosition]);
 
 	useEffect(() => {
 		if (isTooltipOpen) updatePosition();
@@ -192,11 +227,13 @@ export function KoreanToken({
 				className={`ko-word-btn ${token.matched ? "has-gloss" : ""} ${isTooltipOpen ? "active" : ""}`}
 				onMouseEnter={() => {
 					if (!tooltipEnabled) return;
-					cancelClose();
-					updatePosition();
-					setOpen(true);
+					openTooltip();
 				}}
-				onMouseLeave={scheduleClose}
+				onMouseLeave={(e) => {
+					const nextHovered = e.relatedTarget as Node | null;
+					if (nextHovered && tooltipRef.current?.contains(nextHovered)) return;
+					scheduleClose();
+				}}
 				onPointerDown={() => {
 					pointerDownRef.current = true;
 				}}
@@ -204,14 +241,13 @@ export function KoreanToken({
 					if (!tooltipEnabled) return;
 					cancelClose();
 					if (pointerDownRef.current) return;
-					updatePosition();
-					setOpen(true);
+					openTooltip();
 				}}
 				onBlur={(e) => {
 					pointerDownRef.current = false;
 					const nextFocused = e.relatedTarget as Node | null;
 					if (nextFocused && tooltipRef.current?.contains(nextFocused)) return;
-					scheduleClose();
+					dismiss();
 				}}
 				onClick={() => {
 					pointerDownRef.current = false;
@@ -228,9 +264,11 @@ export function KoreanToken({
 					if (token.footnoteId && onSelectFootnote) {
 						onSelectFootnote(token.footnoteId);
 					} else if (tooltipEnabled) {
-						cancelClose();
-						updatePosition();
-						setOpen((prev) => !prev);
+						if (isTooltipOpen) {
+							dismiss();
+						} else {
+							openTooltip();
+						}
 					}
 				}}
 			>
@@ -244,7 +282,7 @@ export function KoreanToken({
 					buttonRef={buttonRef}
 					tooltipRef={tooltipRef}
 					onMouseEnter={cancelClose}
-					onMouseLeave={scheduleClose}
+					onDismiss={dismiss}
 					onSelectFootnote={onSelectFootnote}
 				/>
 			)}

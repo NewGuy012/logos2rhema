@@ -1181,15 +1181,15 @@ button:focus-visible {
 	position: absolute;
 	left: 0;
 	right: 0;
-	height: 12px;
+	height: 10px;
 }
 
 .ko-tooltip.place-below::before {
-	top: -12px;
+	top: -10px;
 }
 
 .ko-tooltip.place-above::before {
-	bottom: -12px;
+	bottom: -10px;
 }
 
 .ko-tooltip-head {
