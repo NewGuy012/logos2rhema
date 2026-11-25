@@ -1,7 +1,7 @@
 import { type CSSProperties, type FormEvent, useCallback, useId, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { SUPERTONIC_COMPACT_BADGE } from "../../shared/audio-timings";
+import { SUPERTONIC_COMPACT_BADGE, SUPERTONIC_TRACK_LABEL } from "../../shared/audio-timings";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AudioTrackOption, TranslationLanguage } from "../../shared/types";
 import {
@@ -11,7 +11,7 @@ import {
 	PLAYBACK_SPEEDS,
 } from "../hooks/useHumanAudio";
 import { anchorPosStyle, useAnchoredPopover } from "../hooks/usePopover";
-import { ChevronDown, Loader2, Pause, Play, RotateCcw, RotateCw } from "./Icons";
+import { ChevronDown, Loader2, Pause, Play, RotateCcw, RotateCw, Volume2 } from "./Icons";
 
 export interface SharedAudioControlProps {
 	bookEn: string;
@@ -332,6 +332,44 @@ export function AudioFallbackAction({
 			onClick={() => onSelectLanguage(fallbackLang)}
 		>
 			Use {CANONICAL_BIBLES[fallbackLang].code} Audio
+		</button>
+	);
+}
+
+export function VerseAudioButton({
+	isPlaying,
+	isLoading,
+	isSupertonic,
+	disabled = false,
+	onToggle,
+}: {
+	isPlaying: boolean;
+	isLoading: boolean;
+	isSupertonic: boolean;
+	disabled?: boolean;
+	onToggle: () => void;
+}) {
+	const label = isPlaying
+		? "Pause Korean verse audio"
+		: "Listen to Korean verse (Supertonic 3 · AI 낭독)";
+	return (
+		<button
+			type="button"
+			className={`votd-action-btn ${isPlaying || isLoading ? "active" : ""}`.trim()}
+			disabled={disabled}
+			onClick={onToggle}
+			aria-pressed={isPlaying}
+			aria-label={label}
+			title={isSupertonic ? SUPERTONIC_TRACK_LABEL : `${SUPERTONIC_TRACK_LABEL}`}
+		>
+			{isLoading ? (
+				<Loader2 size={13} className="spin" />
+			) : isPlaying ? (
+				<Pause size={13} />
+			) : (
+				<Volume2 size={13} />
+			)}
+			<span lang="ko">{isPlaying ? "Pause" : SUPERTONIC_COMPACT_BADGE}</span>
 		</button>
 	);
 }

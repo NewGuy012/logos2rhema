@@ -325,6 +325,10 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 		const onToggleMemorizeVerse = mock(() => {});
 		const onToggleFavoriteVerse = mock(() => {});
 		const onOpenMemorize = mock(() => {});
+		const mockAudio = installMockAudio({ emitTimeUpdateOnPlay: true });
+		const spokenTexts: string[] = [];
+		const origSpeechSynth = Object.getOwnPropertyDescriptor(window, "speechSynthesis");
+		const origUtterance = Object.getOwnPropertyDescriptor(globalThis, "SpeechSynthesisUtterance");
 
 		let failTodayEsv = true;
 		const copiedTexts: string[] = [];
@@ -334,6 +338,33 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 			value: {
 				writeText: async (text: string) => {
 					copiedTexts.push(text);
+				},
+			},
+		});
+		Object.defineProperty(globalThis, "SpeechSynthesisUtterance", {
+			configurable: true,
+			value: class MockUtterance {
+				text: string;
+				lang = "";
+				rate = 1;
+				voice: unknown = null;
+				onstart?: () => void;
+				onend?: () => void;
+				onerror?: () => void;
+				constructor(text: string) {
+					this.text = text;
+				}
+			},
+		});
+		Object.defineProperty(window, "speechSynthesis", {
+			configurable: true,
+			value: {
+				cancel: () => {},
+				getVoices: () => [{ lang: "ko-KR", localService: true }],
+				speak: (u: { text: string; onstart?: () => void; onend?: () => void }) => {
+					spokenTexts.push(u.text);
+					u.onstart?.();
+					u.onend?.();
 				},
 			},
 		});
@@ -424,6 +455,21 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 							})),
 						);
 					},
+					audio: (url) => {
+						if (url.startsWith(`/api/audio/${todayBook.usfm}/${today.ref.chapter}`)) {
+							const start = today.ref.verseStart;
+							const end = today.ref.verseEnd ?? start;
+							return Response.json({
+								tracks: [
+									makeSupertonicTrack(
+										`/api/audio/${todayBook.usfm}/${today.ref.chapter}?lang=ko&track=supertonic`,
+										{ [start]: 24.5, [end + 1]: 31.2 },
+									),
+								],
+							});
+						}
+						return Response.json({ tracks: [] });
+					},
 				}),
 				async () => {
 					const { container } = render(
@@ -478,6 +524,22 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					fireClick(getButton(votd, /Bookmark/));
 					expect(onToggleFavoriteVerse).toHaveBeenCalledTimes(1);
 
+					// Play Supertonic 3 verse-sliced audio and stop at next verse boundary
+					fireClick(getButton(votd, /Listen to Korean verse/));
+					await waitUntil(() => {
+						const audio = mockAudio.latest();
+						expect(audio?.src).toBe(
+							`/api/audio/${todayBook.usfm}/${today.ref.chapter}?lang=ko&track=supertonic`,
+						);
+						expect(audio?.currentTime).toBe(24.5);
+						expect(audio?.paused).toBe(false);
+					});
+					act(() => {
+						mockAudio.latest()!.currentTime = 31.15;
+						mockAudio.emit("timeupdate");
+					});
+					expect(mockAudio.latest()?.paused).toBe(true);
+
 					fireClick(getButton(votd, "Read"));
 					expect(onOpenPassage).toHaveBeenCalledWith(
 						today.ref.bookNumber,
@@ -508,14 +570,34 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						expect(getByText(votd, /Shuffled ESV\./)).toBeDefined();
 					});
 
-					// Home Memorize summary card triggers navigation
+					// Falls back to Web Speech when Supertonic track is absent for a shuffled passage
+					fireClick(getButton(votd, /Listen to Korean verse/));
+					await waitUntil(() => expect(spokenTexts.length).toBeGreaterThan(0));
+
+					// Collapsible Study section starts collapsed, then reveals Memorize + Recall Reading
+					const studySection = container.querySelector(".home-study-section") as HTMLElement;
+					const studyToggle = getButton(studySection, /Study/);
+					expect(studyToggle.getAttribute("aria-expanded")).toBe("false");
+					expect(container.querySelector(".home-memorize-card")).toBeNull();
+					fireClick(studyToggle);
+					expect(studyToggle.getAttribute("aria-expanded")).toBe("true");
 					expect(getByText(container, /2 due for review/)).toBeDefined();
 					expect(getByText(container, /3d streak/)).toBeDefined();
+					fireClick(getButton(container, "Hide KO"));
+					expect(onOpenPassage).toHaveBeenLastCalledWith(1, 1, undefined, {
+						studyMask: "mask-ko",
+					});
 					fireClick(getButton(container, "Study Now"));
 					expect(onOpenMemorize).toHaveBeenCalledTimes(1);
 				},
 			);
 		} finally {
+			mockAudio.restore();
+			if (origSpeechSynth) Object.defineProperty(window, "speechSynthesis", origSpeechSynth);
+			else delete (window as { speechSynthesis?: unknown }).speechSynthesis;
+			if (origUtterance)
+				Object.defineProperty(globalThis, "SpeechSynthesisUtterance", origUtterance);
+			else delete (globalThis as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
 			if (origClipboard) Object.defineProperty(navigator, "clipboard", origClipboard);
 			else delete (navigator as { clipboard?: unknown }).clipboard;
 		}

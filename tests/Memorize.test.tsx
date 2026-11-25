@@ -13,8 +13,10 @@ import {
 	fireHover,
 	getButton,
 	getByText,
+	installMockAudio,
 	makeBookResponse,
 	makeChapterResponse,
+	makeSupertonicTrack,
 	mockMatchMedia,
 	render,
 	setInputValue,
@@ -118,6 +120,31 @@ function createMemorizeMockFetch() {
 					text: `ESV passage ${match?.[1] ?? "GEN"} ${ch}:${start + i}`,
 				})),
 			);
+		},
+		audio: (url) => {
+			if (url.startsWith("/api/audio/JHN/3")) {
+				return Response.json({
+					tracks: [
+						makeSupertonicTrack("/api/audio/JHN/3?lang=ko&track=supertonic", {
+							15: 10.0,
+							16: 18.2,
+							17: 25.0,
+						}),
+					],
+				});
+			}
+			if (url.startsWith("/api/audio/PRO/3")) {
+				return Response.json({
+					tracks: [
+						makeSupertonicTrack("/api/audio/PRO/3?lang=ko&track=supertonic", {
+							5: 10.0,
+							6: 15.0,
+							7: 22.0,
+						}),
+					],
+				});
+			}
+			return Response.json({ tracks: [] });
 		},
 	});
 }
@@ -241,6 +268,7 @@ describe("Memorize Flashcards UI & End-to-End Integration", () => {
 	it("runs flashcard sessions across Flip, Ref Quiz, Bilingual Bridge, and Blanks with SM-2 re-queue, keyboard shortcuts, and Reader gutter sync", async () => {
 		window.location.hash = "#/memorize";
 		const restoreMatchMedia = mockMatchMedia(true);
+		const mockAudio = installMockAudio({ emitTimeUpdateOnPlay: true });
 
 		try {
 			await withMockFetch(createMemorizeMockFetch(), async () => {
@@ -268,6 +296,20 @@ describe("Memorize Flashcards UI & End-to-End Integration", () => {
 					expect(getByText(container, "1 / 2")).toBeDefined();
 					expect(getByText(container, "John 3:16")).toBeDefined();
 				});
+
+				// Play Supertonic 3 audio sliced specifically to John 3:16
+				fireClick(getButton(container, /Listen to Korean verse/));
+				await waitUntil(() => {
+					const audio = mockAudio.latest();
+					expect(audio?.src).toBe("/api/audio/JHN/3?lang=ko&track=supertonic");
+					expect(audio?.currentTime).toBe(18.2);
+					expect(audio?.paused).toBe(false);
+				});
+				act(() => {
+					mockAudio.latest()!.currentTime = 24.95;
+					mockAudio.emit("timeupdate");
+				});
+				expect(mockAudio.latest()?.paused).toBe(true);
 
 				// 1. Classic Flip: Peek Hint shows first-letter + Korean choseong hints, Space reveals, Korean tooltip works
 				fireClick(getButton(container, "Peek Hint"));
@@ -317,6 +359,23 @@ describe("Memorize Flashcards UI & End-to-End Integration", () => {
 				// Switch back to Flip, finish Proverbs 3:5-6 and re-queued John 3:16 with '3' (Good)
 				fireClick(getButton(container, "Flip"));
 				expect(getByText(container, "Proverbs 3:5–6")).toBeDefined();
+				fireClick(getButton(container, /Listen to Korean verse/));
+				await waitUntil(() => {
+					const audio = mockAudio.latest();
+					expect(audio?.src).toBe("/api/audio/PRO/3?lang=ko&track=supertonic");
+					expect(audio?.currentTime).toBe(10.0);
+					expect(audio?.paused).toBe(false);
+				});
+				act(() => {
+					mockAudio.latest()!.currentTime = 15.5;
+					mockAudio.emit("timeupdate");
+				});
+				expect(mockAudio.latest()?.paused).toBe(false);
+				act(() => {
+					mockAudio.latest()!.currentTime = 21.95;
+					mockAudio.emit("timeupdate");
+				});
+				expect(mockAudio.latest()?.paused).toBe(true);
 				fireClick(getButton(container, "Show Answer"));
 				await waitUntil(() => {
 					expect(getByText(container, "Trust in the LORD with all your heart,")).toBeDefined();
@@ -363,6 +422,7 @@ describe("Memorize Flashcards UI & End-to-End Integration", () => {
 				).toBe("true");
 			});
 		} finally {
+			mockAudio.restore();
 			restoreMatchMedia();
 		}
 	});

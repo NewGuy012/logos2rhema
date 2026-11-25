@@ -44,7 +44,7 @@ import { PassagePicker } from "./components/PassagePicker";
 import { PanelStatus } from "./components/RailShared";
 import { StudyRightRail } from "./components/StudyRightRail";
 import { TopBar, type TopBarDisplayPrefs } from "./components/TopBar";
-import { VerseBlock } from "./components/VerseBlock";
+import { type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
 import type { PanelPosition } from "./hooks/useDraggablePanel";
 import { useChapterAudioTracks, useHumanAudio } from "./hooks/useHumanAudio";
 import { useIsDesktopLayout } from "./hooks/useMediaQuery";
@@ -1066,11 +1066,14 @@ export default function App() {
 			targetBook: number,
 			targetChapter: number,
 			verse?: number,
-			options?: { rightRailTab?: RightRailTab },
+			options?: { rightRailTab?: RightRailTab; studyMask?: StudyMaskMode },
 		) => {
-			if (options?.rightRailTab) {
-				patchPrefs({ rightRailTab: options.rightRailTab });
-				if (isDesktop) setSidebarOpen(true);
+			if (options?.rightRailTab || options?.studyMask) {
+				patchPrefs({
+					...(options.rightRailTab ? { rightRailTab: options.rightRailTab } : {}),
+					...(options.studyMask ? { studyMask: options.studyMask } : {}),
+				});
+				if (options.rightRailTab && isDesktop) setSidebarOpen(true);
 			}
 			navigateTo(targetBook, targetChapter, verse);
 		},

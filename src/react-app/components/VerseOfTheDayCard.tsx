@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import { formatVerseRefBilingual } from "../../shared/books";
+import { formatVerseRefBilingual, getBookOrDefault } from "../../shared/books";
 import type { LexiconMap, VerseRef } from "../../shared/types";
 import {
 	getNextRandomVotdIndex,
@@ -8,9 +8,10 @@ import {
 	getVerseOfTheDayByIndex,
 } from "../../shared/verse-of-the-day";
 import { useBilingualPassage } from "../hooks/useBilingualPassage";
-import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
+import { useVerseAudio } from "../hooks/useVerseAudio";
 import { makeFavoriteId } from "../lib/favorites";
 import { makeMemorizeCardId } from "../lib/memorize";
+import { VerseAudioButton } from "./AudioShared";
 import {
 	Bookmark,
 	BookOpen,
@@ -21,7 +22,6 @@ import {
 	Layers,
 	Shuffle,
 	Sparkles,
-	Volume2,
 } from "./Icons";
 import { KoreanTokensLine } from "./KoreanToken";
 import type { StackOrder } from "./VerseBlock";
@@ -57,7 +57,6 @@ export function VerseOfTheDayCard({
 	const [browse, setBrowse] = useState<VotdBrowseState>({ mode: "day", offsetDays: 0 });
 	const [copied, setCopied] = useState(false);
 	const copyTimerRef = useRef<number | null>(null);
-	const { speakingKey, speak } = useKoreanSpeech<"votd">();
 
 	useEffect(
 		() => () => {
@@ -86,6 +85,7 @@ export function VerseOfTheDayCard({
 	}, [browse]);
 
 	const { ref } = selection;
+	const votdBook = useMemo(() => getBookOrDefault(ref.bookNumber), [ref.bookNumber]);
 	const { refEn, refKo } = useMemo(() => formatVerseRefBilingual(ref), [ref]);
 	const isMultiVerse = Boolean(ref.verseEnd && ref.verseEnd > ref.verseStart);
 
@@ -96,6 +96,7 @@ export function VerseOfTheDayCard({
 		});
 
 	const cardId = makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd);
+	const verseAudio = useVerseAudio(cardId);
 	const favId = makeFavoriteId(ref.bookNumber, ref.chapter, ref.verseStart);
 	const isInDeck = Boolean(memorizeCardIds?.has(cardId));
 	const isFavorited = Boolean(favoriteIds?.has(favId));
@@ -307,16 +308,20 @@ export function VerseOfTheDayCard({
 						</button>
 					)}
 
-					<button
-						type="button"
-						className={`votd-action-btn votd-action-icon ${speakingKey === "votd" ? "active" : ""}`.trim()}
-						disabled={!combinedKo}
-						onClick={() => combinedKo && speak(combinedKo, "votd")}
-						aria-label="Pronounce Korean verse"
-						title="Pronounce Korean verse"
-					>
-						<Volume2 size={13} />
-					</button>
+					<VerseAudioButton
+						isPlaying={verseAudio.isPlaying}
+						isLoading={verseAudio.isLoading}
+						isSupertonic={verseAudio.source === "supertonic"}
+						onToggle={() =>
+							verseAudio.togglePlay({
+								usfm: votdBook.usfm,
+								chapter: ref.chapter,
+								verseStart: ref.verseStart,
+								verseEnd: ref.verseEnd,
+								fallbackKoText: combinedKo,
+							})
+						}
+					/>
 
 					<button
 						type="button"

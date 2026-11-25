@@ -295,6 +295,7 @@ button {
 .home-sync-pill,
 .home-continue-btn,
 .home-memorize-btn,
+.home-recall-btn,
 .home-clear-btn,
 .home-study-badge,
 .home-open-reader-btn,
@@ -2997,7 +2998,8 @@ button:focus-visible {
 	font-weight: 600;
 }
 
-.home-memorize-btn {
+.home-memorize-btn,
+.home-recall-btn {
 	gap: 0.45rem;
 	padding: 0.58rem 1.05rem;
 	font-size: 0.85rem;
@@ -3011,10 +3013,23 @@ button:focus-visible {
 		color 140ms ease;
 }
 
-.home-memorize-btn:hover {
+.home-memorize-btn:hover,
+.home-recall-btn:hover {
 	background: var(--accent-soft);
 	border-color: var(--accent-border);
 	color: var(--accent);
+}
+
+.home-recall-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	flex-wrap: wrap;
+}
+
+.home-recall-btn {
+	padding: 0.48rem 0.88rem;
+	font-size: 0.8rem;
 }
 
 .home-features {
@@ -3138,10 +3153,17 @@ button:focus-visible {
 }
 
 .home-continue-section,
+.home-study-section,
 .home-favorites-section {
 	margin-top: -0.5rem;
 	padding-bottom: 1.75rem;
 	border-bottom: 1px solid var(--border-hairline);
+}
+
+.home-study-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
 }
 
 .home-browse-section {

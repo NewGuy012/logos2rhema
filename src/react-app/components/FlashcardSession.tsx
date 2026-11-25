@@ -10,11 +10,12 @@ import type {
 	TranslationLanguage,
 } from "../../shared/types";
 import { useBilingualPassage } from "../hooks/useBilingualPassage";
-import { useKoreanSpeech } from "../hooks/useKoreanSpeech";
+import { useVerseAudio } from "../hooks/useVerseAudio";
 import { loadTranslationPassage } from "../lib/bible-loader";
 import type { BilingualDirection, ClozeLevel, MemorizeStudyPrefs } from "../lib/memorize";
 import { buildClozeSlots, buildVerseHint } from "../lib/memorize-hints";
 import { previewReviewIntervals } from "../lib/memorize-srs";
+import { VerseAudioButton } from "./AudioShared";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -24,7 +25,6 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Sparkles,
-	Volume2,
 } from "./Icons";
 import { KoreanTokensLine } from "./KoreanToken";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
@@ -109,13 +109,13 @@ export function FlashcardSession({
 		easy: 0,
 	});
 	const completionReportedRef = useRef(false);
-	const { speakingKey, speak } = useKoreanSpeech<"flashcard">();
 
 	const cardMap = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
 	const currentCardId = queueIds[currentIndex];
 	const currentCard = currentCardId ? (cardMap.get(currentCardId) ?? null) : null;
 	const nextCardId = queueIds[currentIndex + 1];
 	const nextCard = nextCardId ? (cardMap.get(nextCardId) ?? null) : null;
+	const verseAudio = useVerseAudio(currentCard && !completed ? currentCard.id : "done");
 
 	const needEn = studyPrefs.studyMode === "bilingual" || studyPrefs.langMode !== "ko";
 
@@ -548,16 +548,21 @@ export function FlashcardSession({
 						{currentCard.repetitions === 0 ? "New" : `${currentCard.intervalDays}d interval`}
 					</span>
 					<div className="flashcard-card-head-actions">
-						{combinedKo && (showKo || revealed) && (
-							<button
-								type="button"
-								className={`votd-action-btn votd-action-icon ${speakingKey === "flashcard" ? "active" : ""}`.trim()}
-								onClick={() => speak(combinedKo, "flashcard")}
-								aria-label="Pronounce Korean verse"
-								title="Pronounce Korean verse"
-							>
-								<Volume2 size={13} />
-							</button>
+						{(showKo || revealed) && (
+							<VerseAudioButton
+								isPlaying={verseAudio.isPlaying}
+								isLoading={verseAudio.isLoading}
+								isSupertonic={verseAudio.source === "supertonic"}
+								onToggle={() =>
+									verseAudio.togglePlay({
+										usfm: currentBook.usfm,
+										chapter: currentCard.chapter,
+										verseStart: currentCard.verseStart,
+										verseEnd: currentCard.verseEnd,
+										fallbackKoText: combinedKo,
+									})
+								}
+							/>
 						)}
 						<button
 							type="button"

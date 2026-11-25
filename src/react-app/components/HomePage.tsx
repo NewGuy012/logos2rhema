@@ -21,13 +21,14 @@ import {
 	BookOpen,
 	ChevronDown,
 	ChevronRight,
+	EyeOff,
 	Headphones,
 	Layers,
 	Search,
 } from "./Icons";
 import { LegalFooter } from "./LegalFooter";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
-import type { StackOrder } from "./VerseBlock";
+import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 import { VerseOfTheDayCard } from "./VerseOfTheDayCard";
 
 interface HomePageProps extends SavedItemsProps {
@@ -56,7 +57,7 @@ interface HomePageProps extends SavedItemsProps {
 		bookNumber: number,
 		chapter: number,
 		verse?: number,
-		options?: { rightRailTab?: RightRailTab },
+		options?: { rightRailTab?: RightRailTab; studyMask?: StudyMaskMode },
 	) => void;
 }
 
@@ -153,6 +154,7 @@ export function HomePage({
 }: HomePageProps) {
 	const [query, setQuery] = useState("");
 	const [selectedBook, setSelectedBook] = useState<BookMeta | null>(null);
+	const [studyOpen, setStudyOpen] = useState(false);
 	const [browseOpen, setBrowseOpen] = useState(false);
 	const [browseSection, setBrowseSection] = useState<BrowseSection>("scripture");
 	const [localCommentarySource, setLocalCommentarySource] =
@@ -245,7 +247,16 @@ export function HomePage({
 						<ArrowRight size={15} />
 					</button>
 				</div>
+			</section>
 
+			<HomeDisclosureSection
+				label="Study"
+				badgeCount={memorizeDueCount > 0 ? memorizeDueCount : undefined}
+				isOpen={studyOpen}
+				onToggle={() => setStudyOpen((prev) => !prev)}
+				sectionClassName="home-study-section"
+				panelClassName="home-study-panel"
+			>
 				{onOpenMemorize && (
 					<div className="home-continue-card home-memorize-card">
 						<div className="home-continue-meta">
@@ -277,12 +288,50 @@ export function HomePage({
 						</div>
 						<button type="button" className="home-memorize-btn" onClick={onOpenMemorize}>
 							<Layers size={15} />
-							<span>{memorizeDueCount > 0 ? "Study Now" : "Memorize"}</span>
+							<span>{memorizeDueCount > 0 ? "Study Now" : "Open Flashcards"}</span>
 							<ArrowRight size={15} />
 						</button>
 					</div>
 				)}
-			</section>
+
+				<div className="home-continue-card home-recall-card">
+					<div className="home-continue-meta">
+						<p className="home-continue-subtitle">Recall Reading</p>
+						<h2 className="home-continue-ref">
+							{lastBook.en} {lastChapter}:{lastVerse}{" "}
+							<span className="home-continue-ko" lang="ko">
+								· 가리고 읽기
+							</span>
+						</h2>
+					</div>
+					<div className="home-recall-actions">
+						<button
+							type="button"
+							className="home-recall-btn"
+							onClick={() =>
+								onOpenPassage(lastBook.number, lastChapter, lastVerse > 1 ? lastVerse : undefined, {
+									studyMask: "mask-ko",
+								})
+							}
+						>
+							<EyeOff size={14} />
+							<span>Hide KO</span>
+						</button>
+						<button
+							type="button"
+							className="home-recall-btn"
+							onClick={() =>
+								onOpenPassage(lastBook.number, lastChapter, lastVerse > 1 ? lastVerse : undefined, {
+									studyMask: "mask-en",
+								})
+							}
+						>
+							<EyeOff size={14} />
+							<span>Hide EN</span>
+						</button>
+					</div>
+				</div>
+			</HomeDisclosureSection>
 
 			<HomeDisclosureSection
 				label="Favorites"
