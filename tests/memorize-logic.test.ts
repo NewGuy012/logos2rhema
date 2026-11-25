@@ -4,7 +4,6 @@ import { join } from "node:path";
 import {
 	addMemorizeCard,
 	addStarterPackToDeck,
-	formatMemorizeCardRef,
 	importBookmarksToDeck,
 	makeMemorizeCardId,
 	MEMORIZE_CARDS_STORAGE_KEY,
@@ -13,7 +12,12 @@ import {
 	toggleMemorizeCard,
 	writeStoredMemorizeCards,
 } from "../src/react-app/lib/memorize";
-import { BIBLE_BOOKS, getBookByNumber, normalizeVerseRef } from "../src/shared/books";
+import {
+	BIBLE_BOOKS,
+	formatVerseRefBilingual,
+	getBookByNumber,
+	normalizeVerseRef,
+} from "../src/shared/books";
 import { MEMORIZE_STARTER_PACKS } from "../src/shared/memorize-packs";
 import type { BookBibleData } from "../src/shared/types";
 import { getVerseOfTheDay, VERSE_OF_THE_DAY_REFS } from "../src/shared/verse-of-the-day";
@@ -167,7 +171,7 @@ describe("Memorize CRUD and storage migration", () => {
 		);
 		expect(toggled.added).toBe(true);
 		expect(toggled.cards).toHaveLength(2);
-		expect(formatMemorizeCardRef(toggled.cards[0]!)).toEqual({
+		expect(formatVerseRefBilingual(toggled.cards[0]!)).toEqual({
 			refEn: "Proverbs 3:5–6",
 			refKo: "잠언 3장 5–6절",
 		});

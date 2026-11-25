@@ -1,7 +1,7 @@
+import { formatPassageRefBilingual } from "../../shared/books";
 import type { AlignedVerse, HighlightItem, TranslationLanguage } from "../../shared/types";
 import {
 	finiteTimestamp,
-	formatBilingualRef,
 	MAX_STORED_ITEMS,
 	readStoredCollection,
 	writeJsonStorage,
@@ -372,7 +372,7 @@ export function formatHighlightLabel(item: HighlightItem): {
 	langLabel: string;
 } {
 	return {
-		...formatBilingualRef(item.bookNumber, item.chapter, item.verse),
+		...formatPassageRefBilingual(item.bookNumber, item.chapter, item.verse),
 		langLabel: item.lang === "ko" ? "한" : "EN",
 	};
 }

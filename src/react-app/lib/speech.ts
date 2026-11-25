@@ -29,6 +29,14 @@ function pickKoreanVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
 	);
 }
 
+export function stopKoreanSpeech(): void {
+	activeSpeechSeq++;
+	if (typeof window === "undefined") return;
+	try {
+		window.speechSynthesis?.cancel?.();
+	} catch {}
+}
+
 export function speakKoreanWord(
 	text: string,
 	options?: {

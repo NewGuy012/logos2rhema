@@ -1,8 +1,4 @@
-import {
-	formatVerseRefBilingual,
-	MAX_PASSAGE_VERSE_SPAN,
-	normalizeVerseRef,
-} from "../../shared/books";
+import { MAX_PASSAGE_VERSE_SPAN, normalizeVerseRef } from "../../shared/books";
 import type { MemorizeStarterPack } from "../../shared/memorize-packs";
 import type { FavoriteItem, MemorizeCard, VerseRef } from "../../shared/types";
 import {
@@ -73,7 +69,7 @@ export function writeStoredMemorizeCards(cards: readonly MemorizeCard[]): void {
 	);
 }
 
-export function createMemorizeCard(
+function createMemorizeCard(
 	input: VerseRef & { packId?: string },
 	now = Date.now(),
 ): MemorizeCard | null {
@@ -114,14 +110,27 @@ export function toggleMemorizeCard(
 	input: VerseRef & { packId?: string },
 	now = Date.now(),
 ): { cards: MemorizeCard[]; added: boolean } {
-	const ref = normalizeVerseRef(input, MAX_PASSAGE_VERSE_SPAN);
-	if (!ref) return { cards: [...cards], added: false };
-	const id = makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd);
-	if (cards.some((c) => c.id === id)) {
-		return { cards: removeMemorizeCard(cards, id), added: false };
+	const candidate = createMemorizeCard(input, now);
+	if (!candidate) return { cards: [...cards], added: false };
+	if (cards.some((c) => c.id === candidate.id)) {
+		return { cards: removeMemorizeCard(cards, candidate.id), added: false };
 	}
-	const result = addMemorizeCard(cards, input, now);
-	return { cards: result.cards, added: result.added };
+	return { cards: [candidate, ...cards].slice(0, MAX_STORED_ITEMS), added: true };
+}
+
+function addRefsToDeck(
+	cards: readonly MemorizeCard[],
+	refs: readonly (VerseRef & { packId?: string })[],
+	now: number,
+): { cards: MemorizeCard[]; addedCount: number } {
+	let next = [...cards];
+	let addedCount = 0;
+	for (let i = refs.length - 1; i >= 0; i--) {
+		const res = addMemorizeCard(next, refs[i], now);
+		next = res.cards;
+		if (res.added) addedCount++;
+	}
+	return { cards: next, addedCount };
 }
 
 export function addStarterPackToDeck(
@@ -129,15 +138,11 @@ export function addStarterPackToDeck(
 	pack: MemorizeStarterPack,
 	now = Date.now(),
 ): { cards: MemorizeCard[]; addedCount: number } {
-	let next = [...cards];
-	let addedCount = 0;
-	for (let i = pack.refs.length - 1; i >= 0; i--) {
-		const ref = pack.refs[i];
-		const res = addMemorizeCard(next, { ...ref, packId: pack.id }, now);
-		next = res.cards;
-		if (res.added) addedCount++;
-	}
-	return { cards: next, addedCount };
+	return addRefsToDeck(
+		cards,
+		pack.refs.map((ref) => ({ ...ref, packId: pack.id })),
+		now,
+	);
 }
 
 export function importBookmarksToDeck(
@@ -145,26 +150,11 @@ export function importBookmarksToDeck(
 	favorites: readonly FavoriteItem[],
 	now = Date.now(),
 ): { cards: MemorizeCard[]; addedCount: number } {
-	let next = [...cards];
-	let addedCount = 0;
-	for (let i = favorites.length - 1; i >= 0; i--) {
-		const fav = favorites[i];
-		if (fav.verse === undefined) continue;
-		const res = addMemorizeCard(
-			next,
-			{
-				bookNumber: fav.bookNumber,
-				chapter: fav.chapter,
-				verseStart: fav.verse,
-			},
-			now,
-		);
-		next = res.cards;
-		if (res.added) addedCount++;
-	}
-	return { cards: next, addedCount };
-}
-
-export function formatMemorizeCardRef(ref: VerseRef): { refEn: string; refKo: string } {
-	return formatVerseRefBilingual(ref);
+	return addRefsToDeck(
+		cards,
+		favorites
+			.filter((fav): fav is FavoriteItem & { verse: number } => fav.verse !== undefined)
+			.map((fav) => ({ bookNumber: fav.bookNumber, chapter: fav.chapter, verseStart: fav.verse })),
+		now,
+	);
 }

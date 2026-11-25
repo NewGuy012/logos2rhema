@@ -306,17 +306,29 @@ export function normalizeVerseRef(
 		: { bookNumber: book.number, chapter: ref.chapter, verseStart: ref.verseStart };
 }
 
-export function formatVerseRefBilingual(ref: VerseRef): { refEn: string; refKo: string } {
-	const book = getBookOrDefault(ref.bookNumber);
-	const hasRange = ref.verseEnd !== undefined && ref.verseEnd > ref.verseStart;
+export function formatPassageRefBilingual(
+	bookNumber: number,
+	chapter: number,
+	verseStart?: number,
+	verseEnd?: number,
+): { refEn: string; refKo: string } {
+	const book = getBookOrDefault(bookNumber);
+	if (verseStart === undefined) {
+		return { refEn: `${book.en} ${chapter}`, refKo: `${book.ko} ${chapter}장` };
+	}
+	const hasRange = verseEnd !== undefined && verseEnd > verseStart;
 	return {
 		refEn: hasRange
-			? `${book.en} ${ref.chapter}:${ref.verseStart}–${ref.verseEnd}`
-			: `${book.en} ${ref.chapter}:${ref.verseStart}`,
+			? `${book.en} ${chapter}:${verseStart}–${verseEnd}`
+			: `${book.en} ${chapter}:${verseStart}`,
 		refKo: hasRange
-			? `${book.ko} ${ref.chapter}장 ${ref.verseStart}–${ref.verseEnd}절`
-			: `${book.ko} ${ref.chapter}장 ${ref.verseStart}절`,
+			? `${book.ko} ${chapter}장 ${verseStart}–${verseEnd}절`
+			: `${book.ko} ${chapter}장 ${verseStart}절`,
 	};
+}
+
+export function formatVerseRefBilingual(ref: VerseRef): { refEn: string; refKo: string } {
+	return formatPassageRefBilingual(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd);
 }
 
 export function parseVerseRangeReference(

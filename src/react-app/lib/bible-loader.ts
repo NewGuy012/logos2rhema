@@ -3,12 +3,7 @@ import {
 	normalizeVerseTimings,
 	SUPERTONIC_TRACK_ID,
 } from "../../shared/audio-timings";
-import {
-	getBookByNumber,
-	MAX_PASSAGE_VERSE_SPAN,
-	MAX_VERSE_NUMBER,
-	normalizeVerseRef,
-} from "../../shared/books";
+import { getBookByNumber, MAX_PASSAGE_VERSE_SPAN, normalizeVerseRef } from "../../shared/books";
 import { analyzeKoreanChapter, type ChapterAnalysisResult } from "../../shared/korean-morphology";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type {
@@ -37,96 +32,44 @@ interface SharedFetchTask<T> {
 	settled: boolean;
 }
 
-interface EsvChapterCacheEntry {
+interface EsvCacheEntry {
 	bookNumber: number;
 	chapter: number;
+	verseStart?: number;
+	verseEnd?: number;
 	verses: VerseEntry[];
-	seq: number;
-}
-
-interface EsvPassageCacheEntry {
-	bookNumber: number;
-	chapter: number;
-	verseStart: number;
-	verseEnd: number;
-	verses: VerseEntry[];
-	seq: number;
 }
 
 const bundledBookCache = new Map<string, SharedFetchTask<BookBibleData>>();
-const esvChapterCache = new Map<string, EsvChapterCacheEntry>();
-const esvPassageCache = new Map<string, EsvPassageCacheEntry>();
+const esvCache = new Map<string, EsvCacheEntry>();
 const esvInFlightCache = new Map<string, SharedFetchTask<VerseEntry[]>>();
 const bundledTimingsCache = new Map<string, SharedFetchTask<BookAudioTimingsData | null>>();
 const commentaryCache = new Map<string, SharedFetchTask<ChapterCommentaryResponse>>();
 let lexiconPromise: Promise<LexiconMap> | null = null;
-let esvCacheSeq = 0;
 
 export function clearLoaderCaches(): void {
 	bundledBookCache.clear();
-	esvChapterCache.clear();
-	esvPassageCache.clear();
+	esvCache.clear();
 	esvInFlightCache.clear();
 	bundledTimingsCache.clear();
 	commentaryCache.clear();
 	lexiconPromise = null;
-	esvCacheSeq = 0;
 }
 
 export function getEsvCacheStats(): { chapters: number; verses: number } {
+	let chapters = 0;
 	let verses = 0;
-	for (const entry of esvChapterCache.values()) {
+	for (const entry of esvCache.values()) {
+		if (entry.verseStart === undefined) chapters++;
 		verses += entry.verses.length;
 	}
-	for (const entry of esvPassageCache.values()) {
-		verses += entry.verses.length;
-	}
-	return { chapters: esvChapterCache.size, verses };
+	return { chapters, verses };
 }
 
-function evictEsvChapterScope(bookNumber: number, chapter: number): void {
-	for (const [k, entry] of esvChapterCache.entries()) {
-		if (entry.bookNumber === bookNumber && entry.chapter === chapter) {
-			esvChapterCache.delete(k);
-		}
-	}
-	for (const [k, entry] of esvPassageCache.entries()) {
-		if (entry.bookNumber === bookNumber && entry.chapter === chapter) {
-			esvPassageCache.delete(k);
-		}
-	}
-}
-
-function evictOldestEsvEntry(): number {
-	let oldestChapterKey: string | null = null;
-	let oldestChapterSeq = Number.POSITIVE_INFINITY;
-	for (const [k, entry] of esvChapterCache.entries()) {
-		if (entry.seq < oldestChapterSeq) {
-			oldestChapterSeq = entry.seq;
-			oldestChapterKey = k;
-		}
-	}
-
-	let oldestPassageKey: string | null = null;
-	let oldestPassageSeq = Number.POSITIVE_INFINITY;
-	for (const [k, entry] of esvPassageCache.entries()) {
-		if (entry.seq < oldestPassageSeq) {
-			oldestPassageSeq = entry.seq;
-			oldestPassageKey = k;
-		}
-	}
-
-	if (oldestChapterKey !== null && oldestChapterSeq <= oldestPassageSeq) {
-		const evicted = esvChapterCache.get(oldestChapterKey);
-		esvChapterCache.delete(oldestChapterKey);
-		return evicted?.verses.length ?? 0;
-	}
-	if (oldestPassageKey !== null) {
-		const evicted = esvPassageCache.get(oldestPassageKey);
-		esvPassageCache.delete(oldestPassageKey);
-		return evicted?.verses.length ?? 0;
-	}
-	return 0;
+function touchEsvEntry(key: string, entry: EsvCacheEntry): VerseEntry[] {
+	esvCache.delete(key);
+	esvCache.set(key, entry);
+	return entry.verses;
 }
 
 function prepareEsvCacheSpace(book: BookMeta, chapter: number, incomingLength: number): boolean {
@@ -135,88 +78,64 @@ function prepareEsvCacheSpace(book: BookMeta, chapter: number, incomingLength: n
 	// Never cache more than half of any multi-chapter book (Crossway ESV compliance cap).
 	if (book.chapters > 1) {
 		const maxBookChapters = Math.floor(book.chapters / 2);
-		const chapterRecency = new Map<number, number>();
-		const record = (ch: number, seq: number) => {
-			const prev = chapterRecency.get(ch);
-			if (prev === undefined || seq > prev) chapterRecency.set(ch, seq);
-		};
-		for (const entry of esvChapterCache.values()) {
-			if (entry.bookNumber === book.number) record(entry.chapter, entry.seq);
+		const recentChapters = new Set<number>();
+		for (const entry of esvCache.values()) {
+			if (entry.bookNumber === book.number) {
+				recentChapters.delete(entry.chapter);
+				recentChapters.add(entry.chapter);
+			}
 		}
-		for (const entry of esvPassageCache.values()) {
-			if (entry.bookNumber === book.number) record(entry.chapter, entry.seq);
-		}
-
-		if (!chapterRecency.has(chapter)) {
-			while (chapterRecency.size >= maxBookChapters) {
-				let oldestCh: number | null = null;
-				let oldestSeq = Number.POSITIVE_INFINITY;
-				for (const [ch, seq] of chapterRecency.entries()) {
-					if (seq < oldestSeq) {
-						oldestSeq = seq;
-						oldestCh = ch;
+		if (!recentChapters.has(chapter)) {
+			while (recentChapters.size >= maxBookChapters) {
+				const oldestCh = recentChapters.values().next().value;
+				if (oldestCh === undefined) break;
+				recentChapters.delete(oldestCh);
+				for (const [k, entry] of esvCache.entries()) {
+					if (entry.bookNumber === book.number && entry.chapter === oldestCh) {
+						esvCache.delete(k);
 					}
 				}
-				if (oldestCh === null) break;
-				chapterRecency.delete(oldestCh);
-				evictEsvChapterScope(book.number, oldestCh);
 			}
 		}
 	}
 
 	let totalVerses = getEsvCacheStats().verses;
 	while (totalVerses + incomingLength > MAX_ESV_CACHED_VERSES) {
-		const removed = evictOldestEsvEntry();
-		if (removed === 0) break;
-		totalVerses -= removed;
+		const oldest = esvCache.entries().next();
+		if (oldest.done) break;
+		esvCache.delete(oldest.value[0]);
+		totalVerses -= oldest.value[1].verses.length;
 	}
 	return true;
 }
 
-function cacheEsvChapter(book: BookMeta, chapter: number, verses: VerseEntry[]): void {
-	const key = `${book.usfm}:${chapter}`;
-	esvChapterCache.delete(key);
-	for (const [k, entry] of esvPassageCache.entries()) {
-		if (entry.bookNumber === book.number && entry.chapter === chapter) {
-			esvPassageCache.delete(k);
-		}
-	}
-	if (!prepareEsvCacheSpace(book, chapter, verses.length)) return;
-	esvChapterCache.set(key, {
-		bookNumber: book.number,
-		chapter,
-		verses,
-		seq: ++esvCacheSeq,
-	});
-}
-
-function cacheEsvPassage(
+function cacheEsvEntry(
 	book: BookMeta,
 	chapter: number,
-	verseStart: number,
-	verseEnd: number,
 	verses: VerseEntry[],
+	range?: { start: number; end: number },
 ): void {
-	const key = `${book.usfm}:${chapter}:${verseStart}-${verseEnd}`;
-	esvPassageCache.delete(key);
-	for (const [k, entry] of esvPassageCache.entries()) {
-		if (
-			entry.bookNumber === book.number &&
-			entry.chapter === chapter &&
-			entry.verseStart >= verseStart &&
-			entry.verseEnd <= verseEnd
-		) {
-			esvPassageCache.delete(k);
-		}
+	const key = range
+		? `${book.usfm}:${chapter}:${range.start}-${range.end}`
+		: `${book.usfm}:${chapter}`;
+	esvCache.delete(key);
+	for (const [k, entry] of esvCache.entries()) {
+		if (entry.bookNumber !== book.number || entry.chapter !== chapter) continue;
+		const subsumed =
+			!range ||
+			(entry.verseStart !== undefined &&
+				entry.verseEnd !== undefined &&
+				entry.verseStart >= range.start &&
+				entry.verseEnd <= range.end);
+		if (subsumed) esvCache.delete(k);
 	}
 	if (!prepareEsvCacheSpace(book, chapter, verses.length)) return;
-	esvPassageCache.set(key, {
+	esvCache.set(key, {
 		bookNumber: book.number,
 		chapter,
-		verseStart,
-		verseEnd,
+		verseStart: range?.start,
+		verseEnd: range?.end,
 		verses,
-		seq: ++esvCacheSeq,
 	});
 }
 
@@ -379,6 +298,34 @@ export async function loadLexicon(): Promise<LexiconMap> {
 	return lexiconPromise;
 }
 
+function fetchEsvVerses(
+	book: BookMeta,
+	chapter: number,
+	url: string,
+	key: string,
+	signal?: AbortSignal,
+	range?: { start: number; end: number },
+): Promise<VerseEntry[]> {
+	return cachedFetch(
+		esvInFlightCache,
+		key,
+		async (internalSignal) => {
+			const res = await fetch(url, { signal: internalSignal });
+			if (!res.ok) {
+				throw new Error(await readApiError(res, `Failed to load esv ${key}`));
+			}
+			const payload = (await res.json()) as Partial<ChapterTextResponse>;
+			const raw = Array.isArray(payload?.verses) ? payload.verses : [];
+			const verses = range
+				? raw.filter((v) => v.verse >= range.start && v.verse <= range.end)
+				: raw;
+			if (verses.length > 0) cacheEsvEntry(book, chapter, verses, range);
+			return verses;
+		},
+		{ signal, evictOnSettle: true },
+	);
+}
+
 export async function loadTranslationChapter(
 	translationId: string,
 	bookNumber: number,
@@ -393,31 +340,14 @@ export async function loadTranslationChapter(
 			throw createAbortError(signal);
 		}
 		const key = `${book.usfm}:${chapter}`;
-		const cached = esvChapterCache.get(key);
-		if (cached) {
-			cached.seq = ++esvCacheSeq;
-			esvChapterCache.delete(key);
-			esvChapterCache.set(key, cached);
-			return cached.verses;
-		}
-		return cachedFetch(
-			esvInFlightCache,
+		const cached = esvCache.get(key);
+		if (cached) return touchEsvEntry(key, cached);
+		return fetchEsvVerses(
+			book,
+			chapter,
+			`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`,
 			key,
-			async (internalSignal) => {
-				const res = await fetch(`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}`, {
-					signal: internalSignal,
-				});
-				if (!res.ok) {
-					throw new Error(
-						await readApiError(res, `Failed to load ${translationId} ${book.usfm} ${chapter}`),
-					);
-				}
-				const payload = (await res.json()) as Partial<ChapterTextResponse>;
-				const verses = Array.isArray(payload?.verses) ? payload.verses : [];
-				if (verses.length > 0) cacheEsvChapter(book, chapter, verses);
-				return verses;
-			},
-			{ signal, evictOnSettle: true },
+			signal,
 		);
 	}
 
@@ -456,7 +386,7 @@ export async function loadTranslationPassage(
 		{ bookNumber, chapter, verseStart, verseEnd },
 		MAX_PASSAGE_VERSE_SPAN,
 	);
-	if (!normalized || verseStart > MAX_VERSE_NUMBER) {
+	if (!normalized) {
 		throw new Error(`Invalid passage reference ${book.usfm} ${chapter}:${verseStart}-${verseEnd}`);
 	}
 	const end = normalized.verseEnd ?? normalized.verseStart;
@@ -473,55 +403,33 @@ export async function loadTranslationPassage(
 	}
 
 	const chapterKey = `${book.usfm}:${chapter}`;
-	const cachedChapter = esvChapterCache.get(chapterKey);
+	const cachedChapter = esvCache.get(chapterKey);
 	if (cachedChapter) {
-		cachedChapter.seq = ++esvCacheSeq;
-		esvChapterCache.delete(chapterKey);
-		esvChapterCache.set(chapterKey, cachedChapter);
-		return filterRange(cachedChapter.verses);
+		return filterRange(touchEsvEntry(chapterKey, cachedChapter));
 	}
 
-	for (const [k, entry] of esvPassageCache.entries()) {
+	for (const [k, entry] of esvCache.entries()) {
 		if (
 			entry.bookNumber === book.number &&
 			entry.chapter === chapter &&
+			entry.verseStart !== undefined &&
+			entry.verseEnd !== undefined &&
 			entry.verseStart <= normalized.verseStart &&
 			entry.verseEnd >= end
 		) {
-			entry.seq = ++esvCacheSeq;
-			esvPassageCache.delete(k);
-			esvPassageCache.set(k, entry);
-			return filterRange(entry.verses);
+			return filterRange(touchEsvEntry(k, entry));
 		}
 	}
 
 	const verseSpec =
 		end > normalized.verseStart ? `${normalized.verseStart}-${end}` : String(normalized.verseStart);
-	const inFlightKey = `${book.usfm}:${chapter}:${normalized.verseStart}-${end}`;
-	return cachedFetch(
-		esvInFlightCache,
-		inFlightKey,
-		async (internalSignal) => {
-			const res = await fetch(
-				`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}/${encodeURIComponent(verseSpec)}`,
-				{ signal: internalSignal },
-			);
-			if (!res.ok) {
-				throw new Error(
-					await readApiError(
-						res,
-						`Failed to load ${translationId} ${book.usfm} ${chapter}:${verseSpec}`,
-					),
-				);
-			}
-			const payload = (await res.json()) as Partial<ChapterTextResponse>;
-			const verses = Array.isArray(payload?.verses) ? filterRange(payload.verses) : [];
-			if (verses.length > 0) {
-				cacheEsvPassage(book, chapter, normalized.verseStart, end, verses);
-			}
-			return verses;
-		},
-		{ signal, evictOnSettle: true },
+	return fetchEsvVerses(
+		book,
+		chapter,
+		`/api/esv/${encodeURIComponent(book.usfm)}/${chapter}/${encodeURIComponent(verseSpec)}`,
+		`${chapterKey}:${normalized.verseStart}-${end}`,
+		signal,
+		{ start: normalized.verseStart, end },
 	);
 }
 

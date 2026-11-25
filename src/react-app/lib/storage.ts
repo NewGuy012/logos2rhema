@@ -1,4 +1,4 @@
-import { getBookByNumber, getBookOrDefault } from "../../shared/books";
+import { getBookByNumber } from "../../shared/books";
 import type { BookMeta } from "../../shared/types";
 
 export const MAX_STORED_ITEMS = 200;
@@ -58,22 +58,4 @@ export function readStoredCollection<T extends { id: string }>(
 
 export function finiteTimestamp(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-export function formatBilingualRef(
-	bookNumber: number,
-	chapter: number,
-	verse?: number,
-): { refEn: string; refKo: string } {
-	const book = getBookOrDefault(bookNumber);
-	if (verse !== undefined) {
-		return {
-			refEn: `${book.en} ${chapter}:${verse}`,
-			refKo: `${book.ko} ${chapter}장 ${verse}절`,
-		};
-	}
-	return {
-		refEn: `${book.en} ${chapter}`,
-		refKo: `${book.ko} ${chapter}장`,
-	};
 }

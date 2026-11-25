@@ -1,7 +1,7 @@
+import { formatPassageRefBilingual } from "../../shared/books";
 import type { FavoriteItem } from "../../shared/types";
 import {
 	finiteTimestamp,
-	formatBilingualRef,
 	MAX_STORED_ITEMS,
 	readStoredCollection,
 	writeJsonStorage,
@@ -71,7 +71,7 @@ export function formatFavoriteLabel(item: FavoriteItem): {
 	kind: "chapter" | "verse";
 } {
 	return {
-		...formatBilingualRef(item.bookNumber, item.chapter, item.verse),
+		...formatPassageRefBilingual(item.bookNumber, item.chapter, item.verse),
 		kind: item.verse !== undefined ? "verse" : "chapter",
 	};
 }
