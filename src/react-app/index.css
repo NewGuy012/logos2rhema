@@ -857,8 +857,8 @@ button:focus-visible {
 .reader-workspace.desktop-layout .reader-main {
 	grid-column: 2;
 	width: 100%;
-	max-width: none;
-	margin: 0;
+	max-width: 760px;
+	margin: 0 auto;
 	padding: 2.5rem 0 3rem;
 }
 
@@ -2990,26 +2990,6 @@ button:focus-visible {
 	cursor: default;
 }
 
-.home-memorize-btn {
-	gap: 0.45rem;
-	padding: 0.58rem 1.05rem;
-	font-size: 0.85rem;
-	font-weight: 600;
-	background: var(--bg-subtle);
-	color: var(--text-primary);
-	border: 1px solid var(--border-strong);
-	transition:
-		background-color 140ms ease,
-		border-color 140ms ease,
-		color 140ms ease;
-}
-
-.home-memorize-btn:hover {
-	background: var(--accent-soft);
-	border-color: var(--accent-border);
-	color: var(--accent);
-}
-
 .home-features {
 	display: flex;
 	flex-direction: column;
@@ -3071,7 +3051,8 @@ button:focus-visible {
 	color: var(--text-secondary);
 }
 
-.home-continue-btn {
+.home-continue-btn,
+.home-memorize-btn {
 	gap: 0.45rem;
 	padding: 0.58rem 1.05rem;
 	font-size: 0.85rem;
@@ -3081,7 +3062,8 @@ button:focus-visible {
 	transition: opacity 140ms ease;
 }
 
-.home-continue-btn:hover {
+.home-continue-btn:hover,
+.home-memorize-btn:hover {
 	opacity: 0.9;
 }
 
