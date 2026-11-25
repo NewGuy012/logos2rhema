@@ -73,6 +73,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
 					);
 					const browse = container.querySelector('section[aria-label="Browse"]') as ParentNode;
+					fireClick(getButton(browse, "Browse"));
 
 					fireClick(getButton(browse, "Audio"));
 					await waitUntil(() => {
@@ -187,6 +188,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					/>,
 				);
 				const browse = container.querySelector('section[aria-label="Browse"]') as ParentNode;
+				fireClick(getButton(browse, "Browse"));
 				fireClick(getButton(browse, "Commentary"));
 				await waitUntil(() => expect(getByText(browse, "Upstream unavailable")).toBeDefined());
 
@@ -258,6 +260,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						<HomePage lastBookNumber={1} lastChapter={1} onOpenPassage={onOpenPassage} />,
 					);
 					const browse = container.querySelector('section[aria-label="Browse"]') as ParentNode;
+					fireClick(getButton(browse, "Browse"));
 					fireClick(getButton(browse, "Dictionary"));
 
 					const expectedCount = (Object.keys(BIBLICAL_GLOSSARY).length + 1).toLocaleString();
@@ -287,6 +290,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 					const appBrowse = app.container.querySelector(
 						'section[aria-label="Browse"]',
 					) as ParentNode;
+					fireClick(getButton(appBrowse, "Browse"));
 					fireClick(getButton(appBrowse, "Commentary"));
 					await waitUntil(() =>
 						expect(getByText(appBrowse, "Genesis 1:1 commentary note.")).toBeDefined(),

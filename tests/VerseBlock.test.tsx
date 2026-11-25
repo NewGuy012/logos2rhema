@@ -345,6 +345,11 @@ describe("Reader UI & Audio Hooks", () => {
 			<HomePage lastBookNumber={8} lastChapter={4} lastVerse={12} onOpenPassage={onOpenPassage} />,
 		);
 		const browse = home.container.querySelector('section[aria-label="Browse"]') as ParentNode;
+		const browseToggle = getButton(browse, "Browse");
+		expect(browseToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(browse.querySelectorAll(".books-grid-vertical")).toHaveLength(0);
+		fireClick(browseToggle);
+		expect(browseToggle.getAttribute("aria-expanded")).toBe("true");
 		expect(browse.querySelectorAll(".books-grid-vertical")).toHaveLength(2);
 		fireClick(getButton(browse, "Genres"));
 		expect(browse.querySelectorAll(".home-genre-card")).toHaveLength(10);
@@ -355,6 +360,10 @@ describe("Reader UI & Audio Hooks", () => {
 		setInputValue(homeInput, "시 23");
 		submitForm(homeInput.closest("form") as HTMLFormElement);
 		expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
+
+		fireClick(browseToggle);
+		expect(browseToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(browse.querySelector(".home-browse-content")).toBeNull();
 
 		const picker = render(
 			<PassagePicker

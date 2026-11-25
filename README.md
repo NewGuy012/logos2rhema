@@ -13,7 +13,7 @@
 
 <br />
 
-<img src="docs/home-page.png" alt="Logos2Rhema home page" width="720" />
+<img src="docs/home-page.png" alt="Logos2Rhema home page" width="760" />
 
 </div>
 

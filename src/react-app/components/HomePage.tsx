@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, useId, useMemo, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useId, useMemo, useState } from "react";
 
 import { filterBooks, getBookOrDefault } from "../../shared/books";
 import { DEFAULT_COMMENTARY_ID } from "../../shared/commentaries";
@@ -52,6 +52,55 @@ const BROWSE_SECTIONS: ReadonlyArray<SegmentedOption<BrowseSection>> = (
 	controls: `home-browse-panel-${id}`,
 }));
 
+function HomeDisclosureSection({
+	label,
+	badgeCount,
+	isOpen,
+	onToggle,
+	sectionClassName,
+	panelClassName,
+	children,
+}: {
+	label: string;
+	badgeCount?: number;
+	isOpen: boolean;
+	onToggle: () => void;
+	sectionClassName: string;
+	panelClassName: string;
+	children: ReactNode;
+}) {
+	const panelId = useId();
+	return (
+		<section className={`home-section ${sectionClassName}`} aria-label={label}>
+			<h2 className="home-section-title">
+				<button
+					type="button"
+					className="home-disclosure-btn"
+					aria-expanded={isOpen}
+					aria-controls={isOpen ? panelId : undefined}
+					onClick={onToggle}
+				>
+					<span className="home-disclosure-label">
+						<span>{label}</span>
+						{badgeCount !== undefined && badgeCount > 0 && (
+							<span className="home-disclosure-count">{badgeCount}</span>
+						)}
+					</span>
+					<span className="home-disclosure-icon" aria-hidden="true">
+						{isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+					</span>
+				</button>
+			</h2>
+
+			{isOpen && (
+				<div id={panelId} className={panelClassName}>
+					{children}
+				</div>
+			)}
+		</section>
+	);
+}
+
 export function HomePage({
 	lastBookNumber,
 	lastChapter,
@@ -68,11 +117,11 @@ export function HomePage({
 }: HomePageProps) {
 	const [query, setQuery] = useState("");
 	const [selectedBook, setSelectedBook] = useState<BookMeta | null>(null);
+	const [browseOpen, setBrowseOpen] = useState(false);
 	const [browseSection, setBrowseSection] = useState<BrowseSection>("scripture");
 	const [localCommentarySource, setLocalCommentarySource] =
 		useState<CommentaryId>(DEFAULT_COMMENTARY_ID);
 	const [favoritesOpen, setFavoritesOpen] = useState(false);
-	const favoritesPanelId = useId();
 
 	const activeCommentarySource = commentarySource ?? localCommentarySource;
 	const handleChangeCommentarySource = onChangeCommentarySource ?? setLocalCommentarySource;
@@ -165,60 +214,48 @@ export function HomePage({
 				</div>
 			</section>
 
-			<section className="home-section home-favorites-section" aria-label="Favorites">
-				<h2 className="home-section-title">
-					<button
-						type="button"
-						className="home-disclosure-btn"
-						aria-expanded={favoritesOpen}
-						aria-controls={favoritesOpen ? favoritesPanelId : undefined}
-						onClick={() => setFavoritesOpen((prev) => !prev)}
-					>
-						<span className="home-disclosure-label">
-							<span>Favorites</span>
-							{favorites.length + highlights.length > 0 && (
-								<span className="home-disclosure-count">
-									{favorites.length + highlights.length}
-								</span>
-							)}
-						</span>
-						<span className="home-disclosure-icon" aria-hidden="true">
-							{favoritesOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-						</span>
-					</button>
-				</h2>
+			<HomeDisclosureSection
+				label="Favorites"
+				badgeCount={favorites.length + highlights.length}
+				isOpen={favoritesOpen}
+				onToggle={() => setFavoritesOpen((prev) => !prev)}
+				sectionClassName="home-favorites-section"
+				panelClassName="home-favorites-panel"
+			>
+				<FavoritesList
+					favorites={favorites}
+					highlights={highlights}
+					onSelectFavorite={onOpenPassage}
+					onRemoveFavorite={onRemoveFavorite}
+					onRemoveHighlight={onRemoveHighlight}
+					onClearFavorites={onClearFavorites}
+					onClearHighlights={onClearHighlights}
+				/>
+			</HomeDisclosureSection>
 
-				{favoritesOpen && (
-					<div id={favoritesPanelId} className="home-favorites-panel">
-						<FavoritesList
-							favorites={favorites}
-							highlights={highlights}
-							onSelectFavorite={onOpenPassage}
-							onRemoveFavorite={onRemoveFavorite}
-							onRemoveHighlight={onRemoveHighlight}
-							onClearFavorites={onClearFavorites}
-							onClearHighlights={onClearHighlights}
-						/>
-					</div>
-				)}
-			</section>
-
-			<section className="home-section" aria-label="Browse">
+			<HomeDisclosureSection
+				label="Browse"
+				isOpen={browseOpen}
+				onToggle={() => setBrowseOpen((prev) => !prev)}
+				sectionClassName="home-browse-section"
+				panelClassName="home-browse-content"
+			>
 				<div className="home-browser-header">
-					<h2 className="home-section-title">
-						{isBookDrilldown ? `${selectedBook.en} · ${selectedBook.ko}` : "Browse"}
-					</h2>
-
 					{isBookDrilldown ? (
-						<button
-							type="button"
-							className="icon-btn"
-							onClick={() => setSelectedBook(null)}
-							aria-label="Back to all books"
-						>
-							<ArrowLeft size={14} />
-							<span>All Books</span>
-						</button>
+						<>
+							<h3 className="home-drilldown-title">
+								{selectedBook.en} · {selectedBook.ko}
+							</h3>
+							<button
+								type="button"
+								className="icon-btn"
+								onClick={() => setSelectedBook(null)}
+								aria-label="Back to all books"
+							>
+								<ArrowLeft size={14} />
+								<span>All Books</span>
+							</button>
+						</>
 					) : (
 						<SegmentedControl
 							value={browseSection}
@@ -334,7 +371,7 @@ export function HomePage({
 						</>
 					)}
 				</div>
-			</section>
+			</HomeDisclosureSection>
 
 			<section className="home-section home-about-section" aria-label="About Logos2Rhema">
 				<h2 className="home-section-title">About</h2>
