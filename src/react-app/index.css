@@ -3583,13 +3583,18 @@ button:focus-visible {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	flex-wrap: wrap;
+	min-width: 0;
 	gap: 0.4rem;
 }
 
 .rail-section-label {
+	flex: 1 1 0;
+	max-width: 100%;
 	font-size: 0.66rem;
+	line-height: 1.25;
 	color: var(--text-muted);
-	white-space: nowrap;
+	overflow-wrap: break-word;
 }
 
 .rail-player {
@@ -3687,6 +3692,8 @@ button:focus-visible {
 }
 
 .rail-sync-toggle {
+	flex-shrink: 0;
+	margin-left: auto;
 	gap: 0.24rem;
 	padding: 0.2rem 0.52rem;
 	font-size: 0.68rem;
@@ -3708,7 +3715,8 @@ button:focus-visible {
 }
 
 .rail-sync-value {
-	margin: 0;
+	flex-shrink: 0;
+	margin: 0 0 0 auto;
 	font-size: 0.72rem;
 	font-weight: 500;
 	font-variant-numeric: tabular-nums;
@@ -3718,7 +3726,8 @@ button:focus-visible {
 }
 
 .rail-sync-control {
-	margin: 0;
+	flex-shrink: 0;
+	margin: 0 0 0 auto;
 	display: flex;
 	align-items: center;
 }
