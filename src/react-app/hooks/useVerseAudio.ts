@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hasVerseTimings } from "../../shared/audio-timings";
 import { isSafeAudioSrc } from "../../shared/url";
 import { loadSyncedChapterAudio } from "../lib/bible-loader";
-import { speakKoreanWord } from "../lib/speech";
-import { resolveTimeForVerse } from "./useHumanAudio";
+import { speakKoreanWord, stopKoreanSpeech } from "../lib/speech";
+import { resolveTimeForVerse, safeSetCurrentTime } from "./useHumanAudio";
 
 export interface VerseAudioTarget {
 	usfm: string;
@@ -20,12 +20,10 @@ export function getVerseAudioTargetKey(
 	return `${target.usfm}:${target.chapter}:${target.verseStart}-${target.verseEnd ?? target.verseStart}`;
 }
 
-export type VerseAudioSource = "supertonic" | "speech" | null;
-
 const NEXT_VERSE_STOP_LEAD_SEC = 0.12;
 const MIN_VERSE_SLICE_SEC = 0.25;
 
-export function resolveVerseSliceBounds(
+function resolveVerseSliceBounds(
 	timings: Record<number, number> | undefined,
 	verseStart: number,
 	verseEnd = verseStart,
@@ -52,36 +50,17 @@ export function resolveVerseSliceBounds(
 	return { startSec, stopAtSec };
 }
 
-function safeSeekAudio(audio: HTMLAudioElement, seconds: number): void {
-	const max =
-		Number.isFinite(audio.duration) && audio.duration > 0
-			? audio.duration
-			: Number.POSITIVE_INFINITY;
-	const clamped = Math.max(0, Math.min(seconds, max));
-	try {
-		audio.currentTime = clamped;
-	} catch {}
-}
-
-function stopSpeechSynthesis(): void {
-	if (typeof window === "undefined") return;
-	try {
-		window.speechSynthesis?.cancel?.();
-	} catch {}
-}
-
 /**
  * Plays Supertonic 3 Korean chapter narration sliced to a specific verse range,
  * falling back to Web Speech (`ko-KR`) only if Supertonic audio is unavailable.
  */
-export function useVerseAudio(resetKey?: string) {
+export function useVerseAudio() {
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
-	const [source, setSource] = useState<VerseAudioSource>(null);
 	const [activeTargetKey, setActiveTargetKey] = useState<string | null>(null);
-	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
 	const audioRef = useRef<HTMLAudioElement | null>(null);
+	const cleanupAudioRef = useRef<(() => void) | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
 	const playSeqRef = useRef(0);
 	const activeTargetKeyRef = useRef<string | null>(null);
@@ -109,14 +88,11 @@ export function useVerseAudio(resetKey?: string) {
 				if (seq === playSeqRef.current) {
 					setIsPlaying(false);
 					setIsLoading(false);
-					setSource(null);
 					setActiveTarget(null);
-					setErrorMessage("Korean audio unavailable.");
 				}
 				return;
 			}
 			if (seq !== playSeqRef.current) return;
-			setSource("speech");
 			setIsLoading(false);
 			speakKoreanWord(trimmed, {
 				onStart: () => {
@@ -136,9 +112,7 @@ export function useVerseAudio(resetKey?: string) {
 					if (seq === playSeqRef.current) {
 						setIsPlaying(false);
 						setIsLoading(false);
-						setSource(null);
 						setActiveTarget(null);
-						setErrorMessage("Korean audio unavailable.");
 					}
 				},
 			});
@@ -153,7 +127,7 @@ export function useVerseAudio(resetKey?: string) {
 		boundsRef.current = null;
 		abortRef.current?.abort();
 		abortRef.current = null;
-		stopSpeechSynthesis();
+		stopKoreanSpeech();
 		const audio = audioRef.current;
 		if (audio) {
 			audio.pause();
@@ -172,66 +146,70 @@ export function useVerseAudio(resetKey?: string) {
 		const applyPendingSeek = () => {
 			const pending = pendingSeekRef.current;
 			if (pending !== null && (typeof audio.readyState !== "number" || audio.readyState >= 1)) {
-				safeSeekAudio(audio, pending);
+				safeSetCurrentTime(audio, pending);
 				pendingSeekRef.current = null;
 				audio.muted = false;
 			}
 		};
 
-		audio.addEventListener("loadedmetadata", applyPendingSeek);
-		audio.addEventListener("canplay", applyPendingSeek);
-		audio.addEventListener("play", () => {
-			if (!boundsRef.current || boundsRef.current.seq !== playSeqRef.current) return;
-			setSource("supertonic");
-			setIsPlaying(true);
-			setIsLoading(false);
-			setErrorMessage(null);
-		});
-		audio.addEventListener("pause", () => {
-			if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
-				setIsPlaying(false);
-			}
-		});
-		audio.addEventListener("waiting", () => {
-			if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
-				setIsLoading(true);
-			}
-		});
-		audio.addEventListener("timeupdate", () => {
-			if (pendingSeekRef.current !== null) {
-				applyPendingSeek();
-				return;
-			}
-			const bounds = boundsRef.current;
-			if (
-				bounds &&
-				bounds.seq === playSeqRef.current &&
-				bounds.stopAtSec !== null &&
-				(audio.currentTime || 0) >= bounds.stopAtSec
-			) {
-				audio.pause();
-				setActiveTarget(null);
-				setIsPlaying(false);
+		const handlers: Record<string, () => void> = {
+			loadedmetadata: applyPendingSeek,
+			canplay: applyPendingSeek,
+			play: () => {
+				if (!boundsRef.current || boundsRef.current.seq !== playSeqRef.current) return;
+				setIsPlaying(true);
 				setIsLoading(false);
-			}
-		});
-		audio.addEventListener("ended", () => {
-			if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
-				setActiveTarget(null);
-				setIsPlaying(false);
-				setIsLoading(false);
-			}
-		});
-		audio.addEventListener("error", () => {
-			if (!audio.getAttribute("src")) return;
-			const bounds = boundsRef.current;
-			if (!bounds || bounds.seq !== playSeqRef.current) return;
-			audio.muted = false;
-			pendingSeekRef.current = null;
-			boundsRef.current = null;
-			playFallbackSpeech(bounds.fallbackKoText, bounds.seq);
-		});
+			},
+			pause: () => {
+				if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
+					setIsPlaying(false);
+				}
+			},
+			waiting: () => {
+				if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
+					setIsLoading(true);
+				}
+			},
+			timeupdate: () => {
+				if (pendingSeekRef.current !== null) {
+					applyPendingSeek();
+					return;
+				}
+				const bounds = boundsRef.current;
+				if (
+					bounds &&
+					bounds.seq === playSeqRef.current &&
+					bounds.stopAtSec !== null &&
+					(audio.currentTime || 0) >= bounds.stopAtSec
+				) {
+					audio.pause();
+					setActiveTarget(null);
+					setIsPlaying(false);
+					setIsLoading(false);
+				}
+			},
+			ended: () => {
+				if (boundsRef.current && boundsRef.current.seq === playSeqRef.current) {
+					setActiveTarget(null);
+					setIsPlaying(false);
+					setIsLoading(false);
+				}
+			},
+			error: () => {
+				if (!audio.getAttribute("src")) return;
+				const bounds = boundsRef.current;
+				if (!bounds || bounds.seq !== playSeqRef.current) return;
+				audio.muted = false;
+				pendingSeekRef.current = null;
+				boundsRef.current = null;
+				playFallbackSpeech(bounds.fallbackKoText, bounds.seq);
+			},
+		};
 
+		for (const [evt, fn] of Object.entries(handlers)) audio.addEventListener(evt, fn);
+		cleanupAudioRef.current = () => {
+			for (const [evt, fn] of Object.entries(handlers)) audio.removeEventListener(evt, fn);
+		};
 		audioRef.current = audio;
 		return audio;
 	}, [playFallbackSpeech, setActiveTarget]);
@@ -239,6 +217,8 @@ export function useVerseAudio(resetKey?: string) {
 	useEffect(() => {
 		return () => {
 			stop();
+			cleanupAudioRef.current?.();
+			cleanupAudioRef.current = null;
 			const audio = audioRef.current;
 			if (audio) {
 				audio.removeAttribute("src");
@@ -247,13 +227,6 @@ export function useVerseAudio(resetKey?: string) {
 			}
 		};
 	}, [stop]);
-
-	useEffect(() => {
-		if (resetKey === undefined) return;
-		stop();
-		setSource(null);
-		setErrorMessage(null);
-	}, [resetKey, stop]);
 
 	const togglePlay = useCallback(
 		(target: VerseAudioTarget) => {
@@ -270,8 +243,6 @@ export function useVerseAudio(resetKey?: string) {
 			const seq = ++playSeqRef.current;
 			setActiveTarget(targetKey);
 			setIsLoading(true);
-			setErrorMessage(null);
-			setSource(null);
 
 			const controller = new AbortController();
 			abortRef.current = controller;
@@ -315,10 +286,9 @@ export function useVerseAudio(resetKey?: string) {
 					} else {
 						pendingSeekRef.current = null;
 						audio.muted = false;
-						safeSeekAudio(audio, slice.startSec);
+						safeSetCurrentTime(audio, slice.startSec);
 					}
 
-					setSource("supertonic");
 					audio.play().catch((err: unknown) => {
 						if (seq !== playSeqRef.current) return;
 						if (err instanceof Error && err.name === "AbortError") return;
@@ -339,9 +309,7 @@ export function useVerseAudio(resetKey?: string) {
 	return {
 		isPlaying,
 		isLoading,
-		source,
 		activeTargetKey,
-		errorMessage,
 		togglePlay,
 		stop,
 	};

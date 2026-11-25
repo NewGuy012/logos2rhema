@@ -150,7 +150,7 @@ function applyPlaybackRate(audio: HTMLAudioElement, rate: number): void {
 	}
 }
 
-function safeSetCurrentTime(audio: HTMLAudioElement, seconds: number): number {
+export function safeSetCurrentTime(audio: HTMLAudioElement, seconds: number): number {
 	const max =
 		Number.isFinite(audio.duration) && audio.duration > 0
 			? audio.duration
@@ -191,20 +191,9 @@ export function useHumanAudio({
 	const shouldAutoPlayOnTrackSwapRef = useRef(false);
 	const pendingSyncVerseRef = useRef<number | null>(null);
 	const playSeqRef = useRef(0);
-	const onEndedRef = useRef(onChapterEnded);
-	onEndedRef.current = onChapterEnded;
-
-	const visibleVerseRef = useRef(visibleVerse);
-	visibleVerseRef.current = visibleVerse;
-	const autoSyncRef = useRef(autoSync);
-	autoSyncRef.current = autoSync;
-	const isLoadingTracksRef = useRef(isLoadingTracks);
-	isLoadingTracksRef.current = isLoadingTracks;
 
 	const [uncontrolledLang, setUncontrolledLang] = useState<TranslationLanguage>("ko");
 	const preferredLang = controlledLang ?? uncontrolledLang;
-	const preferredLangRef = useRef(preferredLang);
-	preferredLangRef.current = preferredLang;
 
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
@@ -214,16 +203,29 @@ export function useHumanAudio({
 	const [isFollowingAudio, setIsFollowingAudio] = useState(true);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-	const playbackRateRef = useRef(playbackRate);
-	playbackRateRef.current = playbackRate;
-
 	const activeTrack = useMemo(
 		() => tracks.find((t) => t.language === preferredLang) ?? null,
 		[tracks, preferredLang],
 	);
 
-	const activeTrackRef = useRef(activeTrack);
-	activeTrackRef.current = activeTrack;
+	const latestRef = useRef({
+		onChapterEnded,
+		visibleVerse,
+		autoSync,
+		isLoadingTracks,
+		preferredLang,
+		playbackRate,
+		activeTrack,
+	});
+	latestRef.current = {
+		onChapterEnded,
+		visibleVerse,
+		autoSync,
+		isLoadingTracks,
+		preferredLang,
+		playbackRate,
+		activeTrack,
+	};
 
 	const activeVerse = useMemo(
 		() => (isPlaying ? resolveVerseAtTime(activeTrack?.verseTimings, currentTime) : null),
@@ -243,7 +245,7 @@ export function useHumanAudio({
 		};
 		const applyPendingVerseSeek = () => {
 			const pendingVerse = pendingSyncVerseRef.current;
-			const track = activeTrackRef.current;
+			const track = latestRef.current.activeTrack;
 			if (pendingVerse !== null && hasVerseTimings(track?.verseTimings)) {
 				const targetSec = resolveTimeForVerse(track?.verseTimings, pendingVerse);
 				if (targetSec !== null) {
@@ -254,7 +256,7 @@ export function useHumanAudio({
 		};
 		const handlers: Record<string, () => void> = {
 			loadedmetadata: () => {
-				applyPlaybackRate(audio, playbackRateRef.current);
+				applyPlaybackRate(audio, latestRef.current.playbackRate);
 				syncDuration();
 				applyPendingVerseSeek();
 			},
@@ -266,7 +268,7 @@ export function useHumanAudio({
 			},
 			durationchange: () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0),
 			play: () => {
-				applyPlaybackRate(audio, playbackRateRef.current);
+				applyPlaybackRate(audio, latestRef.current.playbackRate);
 				setIsPlaying(true);
 				setIsLoading(false);
 				setErrorMessage(null);
@@ -281,7 +283,7 @@ export function useHumanAudio({
 			},
 			ended: () => {
 				setIsPlaying(false);
-				if (onEndedRef.current?.()) {
+				if (latestRef.current.onChapterEnded?.()) {
 					shouldAutoPlayOnTrackSwapRef.current = true;
 					pendingSyncVerseRef.current = null;
 				}
@@ -327,9 +329,9 @@ export function useHumanAudio({
 		setErrorMessage(null);
 		setIsFollowingAudio(true);
 
-		const track = activeTrackRef.current;
+		const track = latestRef.current.activeTrack;
 		if (!track?.url || !isSafeAudioSrc(track.url)) {
-			if (!isLoadingTracksRef.current) {
+			if (!latestRef.current.isLoadingTracks) {
 				shouldAutoPlayOnTrackSwapRef.current = false;
 				pendingSyncVerseRef.current = null;
 			}
@@ -348,7 +350,7 @@ export function useHumanAudio({
 			audio.src = track.url;
 			audio.load();
 		}
-		applyPlaybackRate(audio, playbackRateRef.current);
+		applyPlaybackRate(audio, latestRef.current.playbackRate);
 
 		if (resumePlayback) {
 			playAudio(audio);
@@ -356,7 +358,7 @@ export function useHumanAudio({
 	}, [activeTrackKey, playAudio]);
 
 	useEffect(() => {
-		if (!isLoadingTracks && !activeTrackRef.current) {
+		if (!isLoadingTracks && !latestRef.current.activeTrack) {
 			shouldAutoPlayOnTrackSwapRef.current = false;
 			pendingSyncVerseRef.current = null;
 		}
@@ -390,7 +392,7 @@ export function useHumanAudio({
 
 	const togglePlay = useCallback(() => {
 		const audio = audioRef.current;
-		const track = activeTrackRef.current;
+		const track = latestRef.current.activeTrack;
 		if (!audio || !track || !isSafeAudioSrc(track.url)) return;
 		if (!audio.paused) {
 			playSeqRef.current++;
@@ -403,8 +405,8 @@ export function useHumanAudio({
 		}
 		setIsFollowingAudio(true);
 
-		if (autoSyncRef.current && hasVerseTimings(track.verseTimings)) {
-			const targetVerse = visibleVerseRef.current;
+		if (latestRef.current.autoSync && hasVerseTimings(track.verseTimings)) {
+			const targetVerse = latestRef.current.visibleVerse;
 			const targetSec = resolveTimeForVerse(track.verseTimings, targetVerse);
 			const verseAtAudio = resolveVerseAtTime(track.verseTimings, audio.currentTime || 0);
 			const shouldSnap =
@@ -434,10 +436,10 @@ export function useHumanAudio({
 
 	const selectLanguage = useCallback(
 		(lang: TranslationLanguage) => {
-			if (lang === preferredLangRef.current) return;
+			if (lang === latestRef.current.preferredLang) return;
 			shouldAutoPlayOnTrackSwapRef.current = isPlaying;
-			pendingSyncVerseRef.current = autoSyncRef.current
-				? (activeVerse ?? visibleVerseRef.current)
+			pendingSyncVerseRef.current = latestRef.current.autoSync
+				? (activeVerse ?? latestRef.current.visibleVerse)
 				: null;
 			if (onPreferredLangChange) {
 				onPreferredLangChange(lang);
@@ -451,7 +453,7 @@ export function useHumanAudio({
 	const jumpToVerse = useCallback(
 		(verseNumber: number) => {
 			const audio = audioRef.current;
-			const track = activeTrackRef.current;
+			const track = latestRef.current.activeTrack;
 			if (!audio || !track || !isSafeAudioSrc(track.url)) return false;
 			const startSec = resolveTimeForVerse(track.verseTimings, verseNumber);
 			if (startSec === null) return false;

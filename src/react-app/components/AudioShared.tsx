@@ -339,13 +339,11 @@ export function AudioFallbackAction({
 export function VerseAudioButton({
 	isPlaying,
 	isLoading,
-	isSupertonic,
 	disabled = false,
 	onToggle,
 }: {
 	isPlaying: boolean;
 	isLoading: boolean;
-	isSupertonic: boolean;
 	disabled?: boolean;
 	onToggle: () => void;
 }) {
@@ -360,7 +358,7 @@ export function VerseAudioButton({
 			onClick={onToggle}
 			aria-pressed={isPlaying}
 			aria-label={label}
-			title={isSupertonic ? SUPERTONIC_TRACK_LABEL : `${SUPERTONIC_TRACK_LABEL}`}
+			title={SUPERTONIC_TRACK_LABEL}
 		>
 			{isLoading ? (
 				<Loader2 size={13} className="spin" />

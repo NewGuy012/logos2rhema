@@ -4,29 +4,88 @@ import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, LexiconMap, VerseEntry, VerseRef } from "../../shared/types";
 import { alignChapterVerses, loadLexicon, loadTranslationPassage } from "../lib/bible-loader";
 
+function usePassageSide({
+	translationId,
+	shouldLoad,
+	bookNumber,
+	chapter,
+	verseStart,
+	verseEnd,
+	fallbackError,
+}: {
+	translationId: string;
+	shouldLoad: boolean;
+	bookNumber: number;
+	chapter: number;
+	verseStart: number;
+	verseEnd: number;
+	fallbackError: string;
+}) {
+	const [verses, setVerses] = useState<VerseEntry[]>([]);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [retrySeq, setRetrySeq] = useState(0);
+
+	useEffect(() => {
+		if (!shouldLoad) {
+			setVerses([]);
+			setLoading(false);
+			setError(null);
+			return;
+		}
+		const controller = new AbortController();
+		setVerses([]);
+		setLoading(true);
+		setError(null);
+
+		loadTranslationPassage(
+			translationId,
+			bookNumber,
+			chapter,
+			verseStart,
+			verseEnd,
+			controller.signal,
+		)
+			.then((loaded) => {
+				if (controller.signal.aborted) return;
+				setVerses(loaded);
+				setLoading(false);
+			})
+			.catch((err) => {
+				if (controller.signal.aborted) return;
+				setError(err instanceof Error ? err.message : fallbackError);
+				setLoading(false);
+			});
+
+		return () => controller.abort();
+	}, [
+		translationId,
+		shouldLoad,
+		bookNumber,
+		chapter,
+		verseStart,
+		verseEnd,
+		fallbackError,
+		retrySeq,
+	]);
+
+	const triggerRetry = useCallback(() => setRetrySeq((s) => s + 1), []);
+	return { verses, loading, error, triggerRetry };
+}
+
 export function useBilingualPassage({
 	passageRef,
 	lexicon: externalLexicon,
-	enabled = true,
 	loadEn = true,
 }: {
 	passageRef: VerseRef | null;
 	lexicon?: LexiconMap;
-	enabled?: boolean;
 	loadEn?: boolean;
 }) {
 	const [internalLexicon, setInternalLexicon] = useState<LexiconMap>({});
-	const [enVerses, setEnVerses] = useState<VerseEntry[]>([]);
-	const [koVerses, setKoVerses] = useState<VerseEntry[]>([]);
-	const [koLoading, setKoLoading] = useState(false);
-	const [enLoading, setEnLoading] = useState(false);
-	const [koError, setKoError] = useState<string | null>(null);
-	const [enError, setEnError] = useState<string | null>(null);
-	const [koRetrySeq, setKoRetrySeq] = useState(0);
-	const [enRetrySeq, setEnRetrySeq] = useState(0);
 
 	useEffect(() => {
-		if (!enabled || externalLexicon !== undefined) return;
+		if (externalLexicon !== undefined) return;
 		let cancelled = false;
 		loadLexicon()
 			.then((lex) => {
@@ -36,7 +95,7 @@ export function useBilingualPassage({
 		return () => {
 			cancelled = true;
 		};
-	}, [enabled, externalLexicon]);
+	}, [externalLexicon]);
 
 	const activeLexicon = externalLexicon ?? internalLexicon;
 
@@ -44,77 +103,37 @@ export function useBilingualPassage({
 	const chapter = passageRef?.chapter ?? 0;
 	const verseStart = passageRef?.verseStart ?? 0;
 	const verseEnd = passageRef?.verseEnd ?? verseStart;
-	const isValidRef = enabled && bookNumber >= 1 && chapter >= 1 && verseStart >= 1;
+	const isValidRef = bookNumber >= 1 && chapter >= 1 && verseStart >= 1;
 
-	useEffect(() => {
-		if (!isValidRef) {
-			setKoVerses([]);
-			setKoLoading(false);
-			setKoError(null);
-			return;
-		}
+	const {
+		verses: koVerses,
+		loading: koLoading,
+		error: koError,
+		triggerRetry: retryKo,
+	} = usePassageSide({
+		translationId: CANONICAL_BIBLES.ko.id,
+		shouldLoad: isValidRef,
+		bookNumber,
+		chapter,
+		verseStart,
+		verseEnd,
+		fallbackError: "Could not load Korean text.",
+	});
 
-		const controller = new AbortController();
-		setKoVerses([]);
-		setKoLoading(true);
-		setKoError(null);
-
-		loadTranslationPassage(
-			CANONICAL_BIBLES.ko.id,
-			bookNumber,
-			chapter,
-			verseStart,
-			verseEnd,
-			controller.signal,
-		)
-			.then((verses) => {
-				if (controller.signal.aborted) return;
-				setKoVerses(verses);
-				setKoLoading(false);
-			})
-			.catch((err) => {
-				if (controller.signal.aborted) return;
-				setKoError(err instanceof Error ? err.message : "Could not load Korean text.");
-				setKoLoading(false);
-			});
-
-		return () => controller.abort();
-	}, [isValidRef, bookNumber, chapter, verseStart, verseEnd, koRetrySeq]);
-
-	useEffect(() => {
-		if (!isValidRef || !loadEn) {
-			setEnVerses([]);
-			setEnLoading(false);
-			setEnError(null);
-			return;
-		}
-
-		const controller = new AbortController();
-		setEnVerses([]);
-		setEnLoading(true);
-		setEnError(null);
-
-		loadTranslationPassage(
-			CANONICAL_BIBLES.en.id,
-			bookNumber,
-			chapter,
-			verseStart,
-			verseEnd,
-			controller.signal,
-		)
-			.then((verses) => {
-				if (controller.signal.aborted) return;
-				setEnVerses(verses);
-				setEnLoading(false);
-			})
-			.catch((err) => {
-				if (controller.signal.aborted) return;
-				setEnError(err instanceof Error ? err.message : "English (ESV) unavailable.");
-				setEnLoading(false);
-			});
-
-		return () => controller.abort();
-	}, [isValidRef, loadEn, bookNumber, chapter, verseStart, verseEnd, enRetrySeq]);
+	const {
+		verses: enVerses,
+		loading: enLoading,
+		error: enError,
+		triggerRetry: retryEn,
+	} = usePassageSide({
+		translationId: CANONICAL_BIBLES.en.id,
+		shouldLoad: isValidRef && loadEn,
+		bookNumber,
+		chapter,
+		verseStart,
+		verseEnd,
+		fallbackError: "English (ESV) unavailable.",
+	});
 
 	const { aligned } = useMemo(
 		() => alignChapterVerses(enVerses, koVerses, activeLexicon),
@@ -122,18 +141,10 @@ export function useBilingualPassage({
 	);
 
 	const retry = useCallback(() => {
-		if (koError || koVerses.length === 0) setKoRetrySeq((s) => s + 1);
-		if (loadEn && (enError || enVerses.length === 0)) setEnRetrySeq((s) => s + 1);
-	}, [koError, koVerses.length, loadEn, enError, enVerses.length]);
+		if (koError || koVerses.length === 0) retryKo();
+		if (loadEn && (enError || enVerses.length === 0)) retryEn();
+	}, [koError, koVerses.length, retryKo, loadEn, enError, enVerses.length, retryEn]);
 
-	const combinedEn = useMemo(
-		() =>
-			aligned
-				.map((v) => v.enText)
-				.filter((t): t is string => Boolean(t))
-				.join(" "),
-		[aligned],
-	);
 	const combinedKo = useMemo(
 		() =>
 			aligned
@@ -145,7 +156,6 @@ export function useBilingualPassage({
 
 	return {
 		aligned: aligned as AlignedVerse[],
-		combinedEn,
 		combinedKo,
 		koLoading,
 		enLoading,

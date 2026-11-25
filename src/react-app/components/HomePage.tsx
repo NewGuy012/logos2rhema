@@ -334,6 +334,7 @@ export function HomePage({
 						<HomeDictionaryBrowser
 							initialBookNumber={lastBook.number}
 							initialChapter={lastChapter}
+							lexicon={lexicon}
 							onOpenPassage={onOpenPassage}
 						/>
 					) : (

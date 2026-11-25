@@ -21,7 +21,6 @@ export interface TopBarDisplayPrefs {
 }
 
 interface TopBarProps extends SavedItemsProps {
-	isHome?: boolean;
 	activeView?: "home" | "reader" | "memorize";
 	lastBookNumber?: number;
 	lastChapter?: number;
@@ -65,7 +64,6 @@ function SegmentedSetting<T extends string | number>({
 }
 
 export function TopBar({
-	isHome = false,
 	activeView,
 	lastBookNumber = 1,
 	lastChapter = 1,
@@ -85,7 +83,7 @@ export function TopBar({
 	onChangePref,
 	onOpenSearch,
 }: TopBarProps) {
-	const resolvedView = activeView ?? (isHome ? "home" : "reader");
+	const resolvedView = activeView ?? "reader";
 	const [openPopover, setOpenPopover] = useState<OpenPopover>(null);
 	const navRef = useRef<HTMLElement | null>(null);
 

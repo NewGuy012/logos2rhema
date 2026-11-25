@@ -93,15 +93,6 @@ export const ChevronDown = makeIcon(<path d="m6 9 6 6 6-6" />);
 export const ChevronLeft = makeIcon(<path d="m15 18-6-6 6-6" />);
 export const ChevronRight = makeIcon(<path d="m9 18 6-6-6-6" />);
 
-export const Check = makeIcon(<path d="M20 6 9 17l-5-5" />);
-
-export const Copy = makeIcon(
-	<>
-		<rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-		<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-	</>,
-);
-
 export const Crosshair = makeIcon(
 	<>
 		<circle cx="12" cy="12" r="10" />

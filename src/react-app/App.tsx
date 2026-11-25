@@ -6,6 +6,7 @@ import {
 	getAdjacentChapter,
 	getBookByUsfm,
 	getBookOrDefault,
+	MAX_VERSE_NUMBER,
 	resolveBookChapter,
 } from "../shared/books";
 import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
@@ -77,7 +78,13 @@ import { parseStoredBookChapter, readJsonStorage, writeJsonStorage } from "./lib
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
 const FONT_SCALES = [0.9, 1, 1.12, 1.24] as const;
-const MAX_VERSE_NUMBER = 200;
+
+function useSyncOnChange<T>(value: T, sync: (next: T) => void) {
+	const initialRef = useRef(value);
+	useEffect(() => {
+		if (value !== initialRef.current) sync(value);
+	}, [value, sync]);
+}
 
 interface DisplayPrefs extends TopBarDisplayPrefs {
 	autoSync: boolean;
@@ -355,41 +362,23 @@ export default function App() {
 		}
 	}, [view, loadingChapter, verseNumbers.length, visibleVerse, pendingScrollVerse]);
 
-	const initialPrefsSnapRef = useRef({ bookNumber, chapter, lastVerse, prefs });
-	useEffect(() => {
-		const init = initialPrefsSnapRef.current;
-		if (
-			init.bookNumber === bookNumber &&
-			init.chapter === chapter &&
-			init.lastVerse === lastVerse &&
-			init.prefs === prefs
-		) {
-			return;
-		}
-		writeJsonStorage(STORAGE_KEY, {
-			bookNumber,
-			chapter,
-			verse: lastVerse,
-			...prefs,
-		} satisfies StoredPrefs);
-	}, [bookNumber, chapter, lastVerse, prefs]);
+	const storedPrefs = useMemo<StoredPrefs>(
+		() => ({ bookNumber, chapter, verse: lastVerse, ...prefs }),
+		[bookNumber, chapter, lastVerse, prefs],
+	);
+	const syncStoredPrefs = useCallback(
+		(next: StoredPrefs) => writeJsonStorage(STORAGE_KEY, next),
+		[],
+	);
+	useSyncOnChange(storedPrefs, syncStoredPrefs);
+	useSyncOnChange(favorites, writeStoredFavorites);
+	useSyncOnChange(highlights, writeStoredHighlights);
+	useSyncOnChange(memorizeCards, writeStoredMemorizeCards);
 
-	const initialFavoritesRef = useRef(favorites);
-	useEffect(() => {
-		if (favorites !== initialFavoritesRef.current) writeStoredFavorites(favorites);
-	}, [favorites]);
-
-	const initialHighlightsRef = useRef(highlights);
-	useEffect(() => {
-		if (highlights !== initialHighlightsRef.current) writeStoredHighlights(highlights);
-	}, [highlights]);
-
-	const initialMemorizeCardsRef = useRef(memorizeCards);
-	useEffect(() => {
-		if (memorizeCards !== initialMemorizeCardsRef.current) {
-			writeStoredMemorizeCards(memorizeCards);
-		}
-	}, [memorizeCards]);
+	const memorizeCardsRef = useRef(memorizeCards);
+	memorizeCardsRef.current = memorizeCards;
+	const favoritesRef = useRef(favorites);
+	favoritesRef.current = favorites;
 
 	const favoriteIds = useMemo(() => new Set(favorites.map((item) => item.id)), [favorites]);
 	const isChapterFavorited = favoriteIds.has(makeFavoriteId(bookNumber, chapter));
@@ -418,47 +407,48 @@ export default function App() {
 
 	const handleToggleReaderVerseMemorize = useCallback(
 		(verse: AlignedVerse) => {
-			setMemorizeCards(
-				(prev) =>
-					toggleMemorizeCard(prev, {
-						bookNumber,
-						chapter,
-						verseStart: verse.verse,
-					}).cards,
-			);
+			const next = toggleMemorizeCard(memorizeCardsRef.current, {
+				bookNumber,
+				chapter,
+				verseStart: verse.verse,
+			}).cards;
+			memorizeCardsRef.current = next;
+			setMemorizeCards(next);
 		},
 		[bookNumber, chapter],
 	);
 
-	const handleAddMemorizeCard = useCallback(
-		(input: VerseRef) => {
-			const result = addMemorizeCard(memorizeCards, input);
-			setMemorizeCards(result.cards);
-			return { added: result.added, card: result.card };
-		},
-		[memorizeCards],
-	);
-
-	const handleRemoveMemorizeCard = useCallback((id: string) => {
-		setMemorizeCards((prev) => removeMemorizeCard(prev, id));
+	const handleAddMemorizeCard = useCallback((input: VerseRef) => {
+		const result = addMemorizeCard(memorizeCardsRef.current, input);
+		memorizeCardsRef.current = result.cards;
+		setMemorizeCards(result.cards);
+		return { added: result.added, card: result.card };
 	}, []);
 
-	const handleAddStarterPack = useCallback(
-		(pack: MemorizeStarterPack) => {
-			const res = addStarterPackToDeck(memorizeCards, pack);
-			setMemorizeCards(res.cards);
-			return res.addedCount;
-		},
-		[memorizeCards],
-	);
+	const handleRemoveMemorizeCard = useCallback((id: string) => {
+		const next = removeMemorizeCard(memorizeCardsRef.current, id);
+		memorizeCardsRef.current = next;
+		setMemorizeCards(next);
+	}, []);
 
-	const handleImportBookmarksToDeck = useCallback(() => {
-		const res = importBookmarksToDeck(memorizeCards, favorites);
+	const handleAddStarterPack = useCallback((pack: MemorizeStarterPack) => {
+		const res = addStarterPackToDeck(memorizeCardsRef.current, pack);
+		memorizeCardsRef.current = res.cards;
 		setMemorizeCards(res.cards);
 		return res.addedCount;
-	}, [memorizeCards, favorites]);
+	}, []);
 
-	const handleClearMemorizeDeck = useCallback(() => setMemorizeCards([]), []);
+	const handleImportBookmarksToDeck = useCallback(() => {
+		const res = importBookmarksToDeck(memorizeCardsRef.current, favoritesRef.current);
+		memorizeCardsRef.current = res.cards;
+		setMemorizeCards(res.cards);
+		return res.addedCount;
+	}, []);
+
+	const handleClearMemorizeDeck = useCallback(() => {
+		memorizeCardsRef.current = [];
+		setMemorizeCards([]);
+	}, []);
 
 	const handleRemoveFavorite = useCallback((id: string) => {
 		setFavorites((prev) => prev.filter((item) => item.id !== id));

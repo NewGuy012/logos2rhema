@@ -363,7 +363,7 @@ describe("Reader UI & Audio Hooks", () => {
 		fireClick(getButton(topBar.container, "Reader appearance settings"));
 		fireClick(getButton(topBar.container, /^\s*Sans\s*$/));
 		expect(onChangePref).toHaveBeenCalledWith({ enFontStyle: "sans" });
-		topBar.rerender(<TopBar isHome={true} {...topBarProps} />);
+		topBar.rerender(<TopBar activeView="home" {...topBarProps} />);
 		expect(topBar.container.querySelector(".appearance-btn")).toBeNull();
 
 		await withMockFetch(

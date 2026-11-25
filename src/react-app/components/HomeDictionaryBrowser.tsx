@@ -104,6 +104,7 @@ function scoreMatch(
 interface HomeDictionaryBrowserProps {
 	initialBookNumber: number;
 	initialChapter: number;
+	lexicon?: LexiconMap;
 	onOpenPassage: (
 		bookNumber: number,
 		chapter: number,
@@ -115,6 +116,7 @@ interface HomeDictionaryBrowserProps {
 export function HomeDictionaryBrowser({
 	initialBookNumber,
 	initialChapter,
+	lexicon: externalLexicon,
 	onOpenPassage,
 }: HomeDictionaryBrowserProps) {
 	const [mode, setMode] = useState<DictionaryMode>("glossary");
@@ -122,8 +124,12 @@ export function HomeDictionaryBrowser({
 	const [posFilter, setPosFilter] = useState<GlossaryFilter>("all");
 	const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
 
-	const [lexicon, setLexicon] = useState<LexiconMap>({});
-	const [lexiconLoading, setLexiconLoading] = useState(true);
+	const [internalLexicon, setInternalLexicon] = useState<LexiconMap>({});
+	const [internalLexiconLoading, setInternalLexiconLoading] = useState(
+		() => externalLexicon === undefined,
+	);
+	const lexicon = externalLexicon ?? internalLexicon;
+	const lexiconLoading = externalLexicon === undefined && internalLexiconLoading;
 
 	const {
 		book: currentBook,
@@ -147,22 +153,23 @@ export function HomeDictionaryBrowser({
 	} = useKoreanSpeech<string>();
 
 	useEffect(() => {
+		if (externalLexicon !== undefined) return;
 		let cancelled = false;
-		setLexiconLoading(true);
+		setInternalLexiconLoading(true);
 		loadLexicon()
 			.then((lex) => {
 				if (cancelled) return;
-				setLexicon(lex);
-				setLexiconLoading(false);
+				setInternalLexicon(lex);
+				setInternalLexiconLoading(false);
 			})
 			.catch(() => {
 				if (cancelled) return;
-				setLexiconLoading(false);
+				setInternalLexiconLoading(false);
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [externalLexicon]);
 
 	useEffect(() => {
 		clearSpeechError();

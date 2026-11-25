@@ -1,12 +1,11 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { formatVerseRefBilingual } from "../../shared/books";
 import type { LexiconMap } from "../../shared/types";
 import { getVerseOfTheDay } from "../../shared/verse-of-the-day";
 import { useBilingualPassage } from "../hooks/useBilingualPassage";
 import { ChevronLeft, ChevronRight, Sparkles } from "./Icons";
-import { KoreanTokensLine } from "./KoreanToken";
-import type { StackOrder } from "./VerseBlock";
+import { BilingualPassageLines, type StackOrder } from "./VerseBlock";
 
 interface VerseOfTheDayCardProps {
 	stackOrder?: StackOrder;
@@ -32,64 +31,6 @@ export function VerseOfTheDayCard({
 		passageRef: ref,
 		lexicon,
 	});
-
-	const enNodes = aligned.filter((v) => v.enText);
-	const koNodes = aligned.filter((v) => v.koText);
-
-	const englishBlock = (
-		<div key="en" className="votd-line-wrap">
-			{enNodes.length > 0 ? (
-				<blockquote className="home-featured-verse-quote votd-en-quote">
-					“
-					{enNodes.map((v, idx) => (
-						<Fragment key={v.verse}>
-							{idx > 0 && " "}
-							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
-							{v.enText}
-						</Fragment>
-					))}
-					”
-				</blockquote>
-			) : enLoading ? (
-				<p className="votd-status-note">Loading English (ESV)…</p>
-			) : enError ? (
-				<div className="votd-en-fallback">
-					<span>English (ESV) unavailable</span>
-					<button type="button" className="quick-inline-chip active" onClick={retry}>
-						Retry
-					</button>
-				</div>
-			) : null}
-		</div>
-	);
-
-	const koreanBlock = (
-		<div key="ko" className="votd-line-wrap">
-			{koNodes.length > 0 ? (
-				<p className="votd-ko-quote" lang="ko">
-					{koNodes.map((v, idx) => (
-						<Fragment key={v.verse}>
-							{idx > 0 && " "}
-							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
-							{v.tokens.length > 0 ? (
-								<KoreanTokensLine
-									verseNumber={v.verse}
-									tokens={v.tokens}
-									wordTooltip={wordTooltip}
-								/>
-							) : (
-								v.koText
-							)}
-						</Fragment>
-					))}
-				</p>
-			) : koLoading ? (
-				<p className="votd-status-note">Loading Korean (개역한글)…</p>
-			) : koError ? (
-				<p className="votd-status-note">{koError}</p>
-			) : null}
-		</div>
-	);
 
 	return (
 		<figure className="home-featured-verse votd-card" aria-label={`Verse of the Day: ${refEn}`}>
@@ -135,7 +76,22 @@ export function VerseOfTheDayCard({
 			</div>
 
 			<div className="votd-body">
-				{stackOrder === "en-first" ? [englishBlock, koreanBlock] : [koreanBlock, englishBlock]}
+				<BilingualPassageLines
+					aligned={aligned}
+					isMultiVerse={isMultiVerse}
+					stackOrder={stackOrder}
+					wordTooltip={wordTooltip}
+					koLoading={koLoading}
+					enLoading={enLoading}
+					koError={koError}
+					enError={enError}
+					onRetry={retry}
+					wrapClassName="votd-line-wrap"
+					enClassName="home-featured-verse-quote votd-en-quote"
+					koClassName="votd-ko-quote"
+					statusClassName="votd-status-note"
+					quoteEn={true}
+				/>
 			</div>
 
 			<figcaption className="home-featured-verse-meta votd-footer">

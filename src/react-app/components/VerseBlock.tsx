@@ -1,4 +1,4 @@
-import { memo, type MouseEvent } from "react";
+import { Fragment, memo, type MouseEvent } from "react";
 
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, HighlightItem } from "../../shared/types";
@@ -179,3 +179,101 @@ export const VerseBlock = memo(function VerseBlock({
 		</article>
 	);
 });
+
+/** Shared bilingual verse lines renderer used by Verse of the Day and Memorize cards. */
+export function BilingualPassageLines({
+	aligned,
+	isMultiVerse,
+	stackOrder,
+	wordTooltip,
+	koLoading,
+	enLoading,
+	koError,
+	enError,
+	loadEn = true,
+	onRetry,
+	wrapClassName,
+	enClassName,
+	koClassName,
+	statusClassName,
+	quoteEn = false,
+}: {
+	aligned: readonly AlignedVerse[];
+	isMultiVerse: boolean;
+	stackOrder: StackOrder;
+	wordTooltip: boolean;
+	koLoading: boolean;
+	enLoading: boolean;
+	koError: string | null;
+	enError: string | null;
+	loadEn?: boolean;
+	onRetry: () => void;
+	wrapClassName: string;
+	enClassName: string;
+	koClassName: string;
+	statusClassName: string;
+	quoteEn?: boolean;
+}) {
+	const enVerses = aligned.filter((v) => v.enText);
+	const koVerses = aligned.filter((v) => v.koText);
+	const enContent = enVerses.map((v, idx) => (
+		<Fragment key={v.verse}>
+			{idx > 0 && " "}
+			{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
+			{v.enText}
+		</Fragment>
+	));
+
+	const englishBlock = (
+		<div key="en" className={wrapClassName}>
+			{enVerses.length > 0 ? (
+				quoteEn ? (
+					<blockquote className={enClassName}>“{enContent}”</blockquote>
+				) : (
+					<p className={enClassName}>{enContent}</p>
+				)
+			) : enLoading || !loadEn ? (
+				<p className={statusClassName}>Loading English (ESV)…</p>
+			) : enError ? (
+				<div className="votd-en-fallback">
+					<span>English (ESV) unavailable</span>
+					<button type="button" className="quick-inline-chip active" onClick={onRetry}>
+						Retry
+					</button>
+				</div>
+			) : null}
+		</div>
+	);
+
+	const koreanBlock = (
+		<div key="ko" className={wrapClassName}>
+			{koVerses.length > 0 ? (
+				<p className={koClassName} lang="ko">
+					{koVerses.map((v, idx) => (
+						<Fragment key={v.verse}>
+							{idx > 0 && " "}
+							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
+							{v.tokens.length > 0 ? (
+								<KoreanTokensLine
+									verseNumber={v.verse}
+									tokens={v.tokens}
+									wordTooltip={wordTooltip}
+								/>
+							) : (
+								v.koText
+							)}
+						</Fragment>
+					))}
+				</p>
+			) : koLoading ? (
+				<p className={statusClassName}>Loading Korean (개역한글)…</p>
+			) : koError ? (
+				<p className={statusClassName}>{koError}</p>
+			) : null}
+		</div>
+	);
+
+	return (
+		<>{stackOrder === "en-first" ? [englishBlock, koreanBlock] : [koreanBlock, englishBlock]}</>
+	);
+}

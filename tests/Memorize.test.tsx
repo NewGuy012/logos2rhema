@@ -58,6 +58,9 @@ function createMemorizeMockFetch(options?: { onEsvRequest?: (url: string) => voi
 					],
 				});
 			}
+			if (url.endsWith("/OBA.json")) {
+				return new Response(null, { status: 404 });
+			}
 			return makeBookResponse("krv", 1, usfm, baseChapters);
 		},
 		esv: (url) => {
@@ -196,6 +199,14 @@ describe("Memorize Simplified UI & End-to-End Integration", () => {
 			await waitUntil(() =>
 				expect(getByText(container, "Verse not found in John 3.")).toBeDefined(),
 			);
+
+			// Network/fetch failure on KRV verification shows an error and does NOT add an unverified card
+			setInputValue(addInput, "Oba 1:1");
+			submitForm(addForm);
+			await waitUntil(() => {
+				expect(container.querySelector('.memorize-feedback.error[role="alert"]')).not.toBeNull();
+				expect(container.textContent).not.toContain("Obadiah 1:1");
+			});
 
 			// Add single EN verse & Korean range -> both ESV and KRV display immediately inline
 			setInputValue(addInput, "John 3:16");

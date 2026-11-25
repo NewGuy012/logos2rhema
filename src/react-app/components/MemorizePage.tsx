@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	formatVerseRefBilingual,
@@ -12,17 +12,15 @@ import { useBilingualPassage } from "../hooks/useBilingualPassage";
 import {
 	getVerseAudioTargetKey,
 	useVerseAudio,
-	type VerseAudioSource,
 	type VerseAudioTarget,
 } from "../hooks/useVerseAudio";
 import { loadTranslationPassage } from "../lib/bible-loader";
 import { makeMemorizeCardId } from "../lib/memorize";
 import { VerseAudioButton } from "./AudioShared";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Sparkles, X } from "./Icons";
-import { KoreanTokensLine } from "./KoreanToken";
 import { LegalFooter } from "./LegalFooter";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
-import type { StackOrder } from "./VerseBlock";
+import { BilingualPassageLines, type StackOrder } from "./VerseBlock";
 
 type MemorizeViewMode = "all" | "flashcard";
 
@@ -55,7 +53,6 @@ function MemorizeVerseItem({
 	activeAudioKey,
 	isAudioPlaying,
 	isAudioLoading,
-	audioSource,
 	onToggleAudio,
 	onRemove,
 }: {
@@ -66,7 +63,6 @@ function MemorizeVerseItem({
 	activeAudioKey: string | null;
 	isAudioPlaying: boolean;
 	isAudioLoading: boolean;
-	audioSource: VerseAudioSource;
 	onToggleAudio: (target: VerseAudioTarget) => void;
 	onRemove: (id: string) => void;
 }) {
@@ -113,62 +109,6 @@ function MemorizeVerseItem({
 			loadEn: shouldLoadEn,
 		});
 
-	const enVerses = aligned.filter((v) => v.enText);
-	const koVerses = aligned.filter((v) => v.koText);
-
-	const englishLine = (
-		<div key="en" className="memorize-verse-line">
-			{enVerses.length > 0 ? (
-				<p className="memorize-verse-en">
-					{enVerses.map((v, idx) => (
-						<Fragment key={v.verse}>
-							{idx > 0 && " "}
-							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
-							{v.enText}
-						</Fragment>
-					))}
-				</p>
-			) : enError ? (
-				<div className="votd-en-fallback">
-					<span>English (ESV) unavailable</span>
-					<button type="button" className="quick-inline-chip active" onClick={retry}>
-						Retry
-					</button>
-				</div>
-			) : enLoading || !shouldLoadEn ? (
-				<p className="memorize-verse-status">Loading English (ESV)…</p>
-			) : null}
-		</div>
-	);
-
-	const koreanLine = (
-		<div key="ko" className="memorize-verse-line">
-			{koVerses.length > 0 ? (
-				<p className="memorize-verse-ko" lang="ko">
-					{koVerses.map((v, idx) => (
-						<Fragment key={v.verse}>
-							{idx > 0 && " "}
-							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
-							{v.tokens.length > 0 ? (
-								<KoreanTokensLine
-									verseNumber={v.verse}
-									tokens={v.tokens}
-									wordTooltip={wordTooltip}
-								/>
-							) : (
-								v.koText
-							)}
-						</Fragment>
-					))}
-				</p>
-			) : koLoading ? (
-				<p className="memorize-verse-status">Loading Korean (개역한글)…</p>
-			) : koError ? (
-				<p className="memorize-verse-status">{koError}</p>
-			) : null}
-		</div>
-	);
-
 	return (
 		<article ref={itemRef} className="memorize-verse-item" data-card-id={card.id}>
 			<div className="memorize-verse-head">
@@ -182,7 +122,6 @@ function MemorizeVerseItem({
 					<VerseAudioButton
 						isPlaying={isThisAudio && isAudioPlaying}
 						isLoading={isThisAudio && isAudioLoading}
-						isSupertonic={isThisAudio && audioSource === "supertonic"}
 						onToggle={() =>
 							onToggleAudio({
 								usfm: book.usfm,
@@ -206,7 +145,22 @@ function MemorizeVerseItem({
 			</div>
 
 			<div className="memorize-verse-body">
-				{stackOrder === "en-first" ? [englishLine, koreanLine] : [koreanLine, englishLine]}
+				<BilingualPassageLines
+					aligned={aligned}
+					isMultiVerse={isMultiVerse}
+					stackOrder={stackOrder}
+					wordTooltip={wordTooltip}
+					koLoading={koLoading}
+					enLoading={enLoading}
+					koError={koError}
+					enError={enError}
+					loadEn={shouldLoadEn}
+					onRetry={retry}
+					wrapClassName="memorize-verse-line"
+					enClassName="memorize-verse-en"
+					koClassName="memorize-verse-ko"
+					statusClassName="memorize-verse-status"
+				/>
 			</div>
 		</article>
 	);
@@ -233,15 +187,12 @@ export function MemorizePage({
 		kind: "ok" | "error";
 		text: string;
 	} | null>(null);
-	const mountedRef = useRef(true);
+	const addAbortRef = useRef<AbortController | null>(null);
 	const verseAudio = useVerseAudio();
 	const { activeTargetKey, stop: stopAudio } = verseAudio;
 
 	useEffect(() => {
-		mountedRef.current = true;
-		return () => {
-			mountedRef.current = false;
-		};
+		return () => addAbortRef.current?.abort();
 	}, []);
 
 	const cardIds = useMemo(() => new Set(cards.map((c) => c.id)), [cards]);
@@ -318,6 +269,9 @@ export function MemorizePage({
 		}
 		const book = getBookOrDefault(parsed.bookNumber);
 		const { refEn } = formatVerseRefBilingual(parsed);
+		addAbortRef.current?.abort();
+		const controller = new AbortController();
+		addAbortRef.current = controller;
 		setAddingVerse(true);
 		setStatusMessage(null);
 		try {
@@ -327,8 +281,9 @@ export function MemorizePage({
 				parsed.chapter,
 				parsed.verseStart,
 				parsed.verseEnd,
+				controller.signal,
 			);
-			if (!mountedRef.current) return;
+			if (controller.signal.aborted) return;
 			const hasStart = verses.some((v) => v.verse === parsed.verseStart);
 			const hasEnd =
 				parsed.verseEnd === undefined || verses.some((v) => v.verse === parsed.verseEnd);
@@ -346,17 +301,17 @@ export function MemorizePage({
 				kind: "ok",
 				text: res.added ? `Added ${refEn}.` : `${refEn} is already saved.`,
 			});
-		} catch {
-			if (!mountedRef.current) return;
-			const res = onAddCard(parsed);
-			if (res.added) setActiveIndex(0);
-			setAddQuery("");
+		} catch (err) {
+			if (controller.signal.aborted) return;
 			setStatusMessage({
-				kind: "ok",
-				text: res.added ? `Added ${refEn}.` : `${refEn} is already saved.`,
+				kind: "error",
+				text: err instanceof Error ? err.message : `Unable to verify ${refEn}.`,
 			});
 		} finally {
-			if (mountedRef.current) setAddingVerse(false);
+			if (addAbortRef.current === controller) {
+				addAbortRef.current = null;
+				setAddingVerse(false);
+			}
 		}
 	};
 
@@ -548,7 +503,6 @@ export function MemorizePage({
 								activeAudioKey={verseAudio.activeTargetKey}
 								isAudioPlaying={verseAudio.isPlaying}
 								isAudioLoading={verseAudio.isLoading}
-								audioSource={verseAudio.source}
 								onToggleAudio={verseAudio.togglePlay}
 								onRemove={onRemoveCard}
 							/>
@@ -592,7 +546,6 @@ export function MemorizePage({
 								activeAudioKey={verseAudio.activeTargetKey}
 								isAudioPlaying={verseAudio.isPlaying}
 								isAudioLoading={verseAudio.isLoading}
-								audioSource={verseAudio.source}
 								onToggleAudio={verseAudio.togglePlay}
 								onRemove={onRemoveCard}
 							/>
