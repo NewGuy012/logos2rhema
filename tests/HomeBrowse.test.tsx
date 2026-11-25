@@ -313,7 +313,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 		}
 	});
 
-	it("renders Verse of the Day in hero with day browse controls, clickable ref, Korean tooltips, ESV fallback retry, and Psalm 1:2 in footer", async () => {
+	it("renders Verse of the Day in hero with day browse controls, clickable ref, Korean tooltips, ESV fallback retry, and Psalm 1:2 in About", async () => {
 		const today = getVerseOfTheDay();
 		const yesterday = getVerseOfTheDay(new Date(), -1);
 		const nextDay = getVerseOfTheDay(new Date(), 1);
@@ -400,9 +400,16 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				expect(votd.querySelector(".votd-actions")).toBeNull();
 				expect(votd.querySelector('button[aria-label="Shuffle verse"]')).toBeNull();
 
-				// Hero no longer holds Psalm 1:2 unless today happens to be Psalm 1:2; footer always holds Psalm 1:2
+				// Hero no longer holds Psalm 1:2 unless today happens to be Psalm 1:2; About section holds Psalm 1:2
+				const about = container.querySelector(
+					'section[aria-label="About Logos2Rhema"]',
+				) as HTMLElement;
+				const motto = about.querySelector(".home-about-motto");
+				expect(motto?.textContent).toContain("but his delight is in the law of the Lord");
+				expect(motto?.textContent).toContain("Psalm 1:2");
+				expect(motto?.textContent).toContain("시편 1:2");
 				const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
-				expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("Psalm 1:2");
+				expect(footer.querySelector(".footer-motto-verse")).toBeNull();
 
 				await waitUntil(() => {
 					expect(getByText(votd, "하나님이")).toBeDefined();

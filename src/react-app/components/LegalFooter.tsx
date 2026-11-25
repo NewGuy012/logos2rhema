@@ -3,17 +3,6 @@ import { SUPERTONIC_LICENSE_NAME, SUPERTONIC_LICENSE_URL } from "../../shared/au
 export function LegalFooter({ className = "copyright-footer" }: { className?: string }) {
 	return (
 		<footer className={className}>
-			<figure className="footer-motto-verse" aria-label="Psalm 1:2">
-				<blockquote className="footer-motto-quote">
-					“but his delight is in the law of the Lord, and on his law he meditates day and night.”
-				</blockquote>
-				<figcaption className="footer-motto-ref">
-					<span>Psalm 1:2</span>
-					<span className="footer-motto-ko" lang="ko">
-						· 시편 1:2
-					</span>
-				</figcaption>
-			</figure>
 			<p className="copyright-footer-line">
 				Korean text: 성경전서 개역한글판 (1961, 대한성서공회, 저작재산권 만료 / economic rights
 				expired in Korea).

@@ -497,10 +497,9 @@ describe("Reader UI & Audio Hooks", () => {
 						expect(getByText(container, "English (ESV) unavailable")).toBeDefined();
 					});
 
-					// Verify LegalFooter Psalm 1:2 motto + 3-line compliance
+					// Verify LegalFooter 3-line compliance once
 					const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
-					expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("Psalm 1:2");
-					expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("시편 1:2");
+					expect(footer.querySelector(".footer-motto-verse")).toBeNull();
 					const lines = Array.from(footer.querySelectorAll(".copyright-footer-line")).map((el) =>
 						(el.textContent ?? "").trim(),
 					);

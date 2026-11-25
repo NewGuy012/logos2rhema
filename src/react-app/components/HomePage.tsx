@@ -418,6 +418,20 @@ export function HomePage({
 					Logos2Rhema was built first and foremost to give glory to God, strengthen Bible and
 					language literacy, and bring the Word from the head to the heart, hence Logos to Rhema.
 				</p>
+				<figure className="home-about-motto" aria-label="Psalm 1:2">
+					<blockquote className="home-about-motto-quote">
+						“but his delight is in the law of the Lord, and on his law he meditates day and night.”
+					</blockquote>
+					<figcaption className="home-about-motto-ref">
+						<span className="home-about-motto-dash" aria-hidden="true">
+							—
+						</span>
+						<span>Psalm 1:2</span>
+						<span className="home-about-motto-ko" lang="ko">
+							· 시편 1:2
+						</span>
+					</figcaption>
+				</figure>
 			</section>
 
 			<LegalFooter className="copyright-footer home-legal-footer" />

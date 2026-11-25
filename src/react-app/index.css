@@ -2038,41 +2038,6 @@ button:focus-visible {
 	text-align: center;
 }
 
-.footer-motto-verse {
-	margin: 0 auto 0.9rem;
-	max-width: 34rem;
-	padding-bottom: 0.85rem;
-	border-bottom: 1px solid var(--border-hairline);
-	display: flex;
-	flex-direction: column;
-	gap: 0.28rem;
-	text-align: center;
-}
-
-.footer-motto-quote {
-	margin: 0;
-	font-family: var(--font-en);
-	font-style: italic;
-	font-size: 0.84rem;
-	line-height: 1.5;
-	color: var(--text-secondary);
-}
-
-.footer-motto-ref {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.3rem;
-	font-size: 0.72rem;
-	font-weight: 600;
-	color: var(--accent);
-}
-
-.footer-motto-ko {
-	font-family: var(--font-ko-serif);
-	font-weight: 500;
-}
-
 .copyright-footer-line {
 	margin: 0;
 }
@@ -3795,6 +3760,44 @@ button:focus-visible {
 	font-size: 0.9rem;
 	line-height: 1.65;
 	color: var(--text-secondary);
+}
+
+.home-about-motto {
+	margin: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: flex-start;
+	gap: 0.25rem 0.45rem;
+}
+
+.home-about-motto-quote {
+	margin: 0;
+	font-family: var(--font-en);
+	font-style: italic;
+	font-size: 0.85rem;
+	line-height: 1.55;
+	color: var(--text-secondary);
+}
+
+.home-about-motto-ref {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.35rem;
+	font-size: 0.74rem;
+	font-weight: 600;
+	color: var(--accent);
+	white-space: nowrap;
+}
+
+.home-about-motto-dash {
+	color: var(--text-muted);
+	font-weight: 400;
+}
+
+.home-about-motto-ko {
+	font-family: var(--font-ko-serif);
+	font-weight: 500;
 }
 
 .home-legal-footer {
