@@ -18,7 +18,6 @@ import multiprocessing
 import os
 import queue
 import re
-import subprocess
 import sys
 import threading
 import time
@@ -62,8 +61,6 @@ MAX_GAIN = 6.0
 
 _WORKER_TTS: Any = None
 _WORKER_STYLE: Any = None
-_WORKER_DEVICE_ID: int = 0
-_WORKER_CUDA_RUNNER: Any = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +68,19 @@ class VerseJob:
     verse: int
     spoken_text: str
     chunks: list[str]
+
+
+@dataclass(frozen=True)
+class ChapterJob:
+    usfm: str
+    book_ko: str
+    chapter: int
+    verses: list[VerseJob]
+    total_verses: int
+
+    @property
+    def chunk_count(self) -> int:
+        return 1 + sum(len(v.chunks) for v in self.verses)
 
 
 @dataclass(frozen=True)
@@ -313,18 +323,15 @@ def assemble_chunk_pcms(
 
 
 class _CudaBatchRunner:
-    """Runs Supertonic 3 ONNX inference with GPU IOBinding so latents stay on CUDA across diffusion steps."""
+    """Runs Supertonic 3 ONNX inference on CUDA GPU 0 with IOBinding so latents stay in VRAM across diffusion steps."""
 
-    def __init__(
-        self, tts: Any, voice_style: Any, steps: int, *, device_id: int = 0
-    ) -> None:
+    def __init__(self, tts: Any, voice_style: Any, steps: int) -> None:
         import onnxruntime as ort
 
         self._ort = ort
         self._model = tts.model
         self._voice_style = voice_style
         self._steps = steps
-        self._device_id = device_id
         self._dp_out = self._model.dp_ort.get_outputs()[0].name
         self._te_out = self._model.text_enc_ort.get_outputs()[0].name
         self._ve_out = self._model.vector_est_ort.get_outputs()[0].name
@@ -336,7 +343,6 @@ class _CudaBatchRunner:
         if cached is not None:
             return cached
         ort = self._ort
-        dev = self._device_id
         dp_np = (
             self._voice_style.dp
             if bsz == 1
@@ -347,14 +353,14 @@ class _CudaBatchRunner:
             if bsz == 1
             else np.repeat(self._voice_style.ttl, bsz, axis=0)
         )
-        ort_dp = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(dp_np), "cuda", dev)
-        ort_ttl = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(ttl_np), "cuda", dev)
+        ort_dp = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(dp_np), "cuda", 0)
+        ort_ttl = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(ttl_np), "cuda", 0)
         ort_total = ort.OrtValue.ortvalue_from_numpy(
-            np.full((bsz,), float(self._steps), dtype=np.float32), "cuda", dev
+            np.full((bsz,), float(self._steps), dtype=np.float32), "cuda", 0
         )
         step_vals = [
             ort.OrtValue.ortvalue_from_numpy(
-                np.full((bsz,), float(s), dtype=np.float32), "cuda", dev
+                np.full((bsz,), float(s), dtype=np.float32), "cuda", 0
             )
             for s in range(self._steps)
         ]
@@ -367,16 +373,15 @@ class _CudaBatchRunner:
     ) -> tuple[np.ndarray, np.ndarray]:
         ort = self._ort
         model = self._model
-        dev = self._device_id
         bsz = len(text_list)
         text_ids, text_mask = model.text_processor(text_list, "ko")
 
         ort_dp, ort_ttl, ort_total, step_vals = self._get_static_gpu_tensors(bsz)
         ort_text_ids = ort.OrtValue.ortvalue_from_numpy(
-            np.ascontiguousarray(text_ids), "cuda", dev
+            np.ascontiguousarray(text_ids), "cuda", 0
         )
         ort_text_mask = ort.OrtValue.ortvalue_from_numpy(
-            np.ascontiguousarray(text_mask), "cuda", dev
+            np.ascontiguousarray(text_mask), "cuda", 0
         )
 
         dp_io = model.dp_ort.io_binding()
@@ -391,14 +396,14 @@ class _CudaBatchRunner:
         te_io.bind_ortvalue_input("text_ids", ort_text_ids)
         te_io.bind_ortvalue_input("style_ttl", ort_ttl)
         te_io.bind_ortvalue_input("text_mask", ort_text_mask)
-        te_io.bind_output(self._te_out, "cuda", dev)
+        te_io.bind_output(self._te_out, "cuda", 0)
         model.text_enc_ort.run_with_iobinding(te_io)
         ort_text_emb = te_io.get_outputs()[0]
 
         xt_np, latent_mask_np = model.sample_noisy_latent(dur_onnx)
-        ort_xt = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(xt_np), "cuda", dev)
+        ort_xt = ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(xt_np), "cuda", 0)
         ort_latent_mask = ort.OrtValue.ortvalue_from_numpy(
-            np.ascontiguousarray(latent_mask_np), "cuda", dev
+            np.ascontiguousarray(latent_mask_np), "cuda", 0
         )
 
         for s in range(self._steps):
@@ -410,7 +415,7 @@ class _CudaBatchRunner:
             ve_io.bind_ortvalue_input("latent_mask", ort_latent_mask)
             ve_io.bind_ortvalue_input("current_step", step_vals[s])
             ve_io.bind_ortvalue_input("total_step", ort_total)
-            ve_io.bind_output(self._ve_out, "cuda", dev)
+            ve_io.bind_output(self._ve_out, "cuda", 0)
             model.vector_est_ort.run_with_iobinding(ve_io)
             ort_xt = ve_io.get_outputs()[0]
 
@@ -423,10 +428,10 @@ class _CudaBatchRunner:
 
 
 def _create_batch_runner(
-    tts: Any, voice_style: Any, steps: int, *, device_id: int = 0
+    tts: Any, voice_style: Any, steps: int
 ) -> _CudaBatchRunner | None:
     if "CUDAExecutionProvider" in get_active_tts_providers(tts):
-        return _CudaBatchRunner(tts, voice_style, steps, device_id=device_id)
+        return _CudaBatchRunner(tts, voice_style, steps)
     return None
 
 
@@ -816,42 +821,14 @@ def resolve_requested_usfms(
 
 
 _ORIG_LOAD_ONNX_MODULES: Any = None
-_ACTIVE_CUDA_DEVICE_ID: int = 0
-
-
-def detect_cuda_device_count() -> int:
-    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible is not None:
-        cleaned = visible.strip()
-        if not cleaned or cleaned in ("-1", "none", "None"):
-            return 0
-        entries = [part.strip() for part in cleaned.split(",") if part.strip()]
-        if entries:
-            return len(entries)
-    try:
-        proc = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        if proc.returncode == 0:
-            lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-            if lines:
-                return len(lines)
-    except Exception:  # noqa: BLE001
-        pass
-    return 1
 
 
 def configure_onnx_providers(
     requested_device: str,
     *,
     verbose: bool = False,
-    device_id: int = 0,
 ) -> tuple[str, list[str]]:
-    global _ORIG_LOAD_ONNX_MODULES, _ACTIVE_CUDA_DEVICE_ID
+    global _ORIG_LOAD_ONNX_MODULES
     import onnxruntime as ort
     import supertonic.config as st_config
     import supertonic.loader as st_loader
@@ -890,14 +867,12 @@ def configure_onnx_providers(
 
     st_config.DEFAULT_ONNX_PROVIDERS[:] = desired
     st_loader.DEFAULT_ONNX_PROVIDERS = list(desired)
-    _ACTIVE_CUDA_DEVICE_ID = max(0, int(device_id))
 
     if _ORIG_LOAD_ONNX_MODULES is None:
         _ORIG_LOAD_ONNX_MODULES = st_loader.load_onnx_modules
 
     if active_device == "cuda":
-        # Use HEURISTIC cuDNN search + max workspace to eliminate slow EXHAUSTIVE search on
-        # dynamic sequence shapes while targeting the configured CUDA device_id.
+        # Use HEURISTIC cuDNN search + max workspace to avoid slow EXHAUSTIVE search on dynamic sequence shapes.
         def _load_onnx_modules_cuda(
             model_dir: Path | str,
             intra_op_num_threads: int | None = None,
@@ -912,13 +887,12 @@ def configure_onnx_providers(
             if inter_op_num_threads is not None:
                 opts.inter_op_num_threads = inter_op_num_threads
 
-            target_dev = str(_ACTIVE_CUDA_DEVICE_ID)
             provider_candidates: tuple[list[Any], ...] = (
                 [
                     (
                         "CUDAExecutionProvider",
                         {
-                            "device_id": target_dev,
+                            "device_id": "0",
                             "cudnn_conv_algo_search": "HEURISTIC",
                             "cudnn_conv_use_max_workspace": "1",
                         },
@@ -926,7 +900,7 @@ def configure_onnx_providers(
                     "CPUExecutionProvider",
                 ],
                 [
-                    ("CUDAExecutionProvider", {"device_id": target_dev}),
+                    ("CUDAExecutionProvider", {"device_id": "0"}),
                     "CPUExecutionProvider",
                 ],
             )
@@ -957,28 +931,6 @@ def configure_onnx_providers(
     return active_device, available
 
 
-def _create_tts_on_cuda_device(
-    device_id: int,
-    intra_threads: int,
-    *,
-    auto_download: bool = False,
-) -> Any:
-    global _ACTIVE_CUDA_DEVICE_ID
-    from supertonic import TTS
-
-    prev_dev = _ACTIVE_CUDA_DEVICE_ID
-    _ACTIVE_CUDA_DEVICE_ID = max(0, int(device_id))
-    try:
-        return TTS(
-            model="supertonic-3",
-            auto_download=auto_download,
-            intra_op_num_threads=intra_threads,
-            inter_op_num_threads=1,
-        )
-    finally:
-        _ACTIVE_CUDA_DEVICE_ID = prev_dev
-
-
 def get_active_tts_providers(tts: Any) -> list[str]:
     model = getattr(tts, "model", None)
     for attr in ("vocoder_ort", "vector_est_ort", "text_enc_ort", "dp_ort"):
@@ -1001,6 +953,25 @@ def _check_cuda_provider(
         raise RuntimeError(msg)
     print(f"Warning: {msg} {fallback_note}", file=sys.stderr, flush=True)
     return False
+
+
+def verify_environment(requested_device: str, *, verbose: bool = False) -> int:
+    active_device, available = configure_onnx_providers(requested_device, verbose=verbose)
+    print(f"ONNX_DEVICE={active_device}", flush=True)
+    print(f"REMOTE_PROVIDERS={','.join(available)}", flush=True)
+    from supertonic.loader import (
+        download_model,
+        get_cache_dir,
+        has_all_onnx_modules,
+        list_available_voice_style_names,
+    )
+
+    model_dir = get_cache_dir("supertonic-3")
+    if not has_all_onnx_modules(model_dir):
+        download_model(model_dir, "supertonic-3")
+    voices = list_available_voice_style_names(model_dir)
+    print(f"REMOTE_VOICES={','.join(voices)}", flush=True)
+    return 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -1074,9 +1045,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mp3-quality",
         type=int,
-        default=2,
+        default=5,
         choices=range(0, 10),
-        help="LAME MP3 encoding quality 0 (best/slowest) to 9 (fastest) (default: 2)",
+        help="LAME MP3 encoding quality 0 (best/slowest) to 9 (fastest) (default: 5)",
     )
     parser.add_argument(
         "--device",
@@ -1088,7 +1059,7 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=0,
-        help="Parallel worker processes (default: 0 = auto based on device and job count)",
+        help="CPU worker processes (default: 0 = auto, up to 6)",
     )
     parser.add_argument(
         "--threads",
@@ -1103,21 +1074,20 @@ def parse_args() -> argparse.Namespace:
         help="Chunks synthesized per ONNX call (default: 0 = auto: 64 on CUDA, 1 on CPU)",
     )
     parser.add_argument(
-        "--gpus",
-        type=int,
-        default=0,
-        help="Number of CUDA GPUs to use (default: 0 = auto: all detected GPUs)",
-    )
-    parser.add_argument(
         "--gpu-streams",
         type=int,
         default=0,
-        help="Concurrent CUDA ONNX sessions per GPU (default: 0 = auto: 2 on 1 GPU for >=12 chapters, 1 per GPU on multi-GPU)",
+        help="Concurrent CUDA ONNX sessions on GPU 0 (default: 0 = auto: 2 for >=12 chapters, else 1)",
     )
     parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show ONNX Runtime warning logs at startup",
+    )
+    parser.add_argument(
+        "--verify-env",
+        action="store_true",
+        help="Verify ONNX Runtime providers and Supertonic 3 weights without synthesizing",
     )
     parser.add_argument(
         "--audio-dir",
@@ -1156,7 +1126,6 @@ def parse_args() -> argparse.Namespace:
         (args.bitrate >= 32, "--bitrate must be >= 32"),
         (args.workers >= 0, "--workers must be >= 0"),
         (args.threads >= 1, "--threads must be >= 1"),
-        (args.gpus >= 0, "--gpus must be >= 0"),
         (args.gpu_streams >= 0, "--gpu-streams must be >= 0"),
         (args.batch_size >= 0, "--batch-size must be >= 0"),
     )
@@ -1166,24 +1135,9 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def _init_worker(
-    resolved_voice: str,
-    intra_threads: int,
-    active_device: str,
-    requested_device: str,
-    verbose: bool,
-    gpu_count: int = 1,
-) -> None:
-    global _WORKER_TTS, _WORKER_STYLE, _WORKER_DEVICE_ID, _WORKER_CUDA_RUNNER
-    worker_ident = getattr(multiprocessing.current_process(), "_identity", ())
-    device_id = (
-        ((int(worker_ident[0]) - 1) % max(1, gpu_count))
-        if (active_device == "cuda" and worker_ident and gpu_count > 1)
-        else 0
-    )
-    _WORKER_DEVICE_ID = device_id
-    _WORKER_CUDA_RUNNER = None
-    configure_onnx_providers(active_device, verbose=verbose, device_id=device_id)
+def _init_worker(resolved_voice: str, intra_threads: int, verbose: bool) -> None:
+    global _WORKER_TTS, _WORKER_STYLE
+    configure_onnx_providers("cpu", verbose=verbose)
     from supertonic import TTS
 
     _WORKER_TTS = TTS(
@@ -1192,64 +1146,48 @@ def _init_worker(
         intra_op_num_threads=intra_threads,
         inter_op_num_threads=1,
     )
-    if active_device == "cuda":
-        _check_cuda_provider(
-            get_active_tts_providers(_WORKER_TTS),
-            requested_device,
-            f"Worker (gpu={device_id})",
-            "Continuing on CPU.",
-        )
     _WORKER_STYLE = _WORKER_TTS.get_voice_style(resolved_voice)
 
 
 def _synthesize_job(
     tts: Any,
     voice_style: Any,
-    job: tuple[str, str, int, list[VerseJob], int],
+    job: ChapterJob,
     cfg: SynthConfig,
     cuda_runner: _CudaBatchRunner | None = None,
 ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
-    usfm, book_ko, ch_num, verses, total_verses = job
-    mp3_path = cfg.audio_dir / usfm / f"{ch_num}.mp3"
+    mp3_path = cfg.audio_dir / job.usfm / f"{job.chapter}.mp3"
     t0 = time.time()
     try:
         timings, metrics = synthesize_chapter(
             tts,
             voice_style,
-            usfm=usfm,
-            book_ko=book_ko,
-            chapter=ch_num,
-            verses=verses,
+            usfm=job.usfm,
+            book_ko=job.book_ko,
+            chapter=job.chapter,
+            verses=job.verses,
             cfg=cfg,
             mp3_path=mp3_path,
             cuda_runner=cuda_runner,
         )
-        return usfm, ch_num, total_verses, timings, metrics, time.time() - t0
+        return job.usfm, job.chapter, job.total_verses, timings, metrics, time.time() - t0
     finally:
         gc.collect()
 
 
 def _process_chapter_job(
-    job: tuple[str, str, int, list[VerseJob], int],
+    job: ChapterJob,
     cfg: SynthConfig,
 ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
-    global _WORKER_CUDA_RUNNER
-    if _WORKER_CUDA_RUNNER is None and cfg.batch_size > 1:
-        _WORKER_CUDA_RUNNER = _create_batch_runner(
-            _WORKER_TTS, _WORKER_STYLE, cfg.steps, device_id=_WORKER_DEVICE_ID
-        )
-    return _synthesize_job(
-        _WORKER_TTS, _WORKER_STYLE, job, cfg, cuda_runner=_WORKER_CUDA_RUNNER
-    )
+    return _synthesize_job(_WORKER_TTS, _WORKER_STYLE, job, cfg)
 
 
-def main() -> int:
-    args = parse_args()
-    audio_dir: Path = args.audio_dir
-    timings_dir: Path = args.timings_dir
-    report_path: Path = args.report_path
-
-    catalog = load_book_catalog()
+def collect_chapter_jobs(
+    args: argparse.Namespace,
+    catalog: dict[str, tuple[int, str]],
+    timings_dir: Path,
+    audio_dir: Path,
+) -> tuple[list[dict[str, Any]], list[ChapterJob], int, int, int, bool]:
     book_names_ko = {usfm: ko for usfm, (_, ko) in catalog.items()}
 
     manifest_chapters: dict[str, set[int]] | None = None
@@ -1263,11 +1201,13 @@ def main() -> int:
     chapter_filter: set[int] | None = None
     if args.chapters:
         try:
-            chapter_filter = {int(c.strip()) for c in str(args.chapters).split(",") if c.strip()}
+            chapter_filter = {
+                int(c.strip()) for c in str(args.chapters).split(",") if c.strip()
+            }
         except ValueError as err:
             raise SystemExit(f"Invalid --chapters value: {args.chapters!r}") from err
 
-    jobs: list[tuple[str, str, int, list[VerseJob], int]] = []
+    jobs: list[ChapterJob] = []
     total_verses_checked = 0
     total_chunks = 0
     max_chunk_len = 0
@@ -1284,7 +1224,10 @@ def main() -> int:
 
         for ch_key in sorted(book["chapters"].keys(), key=int):
             ch_num = int(ch_key)
-            if allowed_manifest_chapters is not None and ch_num not in allowed_manifest_chapters:
+            if (
+                allowed_manifest_chapters is not None
+                and ch_num not in allowed_manifest_chapters
+            ):
                 continue
             if chapter_filter is not None and ch_num not in chapter_filter:
                 continue
@@ -1308,7 +1251,470 @@ def main() -> int:
             has_timings = ch_key in existing_chapters
             if not args.dry_run and not args.force and has_mp3 and has_timings:
                 continue
-            jobs.append((usfm, book_ko, ch_num, verses, len(raw_verses)))
+            jobs.append(
+                ChapterJob(
+                    usfm=usfm,
+                    book_ko=book_ko,
+                    chapter=ch_num,
+                    verses=verses,
+                    total_verses=len(raw_verses),
+                )
+            )
+
+    preserve_existing_timings = (
+        not args.force or chapter_filter is not None or manifest_chapters is not None
+    )
+    return (
+        selected_books,
+        jobs,
+        total_verses_checked,
+        total_chunks,
+        max_chunk_len,
+        preserve_existing_timings,
+    )
+
+
+def validate_jobs_text(jobs: list[ChapterJob], text_processor: Any) -> None:
+    """Validate every selected chapter header and verse against Supertonic's character table."""
+    for job in jobs:
+        header = format_chapter_header(job.usfm, job.book_ko, job.chapter)
+        ok, bad = text_processor.validate_text(header)
+        if not ok:
+            raise RuntimeError(f"Unsupported chars in header {job.usfm} {job.chapter}: {bad}")
+        for v in job.verses:
+            ok, bad = text_processor.validate_text(v.spoken_text)
+            if not ok:
+                raise RuntimeError(
+                    f"Unsupported chars in {job.usfm} {job.chapter}:{v.verse}: {bad}"
+                )
+
+
+class ChapterRecorder:
+    """Tracks per-chapter synthesis results and flushes per-book timing JSONs + report incrementally."""
+
+    def __init__(
+        self,
+        jobs: list[ChapterJob],
+        timings_dir: Path,
+        report_path: Path,
+        *,
+        preserve_existing_timings: bool,
+    ) -> None:
+        self.total_jobs = len(jobs)
+        self.timings_dir = timings_dir
+        self.report_path = report_path
+        self.preserve_existing_timings = preserve_existing_timings
+        self.started_at = time.time()
+        self.completed = 0
+        self.errors = 0
+        self._book_cache: dict[str, dict[str, Any]] = {}
+        self._dirty_books: set[str] = set()
+        self._remaining_by_book: dict[str, int] = {}
+        for job in jobs:
+            self._remaining_by_book[job.usfm] = self._remaining_by_book.get(job.usfm, 0) + 1
+
+        report: dict[str, Any] = {}
+        if report_path.exists():
+            try:
+                with report_path.open("r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                if isinstance(loaded, dict):
+                    report = loaded
+            except Exception:  # noqa: BLE001
+                report = {}
+        self.report = report
+        self.chapters_report: dict[str, Any] = report.setdefault("chapters", {})
+
+    def _get_book_payload(self, usfm: str) -> dict[str, Any]:
+        if usfm not in self._book_cache:
+            out_path = self.timings_dir / f"{usfm}.json"
+            if not self.preserve_existing_timings and usfm not in self._dirty_books:
+                self._book_cache[usfm] = empty_book_timings(usfm)
+            else:
+                self._book_cache[usfm] = load_existing_book_timings(out_path, usfm)
+        return self._book_cache[usfm]
+
+    def _flush_book(self, usfm: str) -> None:
+        if usfm not in self._dirty_books:
+            return
+        payload = self._book_cache[usfm]
+        payload["audioSource"] = AUDIO_SOURCE_ID
+        payload["chapters"] = {
+            k: payload["chapters"][k] for k in sorted(payload["chapters"].keys(), key=int)
+        }
+        atomic_write_json(self.timings_dir / f"{usfm}.json", payload, compact=True)
+        self._dirty_books.discard(usfm)
+
+    def record_success(
+        self,
+        idx_done: int,
+        usfm: str,
+        ch_num: int,
+        total_verses: int,
+        timings: dict[str, float],
+        metrics: dict[str, Any],
+        elapsed: float,
+    ) -> None:
+        ref = f"{usfm}:{ch_num}"
+        book_payload = self._get_book_payload(usfm)
+        book_payload["chapters"][str(ch_num)] = timings
+        self._dirty_books.add(usfm)
+
+        self.chapters_report[ref] = {
+            "status": "ok",
+            "totalVerses": total_verses,
+            "wallSeconds": round(elapsed, 2),
+            **metrics,
+        }
+        self.completed += 1
+        self._remaining_by_book[usfm] = max(0, self._remaining_by_book.get(usfm, 1) - 1)
+        print(
+            f"[{idx_done}/{self.total_jobs}] {ref} "
+            f"({metrics['versesSynthesized']}/{total_verses} vv, "
+            f"{metrics['duration']}s audio in {elapsed:.1f}s, "
+            f"v1={metrics['v1Start']}s, {metrics['mp3Bytes'] // 1024} KB)",
+            flush=True,
+        )
+
+        if self._remaining_by_book[usfm] == 0:
+            self._flush_book(usfm)
+        elif self.completed % 10 == 0:
+            for dirty_usfm in list(self._dirty_books):
+                self._flush_book(dirty_usfm)
+        if self._remaining_by_book[usfm] == 0 or self.completed % 10 == 0:
+            atomic_write_json(self.report_path, self.report, compact=False)
+
+    def record_error(self, idx_done: int, usfm: str, ch_num: int, err: Exception) -> None:
+        self.errors += 1
+        self._remaining_by_book[usfm] = max(0, self._remaining_by_book.get(usfm, 1) - 1)
+        self.chapters_report[f"{usfm}:{ch_num}"] = {"status": "error", "error": str(err)}
+        print(
+            f"[{idx_done}/{self.total_jobs}] {usfm}:{ch_num} — ERROR: {err}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    def run_step(
+        self,
+        idx_done: int,
+        usfm: str,
+        ch_num: int,
+        fn: Callable[[], tuple[str, int, int, dict[str, float], dict[str, Any], float]],
+    ) -> None:
+        try:
+            res_usfm, res_ch, total_verses, timings, metrics, elapsed = fn()
+            self.record_success(
+                idx_done, res_usfm, res_ch, total_verses, timings, metrics, elapsed
+            )
+        except Exception as err:  # noqa: BLE001
+            self.record_error(idx_done, usfm, ch_num, err)
+
+    def flush_and_write_summary(self, meta: dict[str, Any]) -> None:
+        for dirty_usfm in list(self._dirty_books):
+            self._flush_book(dirty_usfm)
+        self.report["summary"] = {
+            "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            **meta,
+            "completedInRun": self.completed,
+            "errorsInRun": self.errors,
+            "totalSeconds": round(time.time() - self.started_at, 1),
+        }
+        atomic_write_json(self.report_path, self.report, compact=False)
+
+
+def _group_jobs_into_windows(
+    jobs: list[ChapterJob], batch_size: int, encode_workers: int, num_runners: int
+) -> list[list[ChapterJob]]:
+    window_chunk_limit = (
+        max(batch_size * max(4, num_runners * 2), 256) if batch_size > 1 else 1
+    )
+    window_chapter_limit = max(encode_workers, num_runners * 4) if batch_size > 1 else 1
+    windows: list[list[ChapterJob]] = []
+    cur_win: list[ChapterJob] = []
+    cur_chunks = 0
+    for job in jobs:
+        j_chunks = job.chunk_count
+        if cur_win and (
+            cur_chunks + j_chunks > window_chunk_limit
+            or len(cur_win) >= window_chapter_limit
+            or batch_size <= 1
+        ):
+            windows.append(cur_win)
+            cur_win = []
+            cur_chunks = 0
+        cur_win.append(job)
+        cur_chunks += j_chunks
+    if cur_win:
+        windows.append(cur_win)
+    return windows
+
+
+def run_in_process_pipeline(
+    jobs: list[ChapterJob],
+    tts: Any,
+    voice_style: Any,
+    cfg: SynthConfig,
+    recorder: ChapterRecorder,
+    *,
+    active_device: str,
+    requested_device: str,
+    threads: int,
+    gpu_streams: int,
+) -> None:
+    sr = int(tts.sample_rate)
+    cuda_runner = _create_batch_runner(tts, voice_style, cfg.steps)
+    extra_tts_instances: list[Any] = []
+    cuda_runners: list[_CudaBatchRunner] = [cuda_runner] if cuda_runner is not None else []
+
+    if cuda_runner is not None and active_device == "cuda" and gpu_streams > 1:
+        from supertonic import TTS
+
+        for stream_idx in range(1, gpu_streams):
+            extra_tts = TTS(
+                model="supertonic-3",
+                auto_download=False,
+                intra_op_num_threads=threads,
+                inter_op_num_threads=1,
+            )
+            if not _check_cuda_provider(
+                get_active_tts_providers(extra_tts),
+                requested_device,
+                f"GPU 0 stream {stream_idx}",
+                "Skipping runner.",
+            ):
+                continue
+            extra_tts_instances.append(extra_tts)
+            extra_runner = _create_batch_runner(extra_tts, voice_style, cfg.steps)
+            if extra_runner is not None:
+                cuda_runners.append(extra_runner)
+
+    encode_workers = max(1, min(len(jobs), os.cpu_count() or 4))
+    if encode_workers == 1 or len(jobs) == 1:
+        for idx, job in enumerate(jobs, start=1):
+            recorder.run_step(
+                idx,
+                job.usfm,
+                job.chapter,
+                lambda j=job: _synthesize_job(
+                    tts, voice_style, j, cfg, cuda_runner=cuda_runner
+                ),
+            )
+        del extra_tts_instances
+        return
+
+    max_in_flight = encode_workers * 2
+    pending_futures: dict[Any, tuple[str, int]] = {}
+    done_count = 0
+
+    def _drain_one() -> None:
+        nonlocal done_count
+        done_set, _ = wait(pending_futures.keys(), return_when=FIRST_COMPLETED)
+        for fut in done_set:
+            usfm_f, ch_f = pending_futures.pop(fut)
+            done_count += 1
+            recorder.run_step(done_count, usfm_f, ch_f, fut.result)
+
+    def _encode_raw_chapter(
+        raw_pcms: list[np.ndarray],
+        job: ChapterJob,
+        header_t: str,
+        t_start: float,
+    ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
+        mp3_path = cfg.audio_dir / job.usfm / f"{job.chapter}.mp3"
+        final_timings, metrics = finalize_chapter_from_raw_chunks(
+            raw_pcms,
+            sr,
+            usfm=job.usfm,
+            chapter=job.chapter,
+            verses=job.verses,
+            header_text=header_t,
+            cfg=cfg,
+            mp3_path=mp3_path,
+        )
+        return (
+            job.usfm,
+            job.chapter,
+            job.total_verses,
+            final_timings,
+            metrics,
+            time.time() - t_start,
+        )
+
+    windows = _group_jobs_into_windows(
+        jobs, cfg.batch_size, encode_workers, max(1, len(cuda_runners))
+    )
+    runner_queue: queue.Queue[_CudaBatchRunner] = queue.Queue()
+    for r in cuda_runners:
+        runner_queue.put(r)
+
+    def _run_pooled_cuda_batch(b_texts: list[str]) -> tuple[np.ndarray, np.ndarray]:
+        runner = runner_queue.get()
+        try:
+            return runner.run_batch(b_texts, speed=cfg.speed)
+        finally:
+            runner_queue.put(runner)
+
+    with (
+        ThreadPoolExecutor(max_workers=encode_workers) as encode_pool,
+        ThreadPoolExecutor(max_workers=max(1, len(cuda_runners))) as gpu_pool,
+    ):
+        for win_jobs in windows:
+            t_win_start = time.time()
+            flat_texts: list[str] = []
+            flat_meta: list[tuple[int, int]] = []
+            chapter_headers: list[str] = []
+            chapter_slots: list[list[np.ndarray | None]] = []
+            chapter_remaining: list[int] = []
+            chapter_started: list[float | None] = [None] * len(win_jobs)
+            chapter_failed: list[bool] = [False] * len(win_jobs)
+
+            for local_idx, job in enumerate(win_jobs):
+                header_j = format_chapter_header(job.usfm, job.book_ko, job.chapter)
+                chapter_headers.append(header_j)
+                job_chunks = [header_j, *[c for v in job.verses for c in v.chunks]]
+                chapter_slots.append([None] * len(job_chunks))
+                chapter_remaining.append(len(job_chunks))
+                for c_idx, txt in enumerate(job_chunks):
+                    flat_texts.append(txt)
+                    flat_meta.append((local_idx, c_idx))
+
+            order = sorted(range(len(flat_texts)), key=lambda idx: len(flat_texts[idx]))
+            style_cache: dict[int, Any] = {}
+            step_bsz = max(1, cfg.batch_size)
+            batches = [
+                order[b_start : b_start + step_bsz]
+                for b_start in range(0, len(order), step_bsz)
+            ]
+
+            def _scatter_batch_result(
+                batch_indices: list[int],
+                wav_batch: np.ndarray,
+                dur_batch: np.ndarray,
+                t_batch_start: float,
+            ) -> None:
+                for row_idx, flat_idx in enumerate(batch_indices):
+                    local_idx, c_idx = flat_meta[flat_idx]
+                    if chapter_failed[local_idx]:
+                        continue
+                    if chapter_started[local_idx] is None:
+                        chapter_started[local_idx] = t_batch_start
+                    n_samples = max(1, int(round(float(dur_batch[row_idx]) * sr)))
+                    chapter_slots[local_idx][c_idx] = np.array(
+                        wav_batch[row_idx, :n_samples],
+                        dtype=np.float32,
+                        copy=True,
+                    )
+                    chapter_remaining[local_idx] -= 1
+                    if chapter_remaining[local_idx] == 0:
+                        job = win_jobs[local_idx]
+                        raw_pcms = [
+                            p if p is not None else np.zeros(0, dtype=np.float32)
+                            for p in chapter_slots[local_idx]
+                        ]
+                        chapter_slots[local_idx] = []
+                        fut = encode_pool.submit(
+                            _encode_raw_chapter,
+                            raw_pcms,
+                            job,
+                            chapter_headers[local_idx],
+                            chapter_started[local_idx] or t_win_start,
+                        )
+                        pending_futures[fut] = (job.usfm, job.chapter)
+                        if len(pending_futures) >= max_in_flight:
+                            _drain_one()
+
+            def _fail_batch_chapters(batch_indices: list[int], err: Exception) -> None:
+                nonlocal done_count
+                affected = {flat_meta[flat_idx][0] for flat_idx in batch_indices}
+                for local_idx in sorted(affected):
+                    if chapter_failed[local_idx] or chapter_remaining[local_idx] == 0:
+                        continue
+                    chapter_failed[local_idx] = True
+                    chapter_slots[local_idx] = []
+                    job = win_jobs[local_idx]
+                    done_count += 1
+                    recorder.record_error(done_count, job.usfm, job.chapter, err)
+
+            if len(cuda_runners) > 1 and len(batches) > 1:
+                gpu_futs = {
+                    gpu_pool.submit(
+                        _run_pooled_cuda_batch,
+                        [flat_texts[i] for i in batch_indices],
+                    ): batch_indices
+                    for batch_indices in batches
+                }
+                for gpu_fut in as_completed(gpu_futs):
+                    batch_indices = gpu_futs[gpu_fut]
+                    try:
+                        wav_batch, dur_batch = gpu_fut.result()
+                    except Exception as err:  # noqa: BLE001
+                        _fail_batch_chapters(batch_indices, err)
+                        continue
+                    _scatter_batch_result(batch_indices, wav_batch, dur_batch, t_win_start)
+            else:
+                for batch_indices in batches:
+                    t_batch = time.time()
+                    batch_texts = [flat_texts[i] for i in batch_indices]
+                    try:
+                        wav_batch, dur_batch = _run_single_batch(
+                            tts,
+                            voice_style,
+                            batch_texts,
+                            steps=cfg.steps,
+                            speed=cfg.speed,
+                            use_batched_model=step_bsz > 1,
+                            cuda_runner=cuda_runner,
+                            style_cache=style_cache,
+                        )
+                    except Exception as err:  # noqa: BLE001
+                        _fail_batch_chapters(batch_indices, err)
+                        continue
+                    _scatter_batch_result(batch_indices, wav_batch, dur_batch, t_batch)
+        while pending_futures:
+            _drain_one()
+    del extra_tts_instances
+
+
+def run_cpu_workers(
+    jobs: list[ChapterJob],
+    cfg: SynthConfig,
+    recorder: ChapterRecorder,
+    *,
+    worker_count: int,
+    resolved_voice: str,
+    threads: int,
+    verbose: bool,
+) -> None:
+    with ProcessPoolExecutor(
+        max_workers=worker_count,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_init_worker,
+        initargs=(resolved_voice, threads, verbose),
+    ) as executor:
+        future_to_ref = {
+            executor.submit(_process_chapter_job, job, cfg): (job.usfm, job.chapter)
+            for job in jobs
+        }
+        for done_idx, future in enumerate(as_completed(future_to_ref), start=1):
+            usfm, ch_num = future_to_ref[future]
+            recorder.run_step(done_idx, usfm, ch_num, future.result)
+
+
+def main() -> int:
+    args = parse_args()
+    if args.verify_env:
+        return verify_environment(args.device, verbose=args.verbose)
+
+    catalog = load_book_catalog()
+    book_names_ko = {usfm: ko for usfm, (_, ko) in catalog.items()}
+    (
+        selected_books,
+        jobs,
+        total_verses_checked,
+        total_chunks,
+        max_chunk_len,
+        preserve_existing_timings,
+    ) = collect_chapter_jobs(args, catalog, args.timings_dir, args.audio_dir)
 
     if args.dry_run:
         sample_headers = [
@@ -1336,15 +1742,17 @@ def main() -> int:
     active_device, available_providers = configure_onnx_providers(
         args.device, verbose=args.verbose
     )
-    if args.workers > 0:
-        worker_count = args.workers
-    elif active_device == "cuda":
+    if active_device == "cuda":
         # 1 CUDA process + background CPU MP3 threadpool avoids multi-worker GPU proxy contention.
         worker_count = 1
+    elif args.workers > 0:
+        worker_count = max(1, min(args.workers, len(jobs)))
     else:
         cpu_count = os.cpu_count() or 6
-        worker_count = 1 if len(jobs) <= 2 else min(6, max(1, cpu_count // max(1, args.threads)))
-    worker_count = max(1, min(worker_count, len(jobs)))
+        worker_count = (
+            1 if len(jobs) <= 2 else min(6, max(1, cpu_count // max(1, args.threads)))
+        )
+        worker_count = max(1, min(worker_count, len(jobs)))
 
     tts: Any = None
     active_providers: list[str]
@@ -1368,7 +1776,7 @@ def main() -> int:
         voice_names = list(tts.voice_style_names)
         text_processor = tts.model.text_processor
     else:
-        # Avoid loading unused ONNX CUDA/CPU sessions in the parent before spawning workers.
+        # Avoid loading unused ONNX sessions in the parent before spawning CPU workers.
         from supertonic.loader import (
             download_model,
             get_cache_dir,
@@ -1382,55 +1790,22 @@ def main() -> int:
             download_model(model_dir, "supertonic-3")
         voice_names = list_available_voice_style_names(model_dir)
         text_processor = load_text_processor(model_dir)
-        active_providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if active_device == "cuda"
-            else ["CPUExecutionProvider"]
-        )
+        active_providers = ["CPUExecutionProvider"]
 
     resolved_voice = resolve_voice_name(args.voice, voice_names)
     batch_size = args.batch_size if args.batch_size > 0 else (64 if active_device == "cuda" else 1)
-    pending_chunks = sum(1 + sum(len(v.chunks) for v in job[3]) for job in jobs)
-    est_batches = max(1, (pending_chunks + max(1, batch_size) - 1) // max(1, batch_size))
-
     if active_device == "cuda":
-        detected_gpus = max(1, detect_cuda_device_count())
-        if args.gpus > 0:
-            active_gpu_count = max(1, min(args.gpus, detected_gpus))
-        else:
-            active_gpu_count = max(1, min(detected_gpus, est_batches))
-        if worker_count == 1:
-            if args.gpu_streams > 0:
-                gpu_streams = max(1, min(args.gpu_streams, 4))
-            elif active_gpu_count == 1:
-                gpu_streams = 2 if len(jobs) >= 12 else 1
-            else:
-                gpu_streams = 1
-        else:
-            gpu_streams = 1
+        gpu_streams = (
+            max(1, min(args.gpu_streams, 4))
+            if args.gpu_streams > 0
+            else (2 if len(jobs) >= 12 else 1)
+        )
     else:
-        detected_gpus = 0
-        active_gpu_count = 0
         gpu_streams = 1
 
-    # Validate entire selected corpus against Supertonic's character table up front.
-    for usfm, book_ko, ch_num, verses, _ in jobs:
-        header = format_chapter_header(usfm, book_ko, ch_num)
-        ok, bad = text_processor.validate_text(header)
-        if not ok:
-            raise RuntimeError(f"Unsupported chars in header {usfm} {ch_num}: {bad}")
-        for v in verses:
-            ok, bad = text_processor.validate_text(v.spoken_text)
-            if not ok:
-                raise RuntimeError(
-                    f"Unsupported chars in {usfm} {ch_num}:{v.verse}: {bad}"
-                )
+    validate_jobs_text(jobs, text_processor)
 
-    gpu_info = (
-        f"gpus={active_gpu_count}/{detected_gpus}, gpu_streams={gpu_streams}, "
-        if active_device == "cuda"
-        else ""
-    )
+    gpu_info = f"gpu_streams={gpu_streams}, " if active_device == "cuda" else ""
     print(
         f"Generating {len(jobs)} chapter(s) across {len(selected_books)} book(s) "
         f"using Supertonic 3 voice '{args.voice}' ({resolved_voice}), "
@@ -1441,430 +1816,71 @@ def main() -> int:
         flush=True,
     )
 
-    report: dict[str, Any] = {}
-    if report_path.exists():
-        try:
-            with report_path.open("r", encoding="utf-8") as fh:
-                loaded = json.load(fh)
-            if isinstance(loaded, dict):
-                report = loaded
-        except Exception:  # noqa: BLE001
-            report = {}
-    chapters_report: dict[str, Any] = report.setdefault("chapters", {})
-
-    book_cache: dict[str, dict[str, Any]] = {}
-    dirty_books: set[str] = set()
-    remaining_by_book: dict[str, int] = {}
-    for usfm, *_ in jobs:
-        remaining_by_book[usfm] = remaining_by_book.get(usfm, 0) + 1
-
-    completed = 0
-    errors = 0
-    started_at = time.time()
-
-    def get_book_payload(usfm: str) -> dict[str, Any]:
-        if usfm not in book_cache:
-            out_path = timings_dir / f"{usfm}.json"
-            if (
-                args.force
-                and usfm not in dirty_books
-                and chapter_filter is None
-                and manifest_chapters is None
-            ):
-                book_cache[usfm] = empty_book_timings(usfm)
-            else:
-                book_cache[usfm] = load_existing_book_timings(out_path, usfm)
-        return book_cache[usfm]
-
-    def flush_book(usfm: str) -> None:
-        if usfm not in dirty_books:
-            return
-        payload = book_cache[usfm]
-        payload["audioSource"] = AUDIO_SOURCE_ID
-        payload["chapters"] = {
-            k: payload["chapters"][k] for k in sorted(payload["chapters"].keys(), key=int)
-        }
-        atomic_write_json(timings_dir / f"{usfm}.json", payload, compact=True)
-        dirty_books.discard(usfm)
-
-    def record_success(
-        idx_done: int,
-        usfm: str,
-        ch_num: int,
-        total_verses: int,
-        timings: dict[str, float],
-        metrics: dict[str, Any],
-        elapsed: float,
-    ) -> None:
-        nonlocal completed
-        ref = f"{usfm}:{ch_num}"
-        book_payload = get_book_payload(usfm)
-        book_payload["chapters"][str(ch_num)] = timings
-        dirty_books.add(usfm)
-
-        chapters_report[ref] = {
-            "status": "ok",
-            "totalVerses": total_verses,
-            "wallSeconds": round(elapsed, 2),
-            **metrics,
-        }
-        completed += 1
-        remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
-        print(
-            f"[{idx_done}/{len(jobs)}] {ref} "
-            f"({metrics['versesSynthesized']}/{total_verses} vv, "
-            f"{metrics['duration']}s audio in {elapsed:.1f}s, "
-            f"v1={metrics['v1Start']}s, {metrics['mp3Bytes'] // 1024} KB)",
-            flush=True,
-        )
-
-        if remaining_by_book[usfm] == 0:
-            flush_book(usfm)
-        elif completed % 10 == 0:
-            for dirty_usfm in list(dirty_books):
-                flush_book(dirty_usfm)
-        if remaining_by_book[usfm] == 0 or completed % 10 == 0:
-            atomic_write_json(report_path, report, compact=False)
-
-    def record_error(idx_done: int, usfm: str, ch_num: int, err: Exception) -> None:
-        nonlocal errors
-        errors += 1
-        remaining_by_book[usfm] = max(0, remaining_by_book.get(usfm, 1) - 1)
-        chapters_report[f"{usfm}:{ch_num}"] = {"status": "error", "error": str(err)}
-        print(
-            f"[{idx_done}/{len(jobs)}] {usfm}:{ch_num} — ERROR: {err}",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    def run_job_step(
-        idx_done: int,
-        usfm: str,
-        ch_num: int,
-        fn: Callable[[], tuple[str, int, int, dict[str, float], dict[str, Any], float]],
-    ) -> None:
-        try:
-            res_usfm, res_ch, total_verses, timings, metrics, elapsed = fn()
-            record_success(
-                idx_done, res_usfm, res_ch, total_verses, timings, metrics, elapsed
-            )
-        except Exception as err:  # noqa: BLE001
-            record_error(idx_done, usfm, ch_num, err)
-
     cfg = SynthConfig(
         steps=args.steps,
         speed=args.speed,
         verse_pause_sec=args.pause,
         header_pause_sec=args.header_pause,
         bitrate_kbps=args.bitrate,
-        audio_dir=audio_dir,
+        audio_dir=args.audio_dir,
         batch_size=batch_size,
         mp3_quality=args.mp3_quality,
+    )
+    recorder = ChapterRecorder(
+        jobs,
+        args.timings_dir,
+        args.report_path,
+        preserve_existing_timings=preserve_existing_timings,
     )
 
     try:
         if worker_count == 1:
-            voice_style = tts.get_voice_style(resolved_voice)
-            sr = int(tts.sample_rate)
-            cuda_runner = _create_batch_runner(tts, voice_style, cfg.steps, device_id=0)
-            extra_tts_instances: list[Any] = []
-            cuda_runners: list[_CudaBatchRunner] = [cuda_runner] if cuda_runner is not None else []
-            if cuda_runner is not None and (active_gpu_count > 1 or gpu_streams > 1):
-                for dev_id in range(active_gpu_count):
-                    for stream_idx in range(gpu_streams):
-                        if dev_id == 0 and stream_idx == 0:
-                            continue
-                        extra_tts = _create_tts_on_cuda_device(
-                            dev_id, args.threads, auto_download=False
-                        )
-                        if not _check_cuda_provider(
-                            get_active_tts_providers(extra_tts),
-                            args.device,
-                            f"GPU {dev_id} stream {stream_idx}",
-                            "Skipping runner.",
-                        ):
-                            continue
-                        extra_tts_instances.append(extra_tts)
-                        extra_runner = _create_batch_runner(
-                            extra_tts, voice_style, cfg.steps, device_id=dev_id
-                        )
-                        if extra_runner is not None:
-                            cuda_runners.append(extra_runner)
-
-            encode_workers = max(1, min(len(jobs), os.cpu_count() or 4))
-
-            if encode_workers == 1 or len(jobs) == 1:
-                for idx, job in enumerate(jobs, start=1):
-                    run_job_step(
-                        idx,
-                        job[0],
-                        job[2],
-                        lambda j=job: _synthesize_job(
-                            tts, voice_style, j, cfg, cuda_runner=cuda_runner
-                        ),
-                    )
-            else:
-                max_in_flight = encode_workers * 2
-                pending_futures: dict[Any, tuple[str, int]] = {}
-                done_count = 0
-
-                def _drain_one() -> None:
-                    nonlocal done_count
-                    done_set, _ = wait(pending_futures.keys(), return_when=FIRST_COMPLETED)
-                    for fut in done_set:
-                        usfm_f, ch_f = pending_futures.pop(fut)
-                        done_count += 1
-                        run_job_step(done_count, usfm_f, ch_f, fut.result)
-
-                def _encode_raw_chapter(
-                    raw_pcms: list[np.ndarray],
-                    usfm_t: str,
-                    ch_t: int,
-                    verses_t: list[VerseJob],
-                    total_verses_t: int,
-                    header_t: str,
-                    t_start: float,
-                ) -> tuple[str, int, int, dict[str, float], dict[str, Any], float]:
-                    mp3_path = cfg.audio_dir / usfm_t / f"{ch_t}.mp3"
-                    final_timings, metrics = finalize_chapter_from_raw_chunks(
-                        raw_pcms,
-                        sr,
-                        usfm=usfm_t,
-                        chapter=ch_t,
-                        verses=verses_t,
-                        header_text=header_t,
-                        cfg=cfg,
-                        mp3_path=mp3_path,
-                    )
-                    return (
-                        usfm_t,
-                        ch_t,
-                        total_verses_t,
-                        final_timings,
-                        metrics,
-                        time.time() - t_start,
-                    )
-
-                # Group jobs into bounded windows for cross-chapter length-bucketed GPU batching,
-                # scaled by active GPU runners so every GPU stays saturated while CPU MP3 threads
-                # light up quickly and drain in parallel.
-                num_runners = max(1, len(cuda_runners))
-                window_chunk_limit = (
-                    max(cfg.batch_size * max(4, num_runners * 2), 256)
-                    if cfg.batch_size > 1
-                    else 1
-                )
-                window_chapter_limit = (
-                    max(encode_workers, num_runners * 4) if cfg.batch_size > 1 else 1
-                )
-                windows: list[list[tuple[str, str, int, list[VerseJob], int]]] = []
-                cur_win: list[tuple[str, str, int, list[VerseJob], int]] = []
-                cur_chunks = 0
-                for job in jobs:
-                    j_chunks = 1 + sum(len(v.chunks) for v in job[3])
-                    if cur_win and (
-                        cur_chunks + j_chunks > window_chunk_limit
-                        or len(cur_win) >= window_chapter_limit
-                        or cfg.batch_size <= 1
-                    ):
-                        windows.append(cur_win)
-                        cur_win = []
-                        cur_chunks = 0
-                    cur_win.append(job)
-                    cur_chunks += j_chunks
-                if cur_win:
-                    windows.append(cur_win)
-
-                runner_queue: queue.Queue[_CudaBatchRunner] = queue.Queue()
-                for r in cuda_runners:
-                    runner_queue.put(r)
-
-                def _run_pooled_cuda_batch(b_texts: list[str]) -> tuple[np.ndarray, np.ndarray]:
-                    runner = runner_queue.get()
-                    try:
-                        return runner.run_batch(b_texts, speed=cfg.speed)
-                    finally:
-                        runner_queue.put(runner)
-
-                with (
-                    ThreadPoolExecutor(max_workers=encode_workers) as encode_pool,
-                    ThreadPoolExecutor(max_workers=max(1, len(cuda_runners))) as gpu_pool,
-                ):
-                    for win_jobs in windows:
-                        t_win_start = time.time()
-                        # Build flat chunk table across all chapters in this window.
-                        flat_texts: list[str] = []
-                        flat_meta: list[tuple[int, int]] = []  # (local_job_idx, local_chunk_idx)
-                        chapter_headers: list[str] = []
-                        chapter_slots: list[list[np.ndarray | None]] = []
-                        chapter_remaining: list[int] = []
-                        chapter_started: list[float | None] = [None] * len(win_jobs)
-                        chapter_failed: list[bool] = [False] * len(win_jobs)
-
-                        for local_idx, job in enumerate(win_jobs):
-                            usfm_j, book_ko_j, ch_j, verses_j, _ = job
-                            header_j = format_chapter_header(usfm_j, book_ko_j, ch_j)
-                            chapter_headers.append(header_j)
-                            job_chunks = [header_j, *[c for v in verses_j for c in v.chunks]]
-                            chapter_slots.append([None] * len(job_chunks))
-                            chapter_remaining.append(len(job_chunks))
-                            for c_idx, txt in enumerate(job_chunks):
-                                flat_texts.append(txt)
-                                flat_meta.append((local_idx, c_idx))
-
-                        order = sorted(range(len(flat_texts)), key=lambda idx: len(flat_texts[idx]))
-                        style_cache: dict[int, Any] = {}
-                        step_bsz = max(1, cfg.batch_size)
-                        batches = [
-                            order[b_start : b_start + step_bsz]
-                            for b_start in range(0, len(order), step_bsz)
-                        ]
-
-                        def _scatter_batch_result(
-                            batch_indices: list[int],
-                            wav_batch: np.ndarray,
-                            dur_batch: np.ndarray,
-                            t_batch_start: float,
-                        ) -> None:
-                            for row_idx, flat_idx in enumerate(batch_indices):
-                                local_idx, c_idx = flat_meta[flat_idx]
-                                if chapter_failed[local_idx]:
-                                    continue
-                                if chapter_started[local_idx] is None:
-                                    chapter_started[local_idx] = t_batch_start
-                                n_samples = max(1, int(round(float(dur_batch[row_idx]) * sr)))
-                                chapter_slots[local_idx][c_idx] = np.array(
-                                    wav_batch[row_idx, :n_samples],
-                                    dtype=np.float32,
-                                    copy=True,
-                                )
-                                chapter_remaining[local_idx] -= 1
-                                if chapter_remaining[local_idx] == 0:
-                                    usfm_j, _, ch_j, verses_j, total_verses_j = win_jobs[local_idx]
-                                    raw_pcms = [
-                                        p if p is not None else np.zeros(0, dtype=np.float32)
-                                        for p in chapter_slots[local_idx]
-                                    ]
-                                    chapter_slots[local_idx] = []
-                                    fut = encode_pool.submit(
-                                        _encode_raw_chapter,
-                                        raw_pcms,
-                                        usfm_j,
-                                        ch_j,
-                                        verses_j,
-                                        total_verses_j,
-                                        chapter_headers[local_idx],
-                                        chapter_started[local_idx] or t_win_start,
-                                    )
-                                    pending_futures[fut] = (usfm_j, ch_j)
-                                    if len(pending_futures) >= max_in_flight:
-                                        _drain_one()
-
-                        def _fail_batch_chapters(batch_indices: list[int], err: Exception) -> None:
-                            nonlocal done_count
-                            affected = {flat_meta[flat_idx][0] for flat_idx in batch_indices}
-                            for local_idx in sorted(affected):
-                                if chapter_failed[local_idx] or chapter_remaining[local_idx] == 0:
-                                    continue
-                                chapter_failed[local_idx] = True
-                                chapter_slots[local_idx] = []
-                                usfm_j, _, ch_j, _, _ = win_jobs[local_idx]
-                                done_count += 1
-                                record_error(done_count, usfm_j, ch_j, err)
-
-                        if len(cuda_runners) > 1 and len(batches) > 1:
-                            gpu_futs = {
-                                gpu_pool.submit(
-                                    _run_pooled_cuda_batch,
-                                    [flat_texts[i] for i in batch_indices],
-                                ): batch_indices
-                                for batch_indices in batches
-                            }
-                            for gpu_fut in as_completed(gpu_futs):
-                                batch_indices = gpu_futs[gpu_fut]
-                                try:
-                                    wav_batch, dur_batch = gpu_fut.result()
-                                except Exception as err:  # noqa: BLE001
-                                    _fail_batch_chapters(batch_indices, err)
-                                    continue
-                                _scatter_batch_result(
-                                    batch_indices, wav_batch, dur_batch, t_win_start
-                                )
-                        else:
-                            for batch_indices in batches:
-                                t_batch = time.time()
-                                batch_texts = [flat_texts[i] for i in batch_indices]
-                                try:
-                                    wav_batch, dur_batch = _run_single_batch(
-                                        tts,
-                                        voice_style,
-                                        batch_texts,
-                                        steps=cfg.steps,
-                                        speed=cfg.speed,
-                                        use_batched_model=step_bsz > 1,
-                                        cuda_runner=cuda_runner,
-                                        style_cache=style_cache,
-                                    )
-                                except Exception as err:  # noqa: BLE001
-                                    _fail_batch_chapters(batch_indices, err)
-                                    continue
-                                _scatter_batch_result(batch_indices, wav_batch, dur_batch, t_batch)
-                    while pending_futures:
-                        _drain_one()
-            del extra_tts_instances
+            run_in_process_pipeline(
+                jobs,
+                tts,
+                tts.get_voice_style(resolved_voice),
+                cfg,
+                recorder,
+                active_device=active_device,
+                requested_device=args.device,
+                threads=args.threads,
+                gpu_streams=gpu_streams,
+            )
         else:
-            with ProcessPoolExecutor(
-                max_workers=worker_count,
-                mp_context=multiprocessing.get_context("spawn"),
-                initializer=_init_worker,
-                initargs=(
-                    resolved_voice,
-                    args.threads,
-                    active_device,
-                    args.device,
-                    args.verbose,
-                    max(1, active_gpu_count),
-                ),
-            ) as executor:
-                future_to_ref = {
-                    executor.submit(_process_chapter_job, job, cfg): (job[0], job[2])
-                    for job in jobs
-                }
-                for done_idx, future in enumerate(as_completed(future_to_ref), start=1):
-                    usfm, ch_num = future_to_ref[future]
-                    run_job_step(done_idx, usfm, ch_num, future.result)
+            run_cpu_workers(
+                jobs,
+                cfg,
+                recorder,
+                worker_count=worker_count,
+                resolved_voice=resolved_voice,
+                threads=args.threads,
+                verbose=args.verbose,
+            )
     finally:
-        for dirty_usfm in list(dirty_books):
-            flush_book(dirty_usfm)
-        report["summary"] = {
-            "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "voice": args.voice,
-            "resolvedVoice": resolved_voice,
-            "device": active_device,
-            "onnxProviders": active_providers,
-            "workers": worker_count,
-            "gpus": active_gpu_count,
-            "detectedGpus": detected_gpus,
-            "gpuStreams": gpu_streams,
-            "batchSize": batch_size,
-            "threads": args.threads,
-            "speed": args.speed,
-            "steps": args.steps,
-            "bitrateKbps": args.bitrate,
-            "mp3Quality": args.mp3_quality,
-            "completedInRun": completed,
-            "errorsInRun": errors,
-            "totalSeconds": round(time.time() - started_at, 1),
-        }
-        atomic_write_json(report_path, report, compact=False)
+        recorder.flush_and_write_summary(
+            {
+                "voice": args.voice,
+                "resolvedVoice": resolved_voice,
+                "device": active_device,
+                "onnxProviders": active_providers,
+                "workers": worker_count,
+                "gpuStreams": gpu_streams,
+                "batchSize": batch_size,
+                "threads": args.threads,
+                "speed": args.speed,
+                "steps": args.steps,
+                "bitrateKbps": args.bitrate,
+                "mp3Quality": args.mp3_quality,
+            }
+        )
 
     print(
-        f"Done in {time.time() - started_at:.1f}s: "
-        f"{completed} generated, {errors} error(s). "
-        f"Report: {report_path}",
+        f"Done in {time.time() - recorder.started_at:.1f}s: "
+        f"{recorder.completed} generated, {recorder.errors} error(s). "
+        f"Report: {args.report_path}",
         flush=True,
     )
-    return 1 if errors > 0 else 0
+    return 1 if recorder.errors > 0 else 0
 
 
 if __name__ == "__main__":
