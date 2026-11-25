@@ -295,7 +295,6 @@ button {
 .home-sync-pill,
 .home-continue-btn,
 .home-memorize-btn,
-.home-recall-btn,
 .home-clear-btn,
 .home-study-badge,
 .home-open-reader-btn,
@@ -2944,18 +2943,20 @@ button:focus-visible {
 }
 
 .votd-footer {
-	justify-content: space-between;
-	gap: 0.65rem;
-	flex-wrap: wrap;
-	padding-top: 0.2rem;
+	padding-top: 0.45rem;
 	border-top: 1px solid var(--border-hairline);
 }
 
-.votd-actions {
-	display: flex;
-	align-items: center;
-	gap: 0.35rem;
+.votd-ref-link {
+	padding: 0;
+	border-radius: 4px;
+	text-align: left;
 	flex-wrap: wrap;
+}
+
+.votd-ref-link:hover > span {
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 
 .votd-action-btn {
@@ -2970,10 +2971,6 @@ button:focus-visible {
 		background-color 140ms ease,
 		color 140ms ease,
 		border-color 140ms ease;
-}
-
-.votd-action-btn.votd-action-icon {
-	padding: 0.28rem 0.46rem;
 }
 
 .votd-action-btn:hover:not(:disabled) {
@@ -2998,8 +2995,7 @@ button:focus-visible {
 	font-weight: 600;
 }
 
-.home-memorize-btn,
-.home-recall-btn {
+.home-memorize-btn {
 	gap: 0.45rem;
 	padding: 0.58rem 1.05rem;
 	font-size: 0.85rem;
@@ -3013,23 +3009,10 @@ button:focus-visible {
 		color 140ms ease;
 }
 
-.home-memorize-btn:hover,
-.home-recall-btn:hover {
+.home-memorize-btn:hover {
 	background: var(--accent-soft);
 	border-color: var(--accent-border);
 	color: var(--accent);
-}
-
-.home-recall-actions {
-	display: flex;
-	align-items: center;
-	gap: 0.45rem;
-	flex-wrap: wrap;
-}
-
-.home-recall-btn {
-	padding: 0.48rem 0.88rem;
-	font-size: 0.8rem;
 }
 
 .home-features {

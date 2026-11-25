@@ -3,13 +3,7 @@ import { type FormEvent, Fragment, type ReactNode, useId, useMemo, useState } fr
 import { filterBooks, getBookOrDefault } from "../../shared/books";
 import { DEFAULT_COMMENTARY_ID } from "../../shared/commentaries";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type {
-	BookMeta,
-	CommentaryId,
-	LexiconMap,
-	RightRailTab,
-	VerseRef,
-} from "../../shared/types";
+import type { BookMeta, CommentaryId, LexiconMap, RightRailTab } from "../../shared/types";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
 import { HomeAudioBrowser } from "./HomeAudioBrowser";
@@ -21,14 +15,13 @@ import {
 	BookOpen,
 	ChevronDown,
 	ChevronRight,
-	EyeOff,
 	Headphones,
 	Layers,
 	Search,
 } from "./Icons";
 import { LegalFooter } from "./LegalFooter";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
-import type { StackOrder, StudyMaskMode } from "./VerseBlock";
+import type { StackOrder } from "./VerseBlock";
 import { VerseOfTheDayCard } from "./VerseOfTheDayCard";
 
 interface HomePageProps extends SavedItemsProps {
@@ -39,25 +32,16 @@ interface HomePageProps extends SavedItemsProps {
 	stackOrder?: StackOrder;
 	wordTooltip?: boolean;
 	lexicon?: LexiconMap;
-	favoriteIds?: ReadonlySet<string>;
-	memorizeCardIds?: ReadonlySet<string>;
 	memorizeTotalCount?: number;
 	memorizeDueCount?: number;
 	memorizeStreakDays?: number;
 	onChangeCommentarySource?: (source: CommentaryId) => void;
 	onOpenMemorize?: () => void;
-	onToggleFavoriteVerse?: (input: {
-		bookNumber: number;
-		chapter: number;
-		verse: number;
-		koText?: string | null;
-	}) => void;
-	onToggleMemorizeVerse?: (input: VerseRef & { koPreview?: string | null }) => void;
 	onOpenPassage: (
 		bookNumber: number,
 		chapter: number,
 		verse?: number,
-		options?: { rightRailTab?: RightRailTab; studyMask?: StudyMaskMode },
+		options?: { rightRailTab?: RightRailTab },
 	) => void;
 }
 
@@ -137,15 +121,11 @@ export function HomePage({
 	stackOrder = "en-first",
 	wordTooltip = true,
 	lexicon,
-	favoriteIds,
-	memorizeCardIds,
 	memorizeTotalCount = 0,
 	memorizeDueCount = 0,
 	memorizeStreakDays = 0,
 	onChangeCommentarySource,
 	onOpenMemorize,
-	onToggleFavoriteVerse,
-	onToggleMemorizeVerse,
 	onOpenPassage,
 	onRemoveFavorite,
 	onRemoveHighlight,
@@ -203,11 +183,7 @@ export function HomePage({
 					stackOrder={stackOrder}
 					wordTooltip={wordTooltip}
 					lexicon={lexicon}
-					favoriteIds={favoriteIds}
-					memorizeCardIds={memorizeCardIds}
 					onOpenPassage={onOpenPassage}
-					onToggleFavorite={onToggleFavoriteVerse}
-					onToggleMemorize={onToggleMemorizeVerse}
 				/>
 				<div className="home-features">
 					<h2 className="home-section-title">Features</h2>
@@ -249,15 +225,15 @@ export function HomePage({
 				</div>
 			</section>
 
-			<HomeDisclosureSection
-				label="Study"
-				badgeCount={memorizeDueCount > 0 ? memorizeDueCount : undefined}
-				isOpen={studyOpen}
-				onToggle={() => setStudyOpen((prev) => !prev)}
-				sectionClassName="home-study-section"
-				panelClassName="home-study-panel"
-			>
-				{onOpenMemorize && (
+			{onOpenMemorize && (
+				<HomeDisclosureSection
+					label="Study"
+					badgeCount={memorizeDueCount > 0 ? memorizeDueCount : undefined}
+					isOpen={studyOpen}
+					onToggle={() => setStudyOpen((prev) => !prev)}
+					sectionClassName="home-study-section"
+					panelClassName="home-study-panel"
+				>
 					<div className="home-continue-card home-memorize-card">
 						<div className="home-continue-meta">
 							<p className="home-continue-subtitle">
@@ -292,46 +268,8 @@ export function HomePage({
 							<ArrowRight size={15} />
 						</button>
 					</div>
-				)}
-
-				<div className="home-continue-card home-recall-card">
-					<div className="home-continue-meta">
-						<p className="home-continue-subtitle">Recall Reading</p>
-						<h2 className="home-continue-ref">
-							{lastBook.en} {lastChapter}:{lastVerse}{" "}
-							<span className="home-continue-ko" lang="ko">
-								· 가리고 읽기
-							</span>
-						</h2>
-					</div>
-					<div className="home-recall-actions">
-						<button
-							type="button"
-							className="home-recall-btn"
-							onClick={() =>
-								onOpenPassage(lastBook.number, lastChapter, lastVerse > 1 ? lastVerse : undefined, {
-									studyMask: "mask-ko",
-								})
-							}
-						>
-							<EyeOff size={14} />
-							<span>Hide KO</span>
-						</button>
-						<button
-							type="button"
-							className="home-recall-btn"
-							onClick={() =>
-								onOpenPassage(lastBook.number, lastChapter, lastVerse > 1 ? lastVerse : undefined, {
-									studyMask: "mask-en",
-								})
-							}
-						>
-							<EyeOff size={14} />
-							<span>Hide EN</span>
-						</button>
-					</div>
-				</div>
-			</HomeDisclosureSection>
+				</HomeDisclosureSection>
+			)}
 
 			<HomeDisclosureSection
 				label="Favorites"

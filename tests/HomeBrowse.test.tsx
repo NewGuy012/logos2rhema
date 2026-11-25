@@ -9,7 +9,7 @@ import { HomePage } from "../src/react-app/components/HomePage";
 import { SUPERTONIC_COMPACT_BADGE, SUPERTONIC_TRACK_LABEL } from "../src/shared/audio-timings";
 import { BIBLICAL_GLOSSARY, KRV_GRAMMAR_RULES } from "../src/shared/biblical-glossary";
 import { formatVerseRefBilingual, getBookByNumber } from "../src/shared/books";
-import { getVerseOfTheDay, getVerseOfTheDayByIndex } from "../src/shared/verse-of-the-day";
+import { getVerseOfTheDay } from "../src/shared/verse-of-the-day";
 import {
 	cleanupDom,
 	createReaderFetchHandler,
@@ -313,7 +313,7 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 		}
 	});
 
-	it("renders Verse of the Day in hero with browse controls, Korean tooltips, ESV fallback retry, and Psalm 1:2 in footer", async () => {
+	it("renders Verse of the Day in hero with day browse controls, clickable ref, Korean tooltips, ESV fallback retry, and Psalm 1:2 in footer", async () => {
 		const today = getVerseOfTheDay();
 		const yesterday = getVerseOfTheDay(new Date(), -1);
 		const nextDay = getVerseOfTheDay(new Date(), 1);
@@ -322,284 +322,152 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 		const nextBook = getBookByNumber(nextDay.ref.bookNumber)!;
 
 		const onOpenPassage = mock(() => {});
-		const onToggleMemorizeVerse = mock(() => {});
-		const onToggleFavoriteVerse = mock(() => {});
 		const onOpenMemorize = mock(() => {});
-		const mockAudio = installMockAudio({ emitTimeUpdateOnPlay: true });
-		const spokenTexts: string[] = [];
-		const origSpeechSynth = Object.getOwnPropertyDescriptor(window, "speechSynthesis");
-		const origUtterance = Object.getOwnPropertyDescriptor(globalThis, "SpeechSynthesisUtterance");
-
 		let failTodayEsv = true;
-		const copiedTexts: string[] = [];
-		const origClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-		Object.defineProperty(navigator, "clipboard", {
-			configurable: true,
-			value: {
-				writeText: async (text: string) => {
-					copiedTexts.push(text);
-				},
-			},
-		});
-		Object.defineProperty(globalThis, "SpeechSynthesisUtterance", {
-			configurable: true,
-			value: class MockUtterance {
-				text: string;
-				lang = "";
-				rate = 1;
-				voice: unknown = null;
-				onstart?: () => void;
-				onend?: () => void;
-				onerror?: () => void;
-				constructor(text: string) {
-					this.text = text;
-				}
-			},
-		});
-		Object.defineProperty(window, "speechSynthesis", {
-			configurable: true,
-			value: {
-				cancel: () => {},
-				getVoices: () => [{ lang: "ko-KR", localService: true }],
-				speak: (u: { text: string; onstart?: () => void; onend?: () => void }) => {
-					spokenTexts.push(u.text);
-					u.onstart?.();
-					u.onend?.();
-				},
-			},
-		});
 
-		try {
-			await withMockFetch(
-				createReaderFetchHandler({
-					lexicon: {
-						하나님: { gloss: "God", pos: "name" },
-					},
-					krv: (url) => {
-						for (const ref of [today.ref, yesterday.ref, nextDay.ref]) {
-							const book = getBookByNumber(ref.bookNumber)!;
-							if (url.endsWith(`/${book.usfm}.json`)) {
-								const end = ref.verseEnd ?? ref.verseStart;
-								const verses = [];
-								for (let v = ref.verseStart; v <= end; v++) {
-									verses.push({
-										verse: v,
-										text:
-											ref === today.ref
-												? `하나님이 ${book.ko} ${ref.chapter}:${v}`
-												: `${book.ko} ${ref.chapter}:${v}`,
-									});
-								}
-								return makeBookResponse("krv", book.number, book.usfm, {
-									[String(ref.chapter)]: verses,
+		await withMockFetch(
+			createReaderFetchHandler({
+				lexicon: {
+					하나님: { gloss: "God", pos: "name" },
+				},
+				krv: (url) => {
+					for (const ref of [today.ref, yesterday.ref, nextDay.ref]) {
+						const book = getBookByNumber(ref.bookNumber)!;
+						if (url.endsWith(`/${book.usfm}.json`)) {
+							const end = ref.verseEnd ?? ref.verseStart;
+							const verses = [];
+							for (let v = ref.verseStart; v <= end; v++) {
+								verses.push({
+									verse: v,
+									text:
+										ref === today.ref
+											? `하나님이 ${book.ko} ${ref.chapter}:${v}`
+											: `${book.ko} ${ref.chapter}:${v}`,
 								});
 							}
-						}
-						// Shuffled fallback for any other book
-						const usfm = url.split("/").pop()?.replace(".json", "") ?? "GEN";
-						const match = getVerseOfTheDayByIndex(0);
-						const allVerses = Array.from({ length: 176 }, (__, vi) => ({
-							verse: vi + 1,
-							text: `한국어 본문 ${usfm} ${vi + 1}`,
-						}));
-						return makeBookResponse("krv", match.ref.bookNumber, usfm, {
-							...Object.fromEntries(
-								Array.from({ length: 150 }, (_, idx) => [String(idx + 1), allVerses]),
-							),
-						});
-					},
-					esv: (url) => {
-						if (url.startsWith(`/api/esv/${todayBook.usfm}/${today.ref.chapter}/`)) {
-							if (failTodayEsv) {
-								failTodayEsv = false;
-								return Response.json({ error: "Rate limited" }, { status: 429 });
-							}
-							return makeChapterResponse(
-								"esv",
-								todayBook.number,
-								todayBook.usfm,
-								today.ref.chapter,
-								[{ verse: today.ref.verseStart, text: "Today ESV verse text." }],
-							);
-						}
-						if (url.startsWith(`/api/esv/${yesterdayBook.usfm}/${yesterday.ref.chapter}/`)) {
-							return makeChapterResponse(
-								"esv",
-								yesterdayBook.number,
-								yesterdayBook.usfm,
-								yesterday.ref.chapter,
-								[{ verse: yesterday.ref.verseStart, text: "Yesterday ESV verse text." }],
-							);
-						}
-						if (url.startsWith(`/api/esv/${nextBook.usfm}/${nextDay.ref.chapter}/`)) {
-							return makeChapterResponse(
-								"esv",
-								nextBook.number,
-								nextBook.usfm,
-								nextDay.ref.chapter,
-								[{ verse: nextDay.ref.verseStart, text: "Tomorrow ESV verse text." }],
-							);
-						}
-						const match = url.match(/\/api\/esv\/([A-Z0-9]+)\/(\d+)\/(\d+)(?:-(\d+))?/);
-						const ch = Number.parseInt(match?.[2] ?? "1", 10);
-						const start = Number.parseInt(match?.[3] ?? "1", 10);
-						const end = Number.parseInt(match?.[4] ?? String(start), 10);
-						return makeChapterResponse(
-							"esv",
-							1,
-							match?.[1] ?? "GEN",
-							ch,
-							Array.from({ length: end - start + 1 }, (_, i) => ({
-								verse: start + i,
-								text: "Shuffled ESV.",
-							})),
-						);
-					},
-					audio: (url) => {
-						if (url.startsWith(`/api/audio/${todayBook.usfm}/${today.ref.chapter}`)) {
-							const start = today.ref.verseStart;
-							const end = today.ref.verseEnd ?? start;
-							return Response.json({
-								tracks: [
-									makeSupertonicTrack(
-										`/api/audio/${todayBook.usfm}/${today.ref.chapter}?lang=ko&track=supertonic`,
-										{ [start]: 24.5, [end + 1]: 31.2 },
-									),
-								],
+							return makeBookResponse("krv", book.number, book.usfm, {
+								[String(ref.chapter)]: verses,
 							});
 						}
-						return Response.json({ tracks: [] });
-					},
-				}),
-				async () => {
-					const { container } = render(
-						<HomePage
-							lastBookNumber={1}
-							lastChapter={1}
-							memorizeTotalCount={4}
-							memorizeDueCount={2}
-							memorizeStreakDays={3}
-							onOpenMemorize={onOpenMemorize}
-							onToggleMemorizeVerse={onToggleMemorizeVerse}
-							onToggleFavoriteVerse={onToggleFavoriteVerse}
-							onOpenPassage={onOpenPassage}
-						/>,
-					);
-
-					const votd = container.querySelector(".votd-card") as HTMLElement;
-					expect(votd).not.toBeNull();
-					expect(getByText(votd, "Verse of the Day")).toBeDefined();
-					expect(getByText(votd, formatVerseRefBilingual(today.ref).refEn)).toBeDefined();
-
-					// Hero no longer holds Psalm 1:2 unless today happens to be Psalm 1:2; footer always holds Psalm 1:2
-					const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
-					expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("Psalm 1:2");
-
-					await waitUntil(() => {
-						expect(getByText(votd, "하나님이")).toBeDefined();
-						expect(getByText(votd, "English (ESV) unavailable")).toBeDefined();
-					});
-
-					// Retry loads ESV cleanly
-					fireClick(getButton(votd, "Retry"));
-					await waitUntil(() => expect(getByText(votd, /Today ESV verse text\./)).toBeDefined());
-
-					// Hover Korean token shows dictionary tooltip right on Home
-					const koWord = getButton(votd, "하나님이");
-					fireHover(koWord, true);
-					expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("God");
-					fireHover(koWord, false);
-
-					// Copy, Memorize, Bookmark, Read actions
-					fireClick(getButton(votd, "Copy verse"));
-					await waitUntil(() => {
-						expect(copiedTexts).toHaveLength(1);
-						expect(getByText(votd, "Copied")).toBeDefined();
-					});
-					expect(copiedTexts[0]).toContain("Today ESV verse text.");
-
-					fireClick(getButton(votd, "Memorize"));
-					expect(onToggleMemorizeVerse).toHaveBeenCalledTimes(1);
-
-					fireClick(getButton(votd, /Bookmark/));
-					expect(onToggleFavoriteVerse).toHaveBeenCalledTimes(1);
-
-					// Play Supertonic 3 verse-sliced audio and stop at next verse boundary
-					fireClick(getButton(votd, /Listen to Korean verse/));
-					await waitUntil(() => {
-						const audio = mockAudio.latest();
-						expect(audio?.src).toBe(
-							`/api/audio/${todayBook.usfm}/${today.ref.chapter}?lang=ko&track=supertonic`,
-						);
-						expect(audio?.currentTime).toBe(24.5);
-						expect(audio?.paused).toBe(false);
-					});
-					act(() => {
-						mockAudio.latest()!.currentTime = 31.15;
-						mockAudio.emit("timeupdate");
-					});
-					expect(mockAudio.latest()?.paused).toBe(true);
-
-					fireClick(getButton(votd, "Read"));
-					expect(onOpenPassage).toHaveBeenCalledWith(
-						today.ref.bookNumber,
-						today.ref.chapter,
-						today.ref.verseStart,
-					);
-
-					// Browse Previous / Next / Today / Shuffle
-					fireClick(getButton(votd, "Previous verse"));
-					await waitUntil(() =>
-						expect(getByText(votd, formatVerseRefBilingual(yesterday.ref).refEn)).toBeDefined(),
-					);
-					expect(getButton(votd, "Today")).toBeDefined();
-
-					fireClick(getButton(votd, "Next verse"));
-					fireClick(getButton(votd, "Next verse"));
-					await waitUntil(() =>
-						expect(getByText(votd, formatVerseRefBilingual(nextDay.ref).refEn)).toBeDefined(),
-					);
-
-					fireClick(getButton(votd, "Today"));
-					expect(getByText(votd, formatVerseRefBilingual(today.ref).refEn)).toBeDefined();
-
-					fireClick(getButton(votd, "Shuffle verse"));
-					expect(getByText(votd, "Curated Verse")).toBeDefined();
-					await waitUntil(() => {
-						expect(getByText(votd, /한국어 본문/)).toBeDefined();
-						expect(getByText(votd, /Shuffled ESV\./)).toBeDefined();
-					});
-
-					// Falls back to Web Speech when Supertonic track is absent for a shuffled passage
-					fireClick(getButton(votd, /Listen to Korean verse/));
-					await waitUntil(() => expect(spokenTexts.length).toBeGreaterThan(0));
-
-					// Collapsible Study section starts collapsed, then reveals Memorize + Recall Reading
-					const studySection = container.querySelector(".home-study-section") as HTMLElement;
-					const studyToggle = getButton(studySection, /Study/);
-					expect(studyToggle.getAttribute("aria-expanded")).toBe("false");
-					expect(container.querySelector(".home-memorize-card")).toBeNull();
-					fireClick(studyToggle);
-					expect(studyToggle.getAttribute("aria-expanded")).toBe("true");
-					expect(getByText(container, /2 due for review/)).toBeDefined();
-					expect(getByText(container, /3d streak/)).toBeDefined();
-					fireClick(getButton(container, "Hide KO"));
-					expect(onOpenPassage).toHaveBeenLastCalledWith(1, 1, undefined, {
-						studyMask: "mask-ko",
-					});
-					fireClick(getButton(container, "Study Now"));
-					expect(onOpenMemorize).toHaveBeenCalledTimes(1);
+					}
+					return new Response("Not Found", { status: 404 });
 				},
-			);
-		} finally {
-			mockAudio.restore();
-			if (origSpeechSynth) Object.defineProperty(window, "speechSynthesis", origSpeechSynth);
-			else delete (window as { speechSynthesis?: unknown }).speechSynthesis;
-			if (origUtterance)
-				Object.defineProperty(globalThis, "SpeechSynthesisUtterance", origUtterance);
-			else delete (globalThis as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
-			if (origClipboard) Object.defineProperty(navigator, "clipboard", origClipboard);
-			else delete (navigator as { clipboard?: unknown }).clipboard;
-		}
+				esv: (url) => {
+					if (url.startsWith(`/api/esv/${todayBook.usfm}/${today.ref.chapter}/`)) {
+						if (failTodayEsv) {
+							failTodayEsv = false;
+							return Response.json({ error: "Rate limited" }, { status: 429 });
+						}
+						return makeChapterResponse("esv", todayBook.number, todayBook.usfm, today.ref.chapter, [
+							{ verse: today.ref.verseStart, text: "Today ESV verse text." },
+						]);
+					}
+					if (url.startsWith(`/api/esv/${yesterdayBook.usfm}/${yesterday.ref.chapter}/`)) {
+						return makeChapterResponse(
+							"esv",
+							yesterdayBook.number,
+							yesterdayBook.usfm,
+							yesterday.ref.chapter,
+							[{ verse: yesterday.ref.verseStart, text: "Yesterday ESV verse text." }],
+						);
+					}
+					if (url.startsWith(`/api/esv/${nextBook.usfm}/${nextDay.ref.chapter}/`)) {
+						return makeChapterResponse("esv", nextBook.number, nextBook.usfm, nextDay.ref.chapter, [
+							{ verse: nextDay.ref.verseStart, text: "Tomorrow ESV verse text." },
+						]);
+					}
+					return new Response("Not Found", { status: 404 });
+				},
+			}),
+			async () => {
+				const { container } = render(
+					<HomePage
+						lastBookNumber={1}
+						lastChapter={1}
+						memorizeTotalCount={4}
+						memorizeDueCount={2}
+						memorizeStreakDays={3}
+						onOpenMemorize={onOpenMemorize}
+						onOpenPassage={onOpenPassage}
+					/>,
+				);
+
+				const votd = container.querySelector(".votd-card") as HTMLElement;
+				expect(votd).not.toBeNull();
+				expect(getByText(votd, "Verse of the Day")).toBeDefined();
+				expect(getByText(votd, today.displayDate)).toBeDefined();
+				expect(getByText(votd, formatVerseRefBilingual(today.ref).refEn)).toBeDefined();
+				expect(getByText(votd, formatVerseRefBilingual(today.ref).refKo)).toBeDefined();
+				expect(votd.textContent).not.toContain("Curated Verse");
+				expect(votd.querySelector(".votd-actions")).toBeNull();
+				expect(votd.querySelector('button[aria-label="Shuffle verse"]')).toBeNull();
+
+				// Hero no longer holds Psalm 1:2 unless today happens to be Psalm 1:2; footer always holds Psalm 1:2
+				const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
+				expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("Psalm 1:2");
+
+				await waitUntil(() => {
+					expect(getByText(votd, "하나님이")).toBeDefined();
+					expect(getByText(votd, "English (ESV) unavailable")).toBeDefined();
+				});
+
+				// Retry loads ESV cleanly
+				fireClick(getButton(votd, "Retry"));
+				await waitUntil(() => expect(getByText(votd, /Today ESV verse text\./)).toBeDefined());
+
+				// Hover Korean token shows dictionary tooltip right on Home
+				const koWord = getButton(votd, "하나님이");
+				fireHover(koWord, true);
+				expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("God");
+				fireHover(koWord, false);
+
+				// Clicking the bilingual reference opens the passage in the reader
+				fireClick(getButton(votd, formatVerseRefBilingual(today.ref).refEn));
+				expect(onOpenPassage).toHaveBeenCalledWith(
+					today.ref.bookNumber,
+					today.ref.chapter,
+					today.ref.verseStart,
+				);
+
+				// Browse Previous / Next / Today
+				fireClick(getButton(votd, "Previous verse"));
+				await waitUntil(() => {
+					expect(getByText(votd, yesterday.displayDate)).toBeDefined();
+					expect(getByText(votd, formatVerseRefBilingual(yesterday.ref).refEn)).toBeDefined();
+					expect(getByText(votd, /Yesterday ESV verse text\./)).toBeDefined();
+				});
+				expect(getButton(votd, "Today")).toBeDefined();
+
+				fireClick(getButton(votd, "Next verse"));
+				fireClick(getButton(votd, "Next verse"));
+				await waitUntil(() => {
+					expect(getByText(votd, nextDay.displayDate)).toBeDefined();
+					expect(getByText(votd, formatVerseRefBilingual(nextDay.ref).refEn)).toBeDefined();
+					expect(getByText(votd, /Tomorrow ESV verse text\./)).toBeDefined();
+				});
+
+				fireClick(getButton(votd, "Today"));
+				await waitUntil(() => {
+					expect(getByText(votd, today.displayDate)).toBeDefined();
+					expect(getByText(votd, formatVerseRefBilingual(today.ref).refEn)).toBeDefined();
+					expect(getByText(votd, /Today ESV verse text\./)).toBeDefined();
+				});
+				expect(votd.querySelector(".votd-today-btn")).toBeNull();
+
+				// Collapsible Study section starts collapsed, then reveals Memorize Scripture without Recall Reading
+				const studySection = container.querySelector(".home-study-section") as HTMLElement;
+				const studyToggle = getButton(studySection, /Study/);
+				expect(studyToggle.getAttribute("aria-expanded")).toBe("false");
+				expect(container.querySelector(".home-memorize-card")).toBeNull();
+				fireClick(studyToggle);
+				expect(studyToggle.getAttribute("aria-expanded")).toBe("true");
+				expect(getByText(container, /2 due for review/)).toBeDefined();
+				expect(getByText(container, /3d streak/)).toBeDefined();
+				expect(studySection.textContent).not.toContain("Recall Reading");
+				expect(studySection.querySelector(".home-recall-card")).toBeNull();
+				fireClick(getButton(container, "Study Now"));
+				expect(onOpenMemorize).toHaveBeenCalledTimes(1);
+			},
+		);
 	});
 });

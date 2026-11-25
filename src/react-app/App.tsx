@@ -44,7 +44,7 @@ import { PassagePicker } from "./components/PassagePicker";
 import { PanelStatus } from "./components/RailShared";
 import { StudyRightRail } from "./components/StudyRightRail";
 import { TopBar, type TopBarDisplayPrefs } from "./components/TopBar";
-import { type StudyMaskMode, VerseBlock } from "./components/VerseBlock";
+import { VerseBlock } from "./components/VerseBlock";
 import type { PanelPosition } from "./hooks/useDraggablePanel";
 import { useChapterAudioTracks, useHumanAudio } from "./hooks/useHumanAudio";
 import { useIsDesktopLayout } from "./hooks/useMediaQuery";
@@ -449,13 +449,6 @@ export default function App() {
 		[bookNumber, chapter],
 	);
 
-	const handleToggleFavoriteFromVotd = useCallback(
-		(input: { bookNumber: number; chapter: number; verse: number; koText?: string | null }) => {
-			setFavorites((prev) => toggleFavoriteItem(prev, input));
-		},
-		[],
-	);
-
 	const handleToggleReaderVerseMemorize = useCallback(
 		(verse: AlignedVerse) => {
 			setMemorizeCards(
@@ -470,10 +463,6 @@ export default function App() {
 		},
 		[bookNumber, chapter],
 	);
-
-	const handleToggleMemorizeRef = useCallback((input: VerseRef & { koPreview?: string | null }) => {
-		setMemorizeCards((prev) => toggleMemorizeCard(prev, input).cards);
-	}, []);
 
 	const handleAddMemorizeCard = useCallback(
 		(input: VerseRef & { koPreview?: string | null; note?: string }) => {
@@ -1066,14 +1055,11 @@ export default function App() {
 			targetBook: number,
 			targetChapter: number,
 			verse?: number,
-			options?: { rightRailTab?: RightRailTab; studyMask?: StudyMaskMode },
+			options?: { rightRailTab?: RightRailTab },
 		) => {
-			if (options?.rightRailTab || options?.studyMask) {
-				patchPrefs({
-					...(options.rightRailTab ? { rightRailTab: options.rightRailTab } : {}),
-					...(options.studyMask ? { studyMask: options.studyMask } : {}),
-				});
-				if (options.rightRailTab && isDesktop) setSidebarOpen(true);
+			if (options?.rightRailTab) {
+				patchPrefs({ rightRailTab: options.rightRailTab });
+				if (isDesktop) setSidebarOpen(true);
 			}
 			navigateTo(targetBook, targetChapter, verse);
 		},
@@ -1155,15 +1141,11 @@ export default function App() {
 					stackOrder={prefs.stackOrder}
 					wordTooltip={prefs.wordTooltip}
 					lexicon={lexicon}
-					favoriteIds={favoriteIds}
-					memorizeCardIds={memorizeCardIds}
 					memorizeTotalCount={memorizeCards.length}
 					memorizeDueCount={dueMemorizeCount}
 					memorizeStreakDays={memorizeStats.streakDays}
 					onChangeCommentarySource={(commentarySource) => patchPrefs({ commentarySource })}
 					onOpenMemorize={openMemorize}
-					onToggleFavoriteVerse={handleToggleFavoriteFromVotd}
-					onToggleMemorizeVerse={handleToggleMemorizeRef}
 					{...savedItemsProps}
 					onOpenPassage={handleOpenFromHome}
 				/>
