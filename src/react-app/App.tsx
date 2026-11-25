@@ -9,6 +9,7 @@ import {
 	resolveBookChapter,
 } from "../shared/books";
 import { DEFAULT_COMMENTARY_ID, isCommentaryId } from "../shared/commentaries";
+import type { MemorizeStarterPack } from "../shared/memorize-packs";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
 	AlignedVerse,
@@ -16,9 +17,13 @@ import type {
 	FavoriteItem,
 	HighlightItem,
 	LexiconMap,
+	MemorizeCard,
+	MemorizeRating,
+	MemorizeStats,
 	RightRailTab,
 	TranslationLanguage,
 	VerseEntry,
+	VerseRef,
 } from "../shared/types";
 import { AudioControlRail } from "./components/AudioControlRail";
 import { useChapterCommentary } from "./components/CommentaryPanel";
@@ -34,6 +39,7 @@ import {
 	Highlighter,
 } from "./components/Icons";
 import { LegalFooter } from "./components/LegalFooter";
+import { MemorizePage } from "./components/MemorizePage";
 import { PassagePicker } from "./components/PassagePicker";
 import { PanelStatus } from "./components/RailShared";
 import { StudyRightRail } from "./components/StudyRightRail";
@@ -59,6 +65,23 @@ import {
 	toggleHighlightSpans,
 	writeStoredHighlights,
 } from "./lib/highlights";
+import {
+	addMemorizeCard,
+	addStarterPackToDeck,
+	importBookmarksToDeck,
+	makeMemorizeCardId,
+	type MemorizeStudyPrefs,
+	readStoredMemorizeCards,
+	readStoredMemorizePrefs,
+	readStoredMemorizeStats,
+	removeMemorizeCard,
+	toggleMemorizeCard,
+	updateMemorizeCardNote,
+	writeStoredMemorizeCards,
+	writeStoredMemorizePrefs,
+	writeStoredMemorizeStats,
+} from "./lib/memorize";
+import { isCardDue, recordStudyCompletion, reviewCard } from "./lib/memorize-srs";
 import { parseStoredBookChapter, readJsonStorage, writeJsonStorage } from "./lib/storage";
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
@@ -99,7 +122,9 @@ const DEFAULT_PREFS: StoredPrefs = {
 };
 
 type AppRoute =
-	{ view: "home" } | { view: "reader"; bookNumber: number; chapter: number; verse?: number };
+	| { view: "home" }
+	| { view: "memorize" }
+	| { view: "reader"; bookNumber: number; chapter: number; verse?: number };
 
 function getNormalizedHash(): string {
 	if (typeof window === "undefined") return "";
@@ -110,6 +135,7 @@ function getNormalizedHash(): string {
 function parseLocationHash(): AppRoute {
 	const hash = getNormalizedHash();
 	if (!hash) return { view: "home" };
+	if (hash.toLowerCase() === "memorize") return { view: "memorize" };
 	const match = hash.match(/^([A-Za-z0-9]+)\/(\d+)(?:\/(\d+))?$/);
 	if (!match) return { view: "home" };
 	const book = getBookByUsfm(match[1]);
@@ -237,7 +263,7 @@ export default function App() {
 	const initialRoute = useMemo(() => parseLocationHash(), []);
 	const isDesktop = useIsDesktopLayout();
 
-	const [view, setView] = useState<"home" | "reader">(initialRoute.view);
+	const [view, setView] = useState<"home" | "reader" | "memorize">(initialRoute.view);
 	const [bookNumber, setBookNumber] = useState(
 		initialRoute.view === "reader" ? initialRoute.bookNumber : initBookNumber,
 	);
@@ -285,6 +311,15 @@ export default function App() {
 	);
 	const [favorites, setFavorites] = useState<FavoriteItem[]>(() => readStoredFavorites());
 	const [highlights, setHighlights] = useState<HighlightItem[]>(() => readStoredHighlights());
+	const [memorizeCards, setMemorizeCards] = useState<MemorizeCard[]>(() =>
+		readStoredMemorizeCards(),
+	);
+	const [memorizeStats, setMemorizeStats] = useState<MemorizeStats>(() =>
+		readStoredMemorizeStats(),
+	);
+	const [memorizePrefs, setMemorizePrefs] = useState<MemorizeStudyPrefs>(() =>
+		readStoredMemorizePrefs(),
+	);
 	const versesListRef = useRef<HTMLElement | null>(null);
 	const [selectionToolbar, setSelectionToolbar] = useState<{
 		left: number;
@@ -364,8 +399,37 @@ export default function App() {
 		if (highlights !== initialHighlightsRef.current) writeStoredHighlights(highlights);
 	}, [highlights]);
 
+	const initialMemorizeCardsRef = useRef(memorizeCards);
+	useEffect(() => {
+		if (memorizeCards !== initialMemorizeCardsRef.current) {
+			writeStoredMemorizeCards(memorizeCards);
+		}
+	}, [memorizeCards]);
+
+	const initialMemorizeStatsRef = useRef(memorizeStats);
+	useEffect(() => {
+		if (memorizeStats !== initialMemorizeStatsRef.current) {
+			writeStoredMemorizeStats(memorizeStats);
+		}
+	}, [memorizeStats]);
+
+	const initialMemorizePrefsRef = useRef(memorizePrefs);
+	useEffect(() => {
+		if (memorizePrefs !== initialMemorizePrefsRef.current) {
+			writeStoredMemorizePrefs(memorizePrefs);
+		}
+	}, [memorizePrefs]);
+
 	const favoriteIds = useMemo(() => new Set(favorites.map((item) => item.id)), [favorites]);
 	const isChapterFavorited = favoriteIds.has(makeFavoriteId(bookNumber, chapter));
+	const memorizeCardIds = useMemo(
+		() => new Set(memorizeCards.map((card) => card.id)),
+		[memorizeCards],
+	);
+	const dueMemorizeCount = useMemo(
+		() => memorizeCards.filter((card) => isCardDue(card)).length,
+		[memorizeCards],
+	);
 
 	const handleToggleChapterFavorite = useCallback(() => {
 		setFavorites((prev) => toggleFavoriteItem(prev, { bookNumber, chapter }));
@@ -384,6 +448,85 @@ export default function App() {
 		},
 		[bookNumber, chapter],
 	);
+
+	const handleToggleFavoriteFromVotd = useCallback(
+		(input: { bookNumber: number; chapter: number; verse: number; koText?: string | null }) => {
+			setFavorites((prev) => toggleFavoriteItem(prev, input));
+		},
+		[],
+	);
+
+	const handleToggleReaderVerseMemorize = useCallback(
+		(verse: AlignedVerse) => {
+			setMemorizeCards(
+				(prev) =>
+					toggleMemorizeCard(prev, {
+						bookNumber,
+						chapter,
+						verseStart: verse.verse,
+						koPreview: verse.koText,
+					}).cards,
+			);
+		},
+		[bookNumber, chapter],
+	);
+
+	const handleToggleMemorizeRef = useCallback((input: VerseRef & { koPreview?: string | null }) => {
+		setMemorizeCards((prev) => toggleMemorizeCard(prev, input).cards);
+	}, []);
+
+	const handleAddMemorizeCard = useCallback(
+		(input: VerseRef & { koPreview?: string | null; note?: string }) => {
+			const result = addMemorizeCard(memorizeCards, input);
+			setMemorizeCards(result.cards);
+			return { added: result.added, card: result.card };
+		},
+		[memorizeCards],
+	);
+
+	const handleRemoveMemorizeCard = useCallback((id: string) => {
+		setMemorizeCards((prev) => removeMemorizeCard(prev, id));
+	}, []);
+
+	const handleUpdateMemorizeNote = useCallback((id: string, note: string) => {
+		setMemorizeCards((prev) => updateMemorizeCardNote(prev, id, note));
+	}, []);
+
+	const handleAddStarterPack = useCallback(
+		(pack: MemorizeStarterPack, koPreviews?: ReadonlyMap<string, string>) => {
+			const res = addStarterPackToDeck(memorizeCards, pack, (ref) =>
+				koPreviews?.get(
+					makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd),
+				),
+			);
+			setMemorizeCards(res.cards);
+			return res.addedCount;
+		},
+		[memorizeCards],
+	);
+
+	const handleImportBookmarksToDeck = useCallback(() => {
+		const res = importBookmarksToDeck(memorizeCards, favorites);
+		setMemorizeCards(res.cards);
+		return res.addedCount;
+	}, [memorizeCards, favorites]);
+
+	const handleReviewMemorizeCard = useCallback((cardId: string, rating: MemorizeRating) => {
+		const now = Date.now();
+		setMemorizeCards((prev) =>
+			prev.map((card) => (card.id === cardId ? reviewCard(card, rating, now) : card)),
+		);
+	}, []);
+
+	const handleCompleteMemorizeSession = useCallback((reviewedCount: number) => {
+		setMemorizeStats((prev) => recordStudyCompletion(prev, reviewedCount));
+	}, []);
+
+	const handleClearMemorizeDeck = useCallback(() => setMemorizeCards([]), []);
+
+	const handlePatchMemorizePrefs = useCallback((patch: Partial<MemorizeStudyPrefs>) => {
+		setMemorizePrefs((prev) => ({ ...prev, ...patch }));
+	}, []);
 
 	const handleRemoveFavorite = useCallback((id: string) => {
 		setFavorites((prev) => prev.filter((item) => item.id !== id));
@@ -522,6 +665,12 @@ export default function App() {
 				setSelectionToolbar(null);
 				return;
 			}
+			if (route.view === "memorize") {
+				setView("memorize");
+				setSelectionToolbar(null);
+				window.scrollTo({ top: 0, behavior: "smooth" });
+				return;
+			}
 			openReaderRoute(route.bookNumber, route.chapter, route.verse);
 		};
 		window.addEventListener("hashchange", syncFromLocation);
@@ -653,6 +802,17 @@ export default function App() {
 		setView("home");
 		if (window.location.hash !== "#/" && window.location.hash !== "") {
 			window.history.pushState(null, "", "#/");
+		}
+		window.scrollTo({ top: 0, behavior: "smooth" });
+	}, [pause]);
+
+	const openMemorize = useCallback(() => {
+		pause();
+		lastRouteHashRef.current = "memorize";
+		setView("memorize");
+		setSelectionToolbar(null);
+		if (window.location.hash !== "#/memorize") {
+			window.history.pushState(null, "", "#/memorize");
 		}
 		window.scrollTo({ top: 0, behavior: "smooth" });
 	}, [pause]);
@@ -969,14 +1129,16 @@ export default function App() {
 			data-ko-font={prefs.koFontStyle}
 		>
 			<TopBar
-				isHome={view === "home"}
+				activeView={view}
 				lastBookNumber={bookNumber}
 				lastChapter={chapter}
 				lastVerse={lastVerse}
+				dueMemorizeCount={dueMemorizeCount}
 				{...savedItemsProps}
 				prefs={prefs}
 				onGoHome={goHome}
 				onContinueReading={handleContinueReading}
+				onOpenMemorize={openMemorize}
 				onChangePref={patchPrefs}
 				onOpenSearch={() => setPickerOpen(true)}
 			/>
@@ -987,9 +1149,40 @@ export default function App() {
 					lastChapter={chapter}
 					lastVerse={lastVerse}
 					commentarySource={prefs.commentarySource}
+					stackOrder={prefs.stackOrder}
+					wordTooltip={prefs.wordTooltip}
+					lexicon={lexicon}
+					favoriteIds={favoriteIds}
+					memorizeCardIds={memorizeCardIds}
+					memorizeTotalCount={memorizeCards.length}
+					memorizeDueCount={dueMemorizeCount}
+					memorizeStreakDays={memorizeStats.streakDays}
 					onChangeCommentarySource={(commentarySource) => patchPrefs({ commentarySource })}
+					onOpenMemorize={openMemorize}
+					onToggleFavoriteVerse={handleToggleFavoriteFromVotd}
+					onToggleMemorizeVerse={handleToggleMemorizeRef}
 					{...savedItemsProps}
 					onOpenPassage={handleOpenFromHome}
+				/>
+			) : view === "memorize" ? (
+				<MemorizePage
+					cards={memorizeCards}
+					stats={memorizeStats}
+					studyPrefs={memorizePrefs}
+					favorites={favorites}
+					stackOrder={prefs.stackOrder}
+					wordTooltip={prefs.wordTooltip}
+					lexicon={lexicon}
+					onChangeStudyPrefs={handlePatchMemorizePrefs}
+					onAddCard={handleAddMemorizeCard}
+					onRemoveCard={handleRemoveMemorizeCard}
+					onUpdateNote={handleUpdateMemorizeNote}
+					onAddStarterPack={handleAddStarterPack}
+					onImportBookmarks={handleImportBookmarksToDeck}
+					onReviewCard={handleReviewMemorizeCard}
+					onCompleteSession={handleCompleteMemorizeSession}
+					onClearDeck={handleClearMemorizeDeck}
+					onOpenPassage={navigateTo}
 				/>
 			) : (
 				<>
@@ -1143,6 +1336,9 @@ export default function App() {
 													isFavorited={favoriteIds.has(
 														makeFavoriteId(bookNumber, chapter, verse.verse),
 													)}
+													isInMemorize={memorizeCardIds.has(
+														makeMemorizeCardId(bookNumber, chapter, verse.verse),
+													)}
 													enHighlights={verseHighlights?.en}
 													koHighlights={verseHighlights?.ko}
 													enUnavailable={Boolean(enChapterError)}
@@ -1150,6 +1346,7 @@ export default function App() {
 													wordTooltip={prefs.wordTooltip}
 													onSelectVerse={handleSelectVerse}
 													onToggleFavorite={handleToggleVerseFavorite}
+													onToggleMemorize={handleToggleReaderVerseMemorize}
 													onSelectFootnote={handleSelectFootnote}
 												/>
 											);

@@ -4,7 +4,7 @@ import { getBookOrDefault } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import { useDismissListeners } from "../hooks/usePopover";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
-import { Bible, Bookmark, BookOpen, ChevronDown, Home, Search, Settings } from "./Icons";
+import { Bible, Bookmark, BookOpen, ChevronDown, Home, Layers, Search, Settings } from "./Icons";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
@@ -22,12 +22,15 @@ export interface TopBarDisplayPrefs {
 
 interface TopBarProps extends SavedItemsProps {
 	isHome?: boolean;
+	activeView?: "home" | "reader" | "memorize";
 	lastBookNumber?: number;
 	lastChapter?: number;
 	lastVerse?: number;
+	dueMemorizeCount?: number;
 	prefs: TopBarDisplayPrefs;
 	onGoHome: () => void;
 	onContinueReading?: () => void;
+	onOpenMemorize?: () => void;
 	onOpenPassage?: (bookNumber: number, chapter: number, verse?: number) => void;
 	onChangePref: (patch: Partial<TopBarDisplayPrefs>) => void;
 	onOpenSearch: () => void;
@@ -63,14 +66,17 @@ function SegmentedSetting<T extends string | number>({
 
 export function TopBar({
 	isHome = false,
+	activeView,
 	lastBookNumber = 1,
 	lastChapter = 1,
 	lastVerse = 1,
+	dueMemorizeCount = 0,
 	favorites = [],
 	highlights = [],
 	prefs,
 	onGoHome,
 	onContinueReading,
+	onOpenMemorize,
 	onOpenPassage,
 	onRemoveFavorite,
 	onRemoveHighlight,
@@ -79,6 +85,7 @@ export function TopBar({
 	onChangePref,
 	onOpenSearch,
 }: TopBarProps) {
+	const resolvedView = activeView ?? (isHome ? "home" : "reader");
 	const [openPopover, setOpenPopover] = useState<OpenPopover>(null);
 	const navRef = useRef<HTMLElement | null>(null);
 
@@ -93,10 +100,10 @@ export function TopBar({
 	};
 
 	useEffect(() => {
-		if (isHome) {
+		if (resolvedView === "home") {
 			setOpenPopover((prev) => (prev === "display" ? null : prev));
 		}
-	}, [isHome]);
+	}, [resolvedView]);
 
 	useDismissListeners(Boolean(openPopover), {
 		refs: [navRef],
@@ -127,12 +134,12 @@ export function TopBar({
 					<nav className="top-nav" aria-label="Quick navigation">
 						<button
 							type="button"
-							className={`icon-btn ${isHome ? "active" : ""}`.trim()}
+							className={`icon-btn ${resolvedView === "home" ? "active" : ""}`.trim()}
 							onClick={() => {
 								closePopovers();
 								onGoHome();
 							}}
-							aria-current={isHome ? "page" : undefined}
+							aria-current={resolvedView === "home" ? "page" : undefined}
 							title="Go to Home page"
 						>
 							<Home size={15} />
@@ -141,16 +148,31 @@ export function TopBar({
 
 						<button
 							type="button"
-							className={`icon-btn ${!isHome ? "active" : ""}`.trim()}
+							className={`icon-btn ${resolvedView === "reader" ? "active" : ""}`.trim()}
 							onClick={() => {
 								closePopovers();
 								onContinueReading?.();
 							}}
-							aria-current={!isHome ? "page" : undefined}
+							aria-current={resolvedView === "reader" ? "page" : undefined}
 							title={`Read ${lastBook.en} ${lastChapter}:${lastVerse}`}
 						>
 							<BookOpen size={15} />
 							<span>Read</span>
+						</button>
+
+						<button
+							type="button"
+							className={`icon-btn ${resolvedView === "memorize" ? "active" : ""}`.trim()}
+							onClick={() => {
+								closePopovers();
+								onOpenMemorize?.();
+							}}
+							aria-current={resolvedView === "memorize" ? "page" : undefined}
+							title="Open Memorize flashcards"
+						>
+							<Layers size={15} />
+							<span>Memorize</span>
+							{dueMemorizeCount > 0 && <span className="top-nav-count">{dueMemorizeCount}</span>}
 						</button>
 
 						<div className="popover-anchor">
@@ -218,7 +240,7 @@ export function TopBar({
 						{CANONICAL_BIBLES.en.code} / {CANONICAL_BIBLES.ko.code}
 					</span>
 
-					{!isHome && (
+					{resolvedView !== "home" && (
 						<div className="popover-anchor">
 							<button
 								type="button"
@@ -282,16 +304,18 @@ export function TopBar({
 											{ label: "한 / EN", value: "ko-first" },
 										]}
 									/>
-									<SegmentedSetting
-										title="Study Mode (Hover to Reveal)"
-										value={prefs.studyMask}
-										onChange={(studyMask) => onChangePref({ studyMask })}
-										options={[
-											{ label: "Both", value: "none" },
-											{ label: "Blur EN", value: "mask-en" },
-											{ label: "Blur KO", value: "mask-ko" },
-										]}
-									/>
+									{resolvedView === "reader" && (
+										<SegmentedSetting
+											title="Study Mode (Hover to Reveal)"
+											value={prefs.studyMask}
+											onChange={(studyMask) => onChangePref({ studyMask })}
+											options={[
+												{ label: "Both", value: "none" },
+												{ label: "Blur EN", value: "mask-en" },
+												{ label: "Blur KO", value: "mask-ko" },
+											]}
+										/>
+									)}
 								</div>
 							)}
 						</div>

@@ -22,6 +22,7 @@
 ## Features
 
 - **Side-by-Side Scripture** — Read English (**ESV®** via Crossway's live ESV API) and bundled Korean (**개역한글**, KRV 1961) stacked verse by verse, flip stack order (`EN / 한` ↔ `한 / EN`), and practice recall with hover-to-reveal **Study Mode** blur.
+- **Verse of the Day & Memorize Flashcards** — Daily rotating bilingual **Verse of the Day** card on Home with previous/next/shuffle browsing, plus a `#/memorize` spaced-repetition (**SM-2**) flashcard studio supporting multi-verse ranges, **Flip**, **Ref Quiz**, **Bilingual Bridge (`EN ↔ 한`)**, **Progressive Blanks** (`25% / 50% / 75%` + First-Letter / Korean 초성 hints), and curated starter packs.
 - **Instant Korean Dictionary & Grammar** — Hover or tap any Korean word for morphological analysis, **Revised Romanization**, **Web Speech (`ko-KR`)** pronunciation, and a chapter-synced **Words & Grammar** panel.
 - **Verse-Synced Audio** — Listen to **Supertonic 3 (`Daniel`)** AI-generated Korean narration (`개역한글 · AI 낭독`) synced verse by verse (two-way scroll follow, preset and custom `0.1x–2.0x` playback speed, `±10s` skip) alongside **Crossway ESV** English audio.
 - **Integrated Commentary** — Switch between **Tyndale Open Study Notes** and **Matthew Henry Commentary** synced to your active verse, with keyword/verse search and book/chapter introductions.
@@ -29,11 +30,13 @@
 
 ## Keyboard Shortcuts
 
-| Shortcut        | Action                                                          |
-| :-------------- | :-------------------------------------------------------------- |
-| `⌘K` / `Ctrl+K` | Open or close the passage quick-jump modal                      |
-| `⌘H` / `Ctrl+H` | Highlight or remove highlight on selected verse text            |
-| `←` / `→`       | Skip audio `±10s` while playing, or switch chapters when paused |
+| Shortcut        | Action                                                             |
+| :-------------- | :----------------------------------------------------------------- |
+| `⌘K` / `Ctrl+K` | Open or close the passage quick-jump modal                         |
+| `⌘H` / `Ctrl+H` | Highlight or remove highlight on selected verse text               |
+| `←` / `→`       | Skip audio `±10s` while playing, or switch chapters when paused    |
+| `Space` / `H`   | Flip flashcard / toggle hint or blank difficulty (Memorize view)   |
+| `1` – `4`       | Grade flashcard (`Again`, `Hard`, `Good`, `Easy` in Memorize view) |
 
 ## Tech Stack
 
@@ -76,6 +79,7 @@ All Worker routes enforce `GET`/`HEAD`-only access, HSTS, COOP, CORP (`same-orig
 | Endpoint                                           | Purpose                                                                                                                                                      |
 | :------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /api/esv/:usfm/:chapter`                      | Fetch live ESV chapter text from `api.esv.org` (`Cache-Control: private, no-store`; uses local `.cache/esv-local/` in `bun run dev` unless `USE_LIVE_ESV=1`) |
+| `GET /api/esv/:usfm/:chapter/:verseRange`          | Fetch targeted single verse or bounded verse range (`<= 10` verses) from `api.esv.org` (`Cache-Control: private, no-store`)                                  |
 | `GET /api/audio/:usfm/:chapter`                    | Resolve Korean (Supertonic 3 AI narration) and English (Crossway ESV) chapter tracks                                                                         |
 | `GET /api/audio/krv/:usfm/:chapter`                | Stream Korean Supertonic 3 AI narration MP3 from private R2 (`Range` + ETag)                                                                                 |
 | `GET /api/audio/esv/:usfm/:chapter`                | Proxy or redirect Crossway ESV chapter audio                                                                                                                 |

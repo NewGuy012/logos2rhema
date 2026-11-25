@@ -3,7 +3,7 @@ import { memo, type MouseEvent } from "react";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, HighlightItem } from "../../shared/types";
 import { renderHighlightedText } from "./HighlightText";
-import { Bookmark } from "./Icons";
+import { Bookmark, Layers } from "./Icons";
 import { KoreanTokensLine } from "./KoreanToken";
 
 export type StackOrder = "en-first" | "ko-first";
@@ -33,6 +33,7 @@ interface VerseBlockProps {
 	isSelected: boolean;
 	isAudioActive: boolean;
 	isFavorited?: boolean;
+	isInMemorize?: boolean;
 	enHighlights?: readonly HighlightItem[];
 	koHighlights?: readonly HighlightItem[];
 	enUnavailable?: boolean;
@@ -40,6 +41,7 @@ interface VerseBlockProps {
 	wordTooltip?: boolean;
 	onSelectVerse: (verseNum: number) => void;
 	onToggleFavorite?: (verse: AlignedVerse) => void;
+	onToggleMemorize?: (verse: AlignedVerse) => void;
 	onSelectFootnote: (footnoteId: string) => void;
 }
 
@@ -50,6 +52,7 @@ export const VerseBlock = memo(function VerseBlock({
 	isSelected,
 	isAudioActive,
 	isFavorited = false,
+	isInMemorize = false,
 	enHighlights = [],
 	koHighlights = [],
 	enUnavailable = false,
@@ -57,6 +60,7 @@ export const VerseBlock = memo(function VerseBlock({
 	wordTooltip = true,
 	onSelectVerse,
 	onToggleFavorite,
+	onToggleMemorize,
 	onSelectFootnote,
 }: VerseBlockProps) {
 	const englishLine =
@@ -148,6 +152,22 @@ export const VerseBlock = memo(function VerseBlock({
 					>
 						<Bookmark size={12} filled={isFavorited} />
 					</button>
+					{onToggleMemorize && (
+						<button
+							type="button"
+							className={`verse-memorize-btn ${isInMemorize ? "active" : ""}`.trim()}
+							onClick={() => onToggleMemorize(verse)}
+							aria-pressed={isInMemorize}
+							aria-label={
+								isInMemorize
+									? `Remove verse ${verse.verse} from memorize deck`
+									: `Add verse ${verse.verse} to memorize deck`
+							}
+							title={isInMemorize ? "Remove from Memorize deck" : "Add verse to Memorize deck"}
+						>
+							<Layers size={12} />
+						</button>
+					)}
 				</div>
 				<div className="verse-lines">
 					{(stackOrder === "en-first"
