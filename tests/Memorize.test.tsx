@@ -148,11 +148,11 @@ describe("Memorize Simplified UI & End-to-End Integration", () => {
 			fireClick(getButton(container, "Memorize"));
 			await waitUntil(() => {
 				expect(window.location.hash).toBe("#/memorize");
-				expect(container.querySelector("h1.memorize-eyebrow")?.textContent).toContain(
+				expect(container.querySelector("h1.memorize-title")?.textContent).toContain(
 					"Scripture Memorization",
 				);
 			});
-			expect(container.querySelector(".memorize-title")).toBeNull();
+			expect(container.querySelector("h1.memorize-title")?.textContent).not.toBe("Memorize");
 
 			// Appearance settings work on Memorize view and omit Reader-only Study Mode blur
 			fireClick(getButton(container, "Reader appearance settings"));

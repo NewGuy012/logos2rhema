@@ -4015,16 +4015,27 @@ button:focus-visible {
 	flex-wrap: wrap;
 }
 
-.memorize-eyebrow {
+.memorize-title {
 	margin: 0;
 	display: inline-flex;
 	align-items: center;
-	gap: 0.35rem;
-	font-size: 0.78rem;
-	font-weight: 700;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--accent);
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	font-family: var(--font-en);
+	font-size: clamp(1.75rem, 3.2vw, 2.25rem);
+	font-weight: 500;
+	letter-spacing: -0.02em;
+	line-height: 1.15;
+	color: var(--text-primary);
+}
+
+.memorize-title-icon {
+	flex-shrink: 0;
+}
+
+.memorize-title-ko {
+	font-family: var(--font-ko-serif);
+	font-size: 0.85em;
 }
 
 .memorize-header-controls {

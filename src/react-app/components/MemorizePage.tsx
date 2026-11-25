@@ -385,9 +385,12 @@ export function MemorizePage({
 	return (
 		<main className="memorize-container">
 			<header className="memorize-header">
-				<h1 className="memorize-eyebrow">
-					<Layers size={13} />
-					<span>Scripture Memorization · 말씀 암송</span>
+				<h1 className="memorize-title">
+					<Layers size={22} className="memorize-title-icon" />
+					<span>Scripture Memorization</span>
+					<span className="memorize-title-ko" lang="ko">
+						· 말씀 암송
+					</span>
 				</h1>
 
 				{cards.length > 0 && (
