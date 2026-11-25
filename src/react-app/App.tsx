@@ -18,8 +18,6 @@ import type {
 	HighlightItem,
 	LexiconMap,
 	MemorizeCard,
-	MemorizeRating,
-	MemorizeStats,
 	RightRailTab,
 	TranslationLanguage,
 	VerseEntry,
@@ -70,18 +68,11 @@ import {
 	addStarterPackToDeck,
 	importBookmarksToDeck,
 	makeMemorizeCardId,
-	type MemorizeStudyPrefs,
 	readStoredMemorizeCards,
-	readStoredMemorizePrefs,
-	readStoredMemorizeStats,
 	removeMemorizeCard,
 	toggleMemorizeCard,
-	updateMemorizeCardNote,
 	writeStoredMemorizeCards,
-	writeStoredMemorizePrefs,
-	writeStoredMemorizeStats,
 } from "./lib/memorize";
-import { isCardDue, recordStudyCompletion, reviewCard } from "./lib/memorize-srs";
 import { parseStoredBookChapter, readJsonStorage, writeJsonStorage } from "./lib/storage";
 
 const STORAGE_KEY = "logos.reader.preferences.v1";
@@ -314,12 +305,6 @@ export default function App() {
 	const [memorizeCards, setMemorizeCards] = useState<MemorizeCard[]>(() =>
 		readStoredMemorizeCards(),
 	);
-	const [memorizeStats, setMemorizeStats] = useState<MemorizeStats>(() =>
-		readStoredMemorizeStats(),
-	);
-	const [memorizePrefs, setMemorizePrefs] = useState<MemorizeStudyPrefs>(() =>
-		readStoredMemorizePrefs(),
-	);
 	const versesListRef = useRef<HTMLElement | null>(null);
 	const [selectionToolbar, setSelectionToolbar] = useState<{
 		left: number;
@@ -406,28 +391,10 @@ export default function App() {
 		}
 	}, [memorizeCards]);
 
-	const initialMemorizeStatsRef = useRef(memorizeStats);
-	useEffect(() => {
-		if (memorizeStats !== initialMemorizeStatsRef.current) {
-			writeStoredMemorizeStats(memorizeStats);
-		}
-	}, [memorizeStats]);
-
-	const initialMemorizePrefsRef = useRef(memorizePrefs);
-	useEffect(() => {
-		if (memorizePrefs !== initialMemorizePrefsRef.current) {
-			writeStoredMemorizePrefs(memorizePrefs);
-		}
-	}, [memorizePrefs]);
-
 	const favoriteIds = useMemo(() => new Set(favorites.map((item) => item.id)), [favorites]);
 	const isChapterFavorited = favoriteIds.has(makeFavoriteId(bookNumber, chapter));
 	const memorizeCardIds = useMemo(
 		() => new Set(memorizeCards.map((card) => card.id)),
-		[memorizeCards],
-	);
-	const dueMemorizeCount = useMemo(
-		() => memorizeCards.filter((card) => isCardDue(card)).length,
 		[memorizeCards],
 	);
 
@@ -457,7 +424,6 @@ export default function App() {
 						bookNumber,
 						chapter,
 						verseStart: verse.verse,
-						koPreview: verse.koText,
 					}).cards,
 			);
 		},
@@ -465,7 +431,7 @@ export default function App() {
 	);
 
 	const handleAddMemorizeCard = useCallback(
-		(input: VerseRef & { koPreview?: string | null; note?: string }) => {
+		(input: VerseRef) => {
 			const result = addMemorizeCard(memorizeCards, input);
 			setMemorizeCards(result.cards);
 			return { added: result.added, card: result.card };
@@ -477,17 +443,9 @@ export default function App() {
 		setMemorizeCards((prev) => removeMemorizeCard(prev, id));
 	}, []);
 
-	const handleUpdateMemorizeNote = useCallback((id: string, note: string) => {
-		setMemorizeCards((prev) => updateMemorizeCardNote(prev, id, note));
-	}, []);
-
 	const handleAddStarterPack = useCallback(
-		(pack: MemorizeStarterPack, koPreviews?: ReadonlyMap<string, string>) => {
-			const res = addStarterPackToDeck(memorizeCards, pack, (ref) =>
-				koPreviews?.get(
-					makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd),
-				),
-			);
+		(pack: MemorizeStarterPack) => {
+			const res = addStarterPackToDeck(memorizeCards, pack);
 			setMemorizeCards(res.cards);
 			return res.addedCount;
 		},
@@ -500,22 +458,7 @@ export default function App() {
 		return res.addedCount;
 	}, [memorizeCards, favorites]);
 
-	const handleReviewMemorizeCard = useCallback((cardId: string, rating: MemorizeRating) => {
-		const now = Date.now();
-		setMemorizeCards((prev) =>
-			prev.map((card) => (card.id === cardId ? reviewCard(card, rating, now) : card)),
-		);
-	}, []);
-
-	const handleCompleteMemorizeSession = useCallback((reviewedCount: number) => {
-		setMemorizeStats((prev) => recordStudyCompletion(prev, reviewedCount));
-	}, []);
-
 	const handleClearMemorizeDeck = useCallback(() => setMemorizeCards([]), []);
-
-	const handlePatchMemorizePrefs = useCallback((patch: Partial<MemorizeStudyPrefs>) => {
-		setMemorizePrefs((prev) => ({ ...prev, ...patch }));
-	}, []);
 
 	const handleRemoveFavorite = useCallback((id: string) => {
 		setFavorites((prev) => prev.filter((item) => item.id !== id));
@@ -1122,7 +1065,7 @@ export default function App() {
 				lastBookNumber={bookNumber}
 				lastChapter={chapter}
 				lastVerse={lastVerse}
-				dueMemorizeCount={dueMemorizeCount}
+				memorizeCount={memorizeCards.length}
 				{...savedItemsProps}
 				prefs={prefs}
 				onGoHome={goHome}
@@ -1142,8 +1085,6 @@ export default function App() {
 					wordTooltip={prefs.wordTooltip}
 					lexicon={lexicon}
 					memorizeTotalCount={memorizeCards.length}
-					memorizeDueCount={dueMemorizeCount}
-					memorizeStreakDays={memorizeStats.streakDays}
 					onChangeCommentarySource={(commentarySource) => patchPrefs({ commentarySource })}
 					onOpenMemorize={openMemorize}
 					{...savedItemsProps}
@@ -1152,22 +1093,15 @@ export default function App() {
 			) : view === "memorize" ? (
 				<MemorizePage
 					cards={memorizeCards}
-					stats={memorizeStats}
-					studyPrefs={memorizePrefs}
 					favorites={favorites}
 					stackOrder={prefs.stackOrder}
 					wordTooltip={prefs.wordTooltip}
 					lexicon={lexicon}
-					onChangeStudyPrefs={handlePatchMemorizePrefs}
 					onAddCard={handleAddMemorizeCard}
 					onRemoveCard={handleRemoveMemorizeCard}
-					onUpdateNote={handleUpdateMemorizeNote}
 					onAddStarterPack={handleAddStarterPack}
 					onImportBookmarks={handleImportBookmarksToDeck}
-					onReviewCard={handleReviewMemorizeCard}
-					onCompleteSession={handleCompleteMemorizeSession}
 					onClearDeck={handleClearMemorizeDeck}
-					onOpenPassage={navigateTo}
 				/>
 			) : (
 				<>

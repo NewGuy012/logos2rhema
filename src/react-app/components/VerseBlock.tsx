@@ -160,10 +160,10 @@ export const VerseBlock = memo(function VerseBlock({
 							aria-pressed={isInMemorize}
 							aria-label={
 								isInMemorize
-									? `Remove verse ${verse.verse} from memorize deck`
-									: `Add verse ${verse.verse} to memorize deck`
+									? `Remove verse ${verse.verse} from Memorize`
+									: `Add verse ${verse.verse} to Memorize`
 							}
-							title={isInMemorize ? "Remove from Memorize deck" : "Add verse to Memorize deck"}
+							title={isInMemorize ? "Remove from Memorize" : "Save to Memorize"}
 						>
 							<Layers size={12} />
 						</button>

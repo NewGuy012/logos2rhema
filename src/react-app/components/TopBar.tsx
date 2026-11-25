@@ -26,7 +26,7 @@ interface TopBarProps extends SavedItemsProps {
 	lastBookNumber?: number;
 	lastChapter?: number;
 	lastVerse?: number;
-	dueMemorizeCount?: number;
+	memorizeCount?: number;
 	prefs: TopBarDisplayPrefs;
 	onGoHome: () => void;
 	onContinueReading?: () => void;
@@ -70,7 +70,7 @@ export function TopBar({
 	lastBookNumber = 1,
 	lastChapter = 1,
 	lastVerse = 1,
-	dueMemorizeCount = 0,
+	memorizeCount = 0,
 	favorites = [],
 	highlights = [],
 	prefs,
@@ -168,11 +168,11 @@ export function TopBar({
 								onOpenMemorize?.();
 							}}
 							aria-current={resolvedView === "memorize" ? "page" : undefined}
-							title="Open Memorize flashcards"
+							title="Open Memorize verses"
 						>
 							<Layers size={15} />
 							<span>Memorize</span>
-							{dueMemorizeCount > 0 && <span className="top-nav-count">{dueMemorizeCount}</span>}
+							{memorizeCount > 0 && <span className="top-nav-count">{memorizeCount}</span>}
 						</button>
 
 						<div className="popover-anchor">

@@ -385,8 +385,6 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 						lastBookNumber={1}
 						lastChapter={1}
 						memorizeTotalCount={4}
-						memorizeDueCount={2}
-						memorizeStreakDays={3}
 						onOpenMemorize={onOpenMemorize}
 						onOpenPassage={onOpenPassage}
 					/>,
@@ -454,18 +452,19 @@ describe("HomePage Browse Sections (Audio, Commentary, Dictionary)", () => {
 				});
 				expect(votd.querySelector(".votd-today-btn")).toBeNull();
 
-				// Collapsible Study section starts collapsed, then reveals Memorize Scripture without Recall Reading
+				// Collapsible Study section starts collapsed, then reveals simplified Memorize Scripture card
 				const studySection = container.querySelector(".home-study-section") as HTMLElement;
 				const studyToggle = getButton(studySection, /Study/);
 				expect(studyToggle.getAttribute("aria-expanded")).toBe("false");
 				expect(container.querySelector(".home-memorize-card")).toBeNull();
 				fireClick(studyToggle);
 				expect(studyToggle.getAttribute("aria-expanded")).toBe("true");
-				expect(getByText(container, /2 due for review/)).toBeDefined();
-				expect(getByText(container, /3d streak/)).toBeDefined();
+				expect(getByText(container, /4 saved verses/)).toBeDefined();
+				expect(studySection.textContent).not.toContain("due for review");
+				expect(studySection.textContent).not.toContain("streak");
 				expect(studySection.textContent).not.toContain("Recall Reading");
 				expect(studySection.querySelector(".home-recall-card")).toBeNull();
-				fireClick(getButton(container, "Study Now"));
+				fireClick(getButton(container, "Open"));
 				expect(onOpenMemorize).toHaveBeenCalledTimes(1);
 			},
 		);

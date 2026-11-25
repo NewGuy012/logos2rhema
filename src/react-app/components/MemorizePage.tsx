@@ -1,131 +1,231 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	formatVerseRefBilingual,
 	getBookOrDefault,
 	parseVerseRangeReference,
 } from "../../shared/books";
-import {
-	MEMORIZE_STARTER_PACKS,
-	type MemorizePackCategory,
-	type MemorizeStarterPack,
-} from "../../shared/memorize-packs";
+import { MEMORIZE_STARTER_PACKS, type MemorizeStarterPack } from "../../shared/memorize-packs";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type {
-	FavoriteItem,
-	LexiconMap,
-	MemorizeCard,
-	MemorizeRating,
-	MemorizeStats,
-	VerseRef,
-} from "../../shared/types";
+import type { FavoriteItem, LexiconMap, MemorizeCard, VerseRef } from "../../shared/types";
+import { useBilingualPassage } from "../hooks/useBilingualPassage";
+import {
+	getVerseAudioTargetKey,
+	useVerseAudio,
+	type VerseAudioSource,
+	type VerseAudioTarget,
+} from "../hooks/useVerseAudio";
 import { loadTranslationPassage } from "../lib/bible-loader";
-import { makeMemorizeCardId, type MemorizeStudyPrefs, truncateKoPreview } from "../lib/memorize";
-import {
-	buildStudyQueue,
-	formatDueStatusLabel,
-	getCardMastery,
-	isCardDue,
-} from "../lib/memorize-srs";
-import { FlashcardSession } from "./FlashcardSession";
-import {
-	ArrowRight,
-	BookOpen,
-	ChevronDown,
-	ChevronRight,
-	Layers,
-	Pencil,
-	Plus,
-	Search,
-	Shuffle,
-	Sparkles,
-	X,
-} from "./Icons";
+import { makeMemorizeCardId } from "../lib/memorize";
+import { VerseAudioButton } from "./AudioShared";
+import { ChevronDown, ChevronRight, Layers, Plus, Sparkles, X } from "./Icons";
+import { KoreanTokensLine } from "./KoreanToken";
 import { LegalFooter } from "./LegalFooter";
-import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder } from "./VerseBlock";
-
-type DeckFilter = "all" | "due" | "learning" | "mastered";
-type PackCategoryFilter = "all" | MemorizePackCategory;
-
-const PACK_FILTER_OPTIONS: ReadonlyArray<SegmentedOption<PackCategoryFilter>> = [
-	{ value: "all", label: "All Packs" },
-	{ value: "essential", label: "Essentials" },
-	{ value: "testament", label: "Testaments" },
-	{ value: "theme", label: "Themes" },
-];
-
-const PACK_CATEGORY_LABELS: Record<MemorizePackCategory, string> = {
-	essential: "Essential",
-	testament: "Collection",
-	theme: "Theme",
-};
-
-const DECK_FILTER_OPTIONS: ReadonlyArray<SegmentedOption<DeckFilter>> = [
-	{ value: "all", label: "All" },
-	{ value: "due", label: "Due" },
-	{ value: "learning", label: "Learning" },
-	{ value: "mastered", label: "Mastered" },
-];
 
 interface MemorizePageProps {
 	cards: readonly MemorizeCard[];
-	stats: MemorizeStats;
-	studyPrefs: MemorizeStudyPrefs;
 	favorites: readonly FavoriteItem[];
 	stackOrder: StackOrder;
 	wordTooltip: boolean;
 	lexicon: LexiconMap;
-	onChangeStudyPrefs: (patch: Partial<MemorizeStudyPrefs>) => void;
-	onAddCard: (input: VerseRef & { koPreview?: string | null; note?: string }) => {
+	onAddCard: (input: VerseRef) => {
 		added: boolean;
 		card: MemorizeCard | null;
 	};
 	onRemoveCard: (id: string) => void;
-	onUpdateNote: (id: string, note: string) => void;
-	onAddStarterPack: (pack: MemorizeStarterPack, koPreviews?: ReadonlyMap<string, string>) => number;
+	onAddStarterPack: (pack: MemorizeStarterPack) => number;
 	onImportBookmarks: () => number;
-	onReviewCard: (cardId: string, rating: MemorizeRating) => void;
-	onCompleteSession: (reviewedCount: number) => void;
 	onClearDeck: () => void;
-	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
+}
+
+function MemorizeVerseItem({
+	card,
+	stackOrder,
+	wordTooltip,
+	lexicon,
+	activeAudioKey,
+	isAudioPlaying,
+	isAudioLoading,
+	audioSource,
+	onToggleAudio,
+	onRemove,
+}: {
+	card: MemorizeCard;
+	stackOrder: StackOrder;
+	wordTooltip: boolean;
+	lexicon: LexiconMap;
+	activeAudioKey: string | null;
+	isAudioPlaying: boolean;
+	isAudioLoading: boolean;
+	audioSource: VerseAudioSource;
+	onToggleAudio: (target: VerseAudioTarget) => void;
+	onRemove: (id: string) => void;
+}) {
+	const book = getBookOrDefault(card.bookNumber);
+	const { refEn, refKo } = formatVerseRefBilingual(card);
+	const isMultiVerse = Boolean(card.verseEnd && card.verseEnd > card.verseStart);
+	const audioKey = getVerseAudioTargetKey({
+		usfm: book.usfm,
+		chapter: card.chapter,
+		verseStart: card.verseStart,
+		verseEnd: card.verseEnd,
+	});
+	const isThisAudio = activeAudioKey === audioKey;
+
+	const itemRef = useRef<HTMLElement | null>(null);
+	const [shouldLoadEn, setShouldLoadEn] = useState(
+		() => typeof IntersectionObserver === "undefined",
+	);
+
+	useEffect(() => {
+		if (shouldLoadEn) return;
+		const el = itemRef.current;
+		if (!el || typeof IntersectionObserver === "undefined") {
+			setShouldLoadEn(true);
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					setShouldLoadEn(true);
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: "300px 0px" },
+		);
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [shouldLoadEn]);
+
+	const { aligned, combinedKo, koLoading, enLoading, koError, enError, retry } =
+		useBilingualPassage({
+			passageRef: card,
+			lexicon,
+			loadEn: shouldLoadEn,
+		});
+
+	const enVerses = aligned.filter((v) => v.enText);
+	const koVerses = aligned.filter((v) => v.koText);
+
+	const englishLine = (
+		<div key="en" className="memorize-verse-line">
+			{enVerses.length > 0 ? (
+				<p className="memorize-verse-en">
+					{enVerses.map((v, idx) => (
+						<Fragment key={v.verse}>
+							{idx > 0 && " "}
+							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
+							{v.enText}
+						</Fragment>
+					))}
+				</p>
+			) : enError ? (
+				<div className="votd-en-fallback">
+					<span>English (ESV) unavailable</span>
+					<button type="button" className="quick-inline-chip active" onClick={retry}>
+						Retry
+					</button>
+				</div>
+			) : enLoading || !shouldLoadEn ? (
+				<p className="memorize-verse-status">Loading English (ESV)…</p>
+			) : null}
+		</div>
+	);
+
+	const koreanLine = (
+		<div key="ko" className="memorize-verse-line">
+			{koVerses.length > 0 ? (
+				<p className="memorize-verse-ko" lang="ko">
+					{koVerses.map((v, idx) => (
+						<Fragment key={v.verse}>
+							{idx > 0 && " "}
+							{isMultiVerse && <sup className="votd-verse-num">{v.verse}</sup>}
+							{v.tokens.length > 0 ? (
+								<KoreanTokensLine
+									verseNumber={v.verse}
+									tokens={v.tokens}
+									wordTooltip={wordTooltip}
+								/>
+							) : (
+								v.koText
+							)}
+						</Fragment>
+					))}
+				</p>
+			) : koLoading ? (
+				<p className="memorize-verse-status">Loading Korean (개역한글)…</p>
+			) : koError ? (
+				<p className="memorize-verse-status">{koError}</p>
+			) : null}
+		</div>
+	);
+
+	return (
+		<article ref={itemRef} className="memorize-verse-item" data-card-id={card.id}>
+			<div className="memorize-verse-head">
+				<h2 className="memorize-verse-ref">
+					<span>{refEn}</span>
+					<span className="memorize-verse-ref-ko" lang="ko">
+						· {refKo}
+					</span>
+				</h2>
+				<div className="memorize-verse-actions">
+					<VerseAudioButton
+						isPlaying={isThisAudio && isAudioPlaying}
+						isLoading={isThisAudio && isAudioLoading}
+						isSupertonic={isThisAudio && audioSource === "supertonic"}
+						onToggle={() =>
+							onToggleAudio({
+								usfm: book.usfm,
+								chapter: card.chapter,
+								verseStart: card.verseStart,
+								verseEnd: card.verseEnd,
+								fallbackKoText: combinedKo,
+							})
+						}
+					/>
+					<button
+						type="button"
+						className="home-favorite-remove memorize-remove-btn"
+						onClick={() => onRemove(card.id)}
+						aria-label={`Remove ${refEn}`}
+						title={`Remove ${refEn}`}
+					>
+						<X size={14} />
+					</button>
+				</div>
+			</div>
+
+			<div className="memorize-verse-body">
+				{stackOrder === "en-first" ? [englishLine, koreanLine] : [koreanLine, englishLine]}
+			</div>
+		</article>
+	);
 }
 
 export function MemorizePage({
 	cards,
-	stats,
-	studyPrefs,
 	favorites,
 	stackOrder,
 	wordTooltip,
 	lexicon,
-	onChangeStudyPrefs,
 	onAddCard,
 	onRemoveCard,
-	onUpdateNote,
 	onAddStarterPack,
 	onImportBookmarks,
-	onReviewCard,
-	onCompleteSession,
 	onClearDeck,
-	onOpenPassage,
 }: MemorizePageProps) {
-	const [sessionQueueIds, setSessionQueueIds] = useState<string[] | null>(null);
 	const [addQuery, setAddQuery] = useState("");
 	const [addingVerse, setAddingVerse] = useState(false);
+	const [packsOpen, setPacksOpen] = useState(false);
 	const [statusMessage, setStatusMessage] = useState<{
 		kind: "ok" | "error";
 		text: string;
 	} | null>(null);
-	const [packsOpen, setPacksOpen] = useState(() => cards.length === 0);
-	const [packCategory, setPackCategory] = useState<PackCategoryFilter>("all");
-	const [expandedPackId, setExpandedPackId] = useState<string | null>(null);
-	const [addingPackId, setAddingPackId] = useState<string | null>(null);
-	const [filter, setFilter] = useState<DeckFilter>("all");
-	const [searchQuery, setSearchQuery] = useState("");
-	const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-	const [noteDraft, setNoteDraft] = useState("");
 	const mountedRef = useRef(true);
+	const verseAudio = useVerseAudio();
+	const { activeTargetKey, stop: stopAudio } = verseAudio;
 
 	useEffect(() => {
 		mountedRef.current = true;
@@ -134,13 +234,26 @@ export function MemorizePage({
 		};
 	}, []);
 
-	const now = Date.now();
 	const cardIds = useMemo(() => new Set(cards.map((c) => c.id)), [cards]);
-	const dueCards = useMemo(() => cards.filter((c) => isCardDue(c, now)), [cards, now]);
-	const masteredCount = useMemo(
-		() => cards.filter((c) => getCardMastery(c) === "mastered").length,
-		[cards],
-	);
+
+	// Stop audio if the verse being played is removed or cleared.
+	useEffect(() => {
+		if (!activeTargetKey) return;
+		const stillPresent = cards.some((card) => {
+			const book = getBookOrDefault(card.bookNumber);
+			return (
+				getVerseAudioTargetKey({
+					usfm: book.usfm,
+					chapter: card.chapter,
+					verseStart: card.verseStart,
+					verseEnd: card.verseEnd,
+				}) === activeTargetKey
+			);
+		});
+		if (!stillPresent) {
+			stopAudio();
+		}
+	}, [cards, activeTargetKey, stopAudio]);
 
 	const importableBookmarksCount = useMemo(() => {
 		let count = 0;
@@ -151,45 +264,6 @@ export function MemorizePage({
 		}
 		return count;
 	}, [favorites, cardIds]);
-
-	const filteredCards = useMemo(() => {
-		const trimmed = searchQuery.trim().toLowerCase();
-		return cards.filter((card) => {
-			if (filter === "due" && !isCardDue(card, now)) return false;
-			if (filter === "mastered" && getCardMastery(card) !== "mastered") return false;
-			if (filter === "learning" && getCardMastery(card) === "mastered") return false;
-			if (!trimmed) return true;
-			const book = getBookOrDefault(card.bookNumber);
-			const { refEn, refKo } = formatVerseRefBilingual(card);
-			return (
-				refEn.toLowerCase().includes(trimmed) ||
-				refKo.includes(searchQuery.trim()) ||
-				book.enShort.toLowerCase().includes(trimmed) ||
-				book.koShort.includes(searchQuery.trim()) ||
-				Boolean(card.koPreview?.includes(searchQuery.trim())) ||
-				Boolean(card.note?.toLowerCase().includes(trimmed))
-			);
-		});
-	}, [cards, filter, searchQuery, now]);
-
-	const filteredPacks = useMemo(
-		() =>
-			MEMORIZE_STARTER_PACKS.filter(
-				(pack) => packCategory === "all" || pack.category === packCategory,
-			),
-		[packCategory],
-	);
-
-	const startSession = (mode: "due" | "all", shuffle = false, singleId?: string) => {
-		if (singleId) {
-			setSessionQueueIds([singleId]);
-			return;
-		}
-		const queue = buildStudyQueue(cards, { mode, shuffle });
-		if (queue.length > 0) {
-			setSessionQueueIds(queue.map((c) => c.id));
-		}
-	};
 
 	const handleAddSubmit = async (e: FormEvent) => {
 		e.preventDefault();
@@ -224,12 +298,11 @@ export function MemorizePage({
 				});
 				return;
 			}
-			const koPreview = truncateKoPreview(verses.map((v) => v.text).join(" "));
-			const res = onAddCard({ ...parsed, koPreview });
+			const res = onAddCard(parsed);
 			setAddQuery("");
 			setStatusMessage({
 				kind: "ok",
-				text: res.added ? `Added ${refEn} to your deck.` : `${refEn} is already in your deck.`,
+				text: res.added ? `Added ${refEn}.` : `${refEn} is already saved.`,
 			});
 		} catch {
 			if (!mountedRef.current) return;
@@ -237,68 +310,23 @@ export function MemorizePage({
 			setAddQuery("");
 			setStatusMessage({
 				kind: "ok",
-				text: res.added ? `Added ${refEn} to your deck.` : `${refEn} is already in your deck.`,
+				text: res.added ? `Added ${refEn}.` : `${refEn} is already saved.`,
 			});
 		} finally {
 			if (mountedRef.current) setAddingVerse(false);
 		}
 	};
 
-	const handleAddPack = async (pack: MemorizeStarterPack) => {
-		setAddingPackId(pack.id);
-		const previews = new Map<string, string>();
-		try {
-			await Promise.allSettled(
-				pack.refs.map(async (ref) => {
-					const verses = await loadTranslationPassage(
-						CANONICAL_BIBLES.ko.id,
-						ref.bookNumber,
-						ref.chapter,
-						ref.verseStart,
-						ref.verseEnd,
-					);
-					const joined = truncateKoPreview(verses.map((v) => v.text).join(" "));
-					if (joined) {
-						previews.set(
-							makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd),
-							joined,
-						);
-					}
-				}),
-			);
-		} catch {}
-		if (!mountedRef.current) return;
-		const addedCount = onAddStarterPack(pack, previews);
-		setAddingPackId(null);
+	const handleAddPack = (pack: MemorizeStarterPack) => {
+		const addedCount = onAddStarterPack(pack);
 		setStatusMessage({
 			kind: "ok",
 			text:
 				addedCount > 0
 					? `Added ${addedCount} verse${addedCount === 1 ? "" : "s"} from ${pack.titleEn}.`
-					: `All verses from ${pack.titleEn} are already in your deck.`,
+					: `All verses from ${pack.titleEn} are already saved.`,
 		});
 	};
-
-	if (sessionQueueIds && sessionQueueIds.length > 0) {
-		return (
-			<main className="memorize-container memorize-session-shell">
-				<FlashcardSession
-					cards={cards}
-					initialQueueIds={sessionQueueIds}
-					studyPrefs={studyPrefs}
-					stackOrder={stackOrder}
-					wordTooltip={wordTooltip}
-					lexicon={lexicon}
-					streakDays={stats.streakDays}
-					onChangeStudyPrefs={onChangeStudyPrefs}
-					onReviewCard={onReviewCard}
-					onOpenPassage={onOpenPassage}
-					onCompleteSession={onCompleteSession}
-					onExit={() => setSessionQueueIds(null)}
-				/>
-			</main>
-		);
-	}
 
 	return (
 		<main className="memorize-container">
@@ -308,67 +336,17 @@ export function MemorizePage({
 						<Layers size={13} />
 						<span>Scripture Memorization · 말씀 암송</span>
 					</p>
-					<h1 className="memorize-title">Memorize Deck</h1>
-					<p className="memorize-subtitle">
-						Practice English (ESV) and Korean (개역한글) side-by-side with spaced repetition,
-						bilingual recall, and progressive Korean 초성 hints.
-					</p>
+					<h1 className="memorize-title">Memorize</h1>
 				</div>
 
-				<div className="memorize-cta-group">
-					<button
-						type="button"
-						className="home-continue-btn memorize-study-primary"
-						disabled={dueCards.length === 0}
-						onClick={() => startSession("due")}
-					>
-						<span>Study Due ({dueCards.length})</span>
-						<ArrowRight size={15} />
-					</button>
-					{cards.length > 0 && (
-						<>
-							<button
-								type="button"
-								className="home-memorize-btn"
-								onClick={() => startSession("all", false)}
-							>
-								<span>Practice All ({cards.length})</span>
-							</button>
-							<button
-								type="button"
-								className="votd-action-btn"
-								onClick={() => startSession("all", true)}
-								aria-label="Shuffle and practice all"
-								title="Shuffle and practice all"
-							>
-								<Shuffle size={14} />
-								<span>Shuffle</span>
-							</button>
-						</>
-					)}
-				</div>
+				{cards.length > 0 && (
+					<span className="memorize-count">
+						{cards.length} {cards.length === 1 ? "verse" : "verses"}
+					</span>
+				)}
 			</header>
 
-			<section className="memorize-stats-row" aria-label="Study statistics">
-				<div className="memorize-stat-card">
-					<span className="memorize-stat-val">{dueCards.length}</span>
-					<span className="memorize-stat-label">Due Today</span>
-				</div>
-				<div className="memorize-stat-card">
-					<span className="memorize-stat-val">{masteredCount}</span>
-					<span className="memorize-stat-label">Mastered</span>
-				</div>
-				<div className="memorize-stat-card">
-					<span className="memorize-stat-val">{cards.length}</span>
-					<span className="memorize-stat-label">Total Cards</span>
-				</div>
-				<div className="memorize-stat-card">
-					<span className="memorize-stat-val">{stats.streakDays}d</span>
-					<span className="memorize-stat-label">Study Streak</span>
-				</div>
-			</section>
-
-			<section className="memorize-add-section" aria-label="Add verses to deck">
+			<section className="memorize-add-section" aria-label="Add verses to memorize">
 				<form className="home-search-form memorize-add-form" onSubmit={handleAddSubmit}>
 					<Plus size={16} className="home-search-icon" />
 					<input
@@ -384,36 +362,52 @@ export function MemorizePage({
 						className="home-search-submit memorize-add-submit"
 						disabled={addingVerse || !addQuery.trim()}
 					>
-						{addingVerse ? "Adding..." : "Add Verse"}
+						{addingVerse ? "Adding..." : "Add"}
 					</button>
 				</form>
 
-				<div className="memorize-quick-imports">
-					<button
-						type="button"
-						className="votd-action-btn"
-						aria-expanded={packsOpen}
-						onClick={() => setPacksOpen((prev) => !prev)}
-					>
-						<Sparkles size={13} />
-						<span>Starter Packs</span>
-						{packsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-					</button>
-
-					{importableBookmarksCount > 0 && (
+				<div className="memorize-quick-actions">
+					<div className="memorize-quick-imports">
 						<button
 							type="button"
 							className="votd-action-btn"
-							onClick={() => {
-								const addedCount = onImportBookmarks();
-								setStatusMessage({
-									kind: "ok",
-									text: `Imported ${addedCount} bookmarked verse${addedCount === 1 ? "" : "s"} into your deck.`,
-								});
-							}}
+							aria-expanded={packsOpen}
+							onClick={() => setPacksOpen((prev) => !prev)}
 						>
-							<Plus size={13} />
-							<span>Import {importableBookmarksCount} from Bookmarks</span>
+							<Sparkles size={13} />
+							<span>Starter Packs</span>
+							{packsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+						</button>
+
+						{importableBookmarksCount > 0 && (
+							<button
+								type="button"
+								className="votd-action-btn"
+								onClick={() => {
+									const addedCount = onImportBookmarks();
+									setStatusMessage({
+										kind: "ok",
+										text: `Imported ${addedCount} bookmarked verse${addedCount === 1 ? "" : "s"}.`,
+									});
+								}}
+							>
+								<Plus size={13} />
+								<span>Import {importableBookmarksCount} from Bookmarks</span>
+							</button>
+						)}
+					</div>
+
+					{cards.length > 0 && (
+						<button
+							type="button"
+							className="home-clear-btn"
+							onClick={() => {
+								onClearDeck();
+								setStatusMessage(null);
+							}}
+							aria-label="Clear all saved verses"
+						>
+							Clear all
 						</button>
 					)}
 				</div>
@@ -429,92 +423,44 @@ export function MemorizePage({
 
 				{packsOpen && (
 					<div className="memorize-packs-panel">
-						<div className="memorize-packs-toolbar">
-							<SegmentedControl
-								value={packCategory}
-								options={PACK_FILTER_OPTIONS}
-								onChange={setPackCategory}
-								ariaLabel="Filter starter packs by category"
-							/>
-							<span className="memorize-packs-count">
-								{filteredPacks.length === 1 ? "1 pack" : `${filteredPacks.length} packs`}
-							</span>
-						</div>
-
-						<div className="memorize-packs-grid">
-							{filteredPacks.map((pack) => {
+						<div className="memorize-packs-list">
+							{MEMORIZE_STARTER_PACKS.map((pack) => {
 								const inDeckCount = pack.refs.filter((ref) =>
 									cardIds.has(
 										makeMemorizeCardId(ref.bookNumber, ref.chapter, ref.verseStart, ref.verseEnd),
 									),
 								).length;
 								const allAdded = inDeckCount === pack.refs.length;
-								const isExpanded = expandedPackId === pack.id;
-								const visibleRefs = isExpanded ? pack.refs : pack.refs.slice(0, 4);
-								const hiddenCount = pack.refs.length - visibleRefs.length;
+								const remaining = pack.refs.length - inDeckCount;
 
 								return (
-									<div key={pack.id} className="memorize-pack-card">
-										<div className="memorize-pack-head">
-											<div>
-												<div className="memorize-pack-meta">
-													<span className="memorize-pack-badge">
-														{PACK_CATEGORY_LABELS[pack.category]} · {pack.refs.length} verses
-													</span>
-													{inDeckCount > 0 && !allAdded && (
-														<span className="memorize-pack-progress">
-															{inDeckCount}/{pack.refs.length} in deck
-														</span>
-													)}
-												</div>
-												<h3 className="memorize-pack-title">
-													{pack.titleEn}{" "}
-													<span className="memorize-pack-ko" lang="ko">
-														· {pack.titleKo}
-													</span>
-												</h3>
-												<p className="memorize-pack-desc">{pack.description}</p>
-											</div>
-											<button
-												type="button"
-												className={`votd-action-btn ${allAdded ? "active" : ""}`.trim()}
-												disabled={allAdded || addingPackId === pack.id}
-												onClick={() => handleAddPack(pack)}
-												aria-label={
-													allAdded
-														? `${pack.titleEn} already added`
-														: `Add ${pack.titleEn} pack (${pack.refs.length - inDeckCount} verses)`
-												}
-											>
-												{addingPackId === pack.id
-													? "Adding..."
-													: allAdded
-														? `Added (${pack.refs.length})`
-														: `Add ${pack.refs.length - inDeckCount}`}
-											</button>
-										</div>
-
-										<div className="memorize-pack-refs">
-											<span>
-												{visibleRefs
-													.map((ref) => {
-														const book = getBookOrDefault(ref.bookNumber);
-														return ref.verseEnd && ref.verseEnd > ref.verseStart
-															? `${book.enShort} ${ref.chapter}:${ref.verseStart}–${ref.verseEnd}`
-															: `${book.enShort} ${ref.chapter}:${ref.verseStart}`;
-													})
-													.join(" · ")}
+									<div key={pack.id} className="memorize-pack-row">
+										<div className="memorize-pack-info">
+											<span className="memorize-pack-title">
+												{pack.titleEn}{" "}
+												<span className="memorize-pack-ko" lang="ko">
+													· {pack.titleKo}
+												</span>
 											</span>
-											{pack.refs.length > 4 && (
-												<button
-													type="button"
-													className="memorize-pack-more-btn"
-													onClick={() => setExpandedPackId(isExpanded ? null : pack.id)}
-												>
-													{isExpanded ? "Show less" : `+${hiddenCount} more`}
-												</button>
-											)}
+											<span className="memorize-pack-count">
+												{inDeckCount > 0 && !allAdded
+													? `${inDeckCount}/${pack.refs.length} saved`
+													: `${pack.refs.length} verses`}
+											</span>
 										</div>
+										<button
+											type="button"
+											className={`votd-action-btn ${allAdded ? "active" : ""}`.trim()}
+											disabled={allAdded}
+											onClick={() => handleAddPack(pack)}
+											aria-label={
+												allAdded
+													? `${pack.titleEn} already added`
+													: `Add ${pack.titleEn} pack (${remaining} verses)`
+											}
+										>
+											{allAdded ? "Added" : `Add ${remaining}`}
+										</button>
 									</div>
 								);
 							})}
@@ -523,158 +469,32 @@ export function MemorizePage({
 				)}
 			</section>
 
-			<section className="memorize-deck-section" aria-label="Flashcard deck">
-				{cards.length > 0 && (
-					<div className="memorize-deck-toolbar">
-						<SegmentedControl
-							value={filter}
-							options={DECK_FILTER_OPTIONS}
-							onChange={setFilter}
-							ariaLabel="Filter cards by status"
-						/>
-
-						<div className="memorize-deck-tools-right">
-							<div className="memorize-deck-search-wrap">
-								<Search size={14} className="memorize-deck-search-icon" />
-								<input
-									type="search"
-									className="memorize-deck-search"
-									placeholder="Filter deck..."
-									value={searchQuery}
-									onChange={(e) => setSearchQuery(e.target.value)}
-									aria-label="Filter saved flashcards"
-								/>
-							</div>
-							<button
-								type="button"
-								className="home-clear-btn"
-								onClick={onClearDeck}
-								aria-label="Clear all flashcards"
-							>
-								Clear deck
-							</button>
-						</div>
-					</div>
-				)}
-
+			<section className="memorize-verses-section" aria-label="Saved verses">
 				{cards.length === 0 ? (
 					<div className="memorize-empty-state">
-						<p className="memorize-empty-title">Your memorization deck is empty.</p>
+						<p className="memorize-empty-title">No verses saved yet.</p>
 						<p className="memorize-empty-copy">
-							Add a verse above, pick a Starter Pack, or tap the deck icon next to any verse in the
-							Reader or Verse of the Day.
+							Add a verse above, pick from Starter Packs, or tap the save icon next to any verse in
+							the Reader.
 						</p>
 					</div>
-				) : filteredCards.length === 0 ? (
-					<p className="home-favorites-empty">No flashcards match your current filter.</p>
 				) : (
-					<div className="memorize-cards-list">
-						{filteredCards.map((card) => {
-							const { refEn, refKo } = formatVerseRefBilingual(card);
-							const mastery = getCardMastery(card);
-							const dueLabel = formatDueStatusLabel(card, now);
-							const isDue = isCardDue(card, now);
-							const isEditing = editingNoteId === card.id;
-
-							return (
-								<article key={card.id} className="memorize-deck-card" data-card-id={card.id}>
-									<div className="memorize-deck-card-head">
-										<div className="memorize-deck-card-refs">
-											<span className="memorize-deck-ref-en">{refEn}</span>
-											<span className="memorize-deck-ref-ko" lang="ko">
-												· {refKo}
-											</span>
-										</div>
-										<div className="memorize-deck-badges">
-											<span className={`memorize-mastery-pill mastery-${mastery}`}>{mastery}</span>
-											<span className={`memorize-due-pill ${isDue ? "is-due" : ""}`.trim()}>
-												{dueLabel}
-											</span>
-										</div>
-									</div>
-
-									{card.koPreview && (
-										<p className="memorize-deck-preview" lang="ko">
-											{card.koPreview}
-										</p>
-									)}
-
-									{isEditing ? (
-										<form
-											className="memorize-note-form"
-											onSubmit={(e) => {
-												e.preventDefault();
-												onUpdateNote(card.id, noteDraft);
-												setEditingNoteId(null);
-											}}
-										>
-											<input
-												type="text"
-												className="memorize-note-input"
-												placeholder="Add a personal cue or theme..."
-												value={noteDraft}
-												onChange={(e) => setNoteDraft(e.target.value)}
-												aria-label={`Edit note for ${refEn}`}
-												maxLength={240}
-											/>
-											<button type="submit" className="votd-action-btn active">
-												Save
-											</button>
-											<button
-												type="button"
-												className="votd-action-btn"
-												onClick={() => setEditingNoteId(null)}
-											>
-												Cancel
-											</button>
-										</form>
-									) : (
-										card.note && <p className="memorize-deck-note">{card.note}</p>
-									)}
-
-									<div className="memorize-deck-card-actions">
-										<button
-											type="button"
-											className="votd-action-btn"
-											onClick={() => startSession("all", false, card.id)}
-										>
-											<Layers size={13} />
-											<span>Study</span>
-										</button>
-										<button
-											type="button"
-											className="votd-action-btn"
-											onClick={() => {
-												setEditingNoteId(card.id);
-												setNoteDraft(card.note ?? "");
-											}}
-											aria-label={`Edit note for ${refEn}`}
-										>
-											<Pencil size={12} />
-											<span>{card.note ? "Edit Note" : "Add Note"}</span>
-										</button>
-										<button
-											type="button"
-											className="votd-action-btn"
-											onClick={() => onOpenPassage(card.bookNumber, card.chapter, card.verseStart)}
-											aria-label={`Open ${refEn} in Reader`}
-										>
-											<BookOpen size={13} />
-											<span>Read</span>
-										</button>
-										<button
-											type="button"
-											className="home-favorite-remove memorize-remove-btn"
-											onClick={() => onRemoveCard(card.id)}
-											aria-label={`Remove ${refEn} from memorize deck`}
-											title={`Remove ${refEn}`}
-										>
-											<X size={14} />
-										</button>
-									</div>
-								</article>
-							);
-						})}
+					<div className="memorize-verses-list">
+						{cards.map((card) => (
+							<MemorizeVerseItem
+								key={card.id}
+								card={card}
+								stackOrder={stackOrder}
+								wordTooltip={wordTooltip}
+								lexicon={lexicon}
+								activeAudioKey={verseAudio.activeTargetKey}
+								isAudioPlaying={verseAudio.isPlaying}
+								isAudioLoading={verseAudio.isLoading}
+								audioSource={verseAudio.source}
+								onToggleAudio={verseAudio.togglePlay}
+								onRemove={onRemoveCard}
+							/>
+						))}
 					</div>
 				)}
 			</section>

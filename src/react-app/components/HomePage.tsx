@@ -33,8 +33,6 @@ interface HomePageProps extends SavedItemsProps {
 	wordTooltip?: boolean;
 	lexicon?: LexiconMap;
 	memorizeTotalCount?: number;
-	memorizeDueCount?: number;
-	memorizeStreakDays?: number;
 	onChangeCommentarySource?: (source: CommentaryId) => void;
 	onOpenMemorize?: () => void;
 	onOpenPassage: (
@@ -122,8 +120,6 @@ export function HomePage({
 	wordTooltip = true,
 	lexicon,
 	memorizeTotalCount = 0,
-	memorizeDueCount = 0,
-	memorizeStreakDays = 0,
 	onChangeCommentarySource,
 	onOpenMemorize,
 	onOpenPassage,
@@ -192,7 +188,7 @@ export function HomePage({
 							Read {CANONICAL_BIBLES.en.code} and {CANONICAL_BIBLES.ko.code} side-by-side
 						</li>
 						<li>Hover any Korean word for instant dictionary and grammar notes</li>
-						<li>Listen along verse by verse &amp; memorize Scripture with bilingual flashcards</li>
+						<li>Listen along verse by verse &amp; save Scripture to memorize with audio</li>
 					</ul>
 				</div>
 			</section>
@@ -228,7 +224,7 @@ export function HomePage({
 			{onOpenMemorize && (
 				<HomeDisclosureSection
 					label="Study"
-					badgeCount={memorizeDueCount > 0 ? memorizeDueCount : undefined}
+					badgeCount={memorizeTotalCount > 0 ? memorizeTotalCount : undefined}
 					isOpen={studyOpen}
 					onToggle={() => setStudyOpen((prev) => !prev)}
 					sectionClassName="home-study-section"
@@ -236,27 +232,20 @@ export function HomePage({
 				>
 					<div className="home-continue-card home-memorize-card">
 						<div className="home-continue-meta">
-							<p className="home-continue-subtitle">
-								Memorize Scripture
-								{memorizeStreakDays > 0 && (
-									<span className="home-streak-pill"> · {memorizeStreakDays}d streak</span>
-								)}
-							</p>
+							<p className="home-continue-subtitle">Memorize Scripture</p>
 							<h2 className="home-continue-ref">
 								{memorizeTotalCount > 0 ? (
 									<>
-										{memorizeDueCount > 0
-											? `${memorizeDueCount} due for review`
-											: `${memorizeTotalCount} saved in deck`}{" "}
+										{memorizeTotalCount} saved {memorizeTotalCount === 1 ? "verse" : "verses"}{" "}
 										<span className="home-continue-ko" lang="ko">
-											· 말씀 암송 ({memorizeTotalCount})
+											· 말씀 암송
 										</span>
 									</>
 								) : (
 									<>
-										Study Flashcards{" "}
+										Saved Verses{" "}
 										<span className="home-continue-ko" lang="ko">
-											· 말씀 암송 카드
+											· 말씀 암송
 										</span>
 									</>
 								)}
@@ -264,7 +253,7 @@ export function HomePage({
 						</div>
 						<button type="button" className="home-memorize-btn" onClick={onOpenMemorize}>
 							<Layers size={15} />
-							<span>{memorizeDueCount > 0 ? "Study Now" : "Open Flashcards"}</span>
+							<span>Open</span>
 							<ArrowRight size={15} />
 						</button>
 					</div>
