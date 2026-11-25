@@ -12,6 +12,7 @@ import {
 	loadChapterCommentary,
 	loadSyncedChapterAudio,
 	loadTranslationChapter,
+	loadTranslationPassage,
 	MAX_ESV_CACHED_VERSES,
 } from "../src/react-app/lib/bible-loader";
 import {
@@ -631,6 +632,111 @@ describe("Reader pure logic (no DOM)", () => {
 					).entries,
 				).toHaveLength(1);
 				expect(recordedSignals.length).toBe(countBefore);
+			},
+		);
+	});
+
+	it("loads targeted passages for KRV and ESV, reuses chapter/passage cache, and shares ESV compliance caps", async () => {
+		const fetchedUrls: string[] = [];
+		await withMockFetch(
+			(url) => {
+				fetchedUrls.push(url);
+				if (url === "/data/bibles/krv/PRO.json") {
+					return Response.json({
+						translationId: "krv",
+						bookNumber: 20,
+						usfm: "PRO",
+						chapters: {
+							"3": [
+								{ verse: 4, text: "v4" },
+								{ verse: 5, text: "너는 마음을 다하여 여호와를 의뢰하고" },
+								{ verse: 6, text: "너는 범사에 그를 인정하라" },
+								{ verse: 7, text: "v7" },
+							],
+						},
+					});
+				}
+				if (url === "/api/esv/PRO/3/5-6") {
+					return Response.json({
+						translationId: "esv",
+						bookNumber: 20,
+						usfm: "PRO",
+						chapter: 3,
+						verses: [
+							{ verse: 5, text: "Trust in the LORD with all your heart," },
+							{ verse: 6, text: "In all your ways acknowledge him," },
+						],
+					});
+				}
+				if (url === "/api/esv/RUT/1/1") {
+					return Response.json({
+						translationId: "esv",
+						bookNumber: 8,
+						usfm: "RUT",
+						chapter: 1,
+						verses: [{ verse: 1, text: "RUT 1:1" }],
+					});
+				}
+				if (url === "/api/esv/RUT/2/1") {
+					return Response.json({
+						translationId: "esv",
+						bookNumber: 8,
+						usfm: "RUT",
+						chapter: 2,
+						verses: [{ verse: 1, text: "RUT 2:1" }],
+					});
+				}
+				if (url === "/api/esv/RUT/3/1") {
+					return Response.json({
+						translationId: "esv",
+						bookNumber: 8,
+						usfm: "RUT",
+						chapter: 3,
+						verses: [{ verse: 1, text: "RUT 3:1" }],
+					});
+				}
+				if (url === "/api/esv/JHN/3") {
+					return Response.json({
+						translationId: "esv",
+						bookNumber: 43,
+						usfm: "JHN",
+						chapter: 3,
+						verses: [
+							{ verse: 15, text: "JHN 3:15" },
+							{ verse: 16, text: "For God so loved the world," },
+						],
+					});
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+			async () => {
+				const koRange = await loadTranslationPassage("krv", 20, 3, 5, 6);
+				expect(koRange.map((v) => v.verse)).toEqual([5, 6]);
+
+				const enRange = await loadTranslationPassage("esv", 20, 3, 5, 6);
+				expect(enRange.map((v) => v.verse)).toEqual([5, 6]);
+				// Contained single verse hits passage cache without extra fetch
+				const enSingle = await loadTranslationPassage("esv", 20, 3, 5);
+				expect(enSingle).toEqual([{ verse: 5, text: "Trust in the LORD with all your heart," }]);
+				expect(fetchedUrls.filter((u) => u.startsWith("/api/esv/PRO/"))).toHaveLength(1);
+
+				// Chapter cache also satisfies targeted passage requests without network
+				await loadTranslationChapter("esv", 43, 3);
+				const john16 = await loadTranslationPassage("esv", 43, 3, 16);
+				expect(john16).toEqual([{ verse: 16, text: "For God so loved the world," }]);
+				expect(fetchedUrls).not.toContain("/api/esv/JHN/3/16");
+
+				// Ruth (4 chapters) caps distinct cached chapters across chapters+passages to <= 2
+				clearLoaderCaches();
+				await loadTranslationPassage("esv", 8, 1, 1);
+				await loadTranslationPassage("esv", 8, 2, 1);
+				await loadTranslationPassage("esv", 8, 1, 1);
+				await loadTranslationPassage("esv", 8, 3, 1);
+				expect(getEsvCacheStats()).toEqual({ chapters: 0, verses: 2 });
+				await loadTranslationPassage("esv", 8, 1, 1);
+				expect(fetchedUrls.filter((u) => u === "/api/esv/RUT/1/1")).toHaveLength(1);
+				await loadTranslationPassage("esv", 8, 2, 1);
+				expect(fetchedUrls.filter((u) => u === "/api/esv/RUT/2/1")).toHaveLength(2);
 			},
 		);
 	});

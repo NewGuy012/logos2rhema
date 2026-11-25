@@ -9,8 +9,10 @@ import {
 	BIBLE_BOOKS,
 	BIBLE_GENRES,
 	findBookByQuery,
+	formatVerseRefBilingual,
 	getAdjacentChapter,
 	parsePassageReference,
+	parseVerseRangeReference,
 } from "../src/shared/books";
 
 describe("spb-parser", () => {
@@ -104,6 +106,56 @@ describe("books & passage reference parser", () => {
 		});
 		expect(findBookByQuery("1Cor")?.usfm).toBe("1CO");
 		expect(findBookByQuery("toString")).toBeUndefined();
+	});
+
+	it("parses and formats single-verse and bounded verse-range references in EN and KO", () => {
+		expect(parseVerseRangeReference("John 3:16")).toEqual({
+			bookNumber: 43,
+			chapter: 3,
+			verseStart: 16,
+		});
+		expect(parseVerseRangeReference("Proverbs 3:5-6")).toEqual({
+			bookNumber: 20,
+			chapter: 3,
+			verseStart: 5,
+			verseEnd: 6,
+		});
+		expect(parseVerseRangeReference("잠 3장 5–6절")).toEqual({
+			bookNumber: 20,
+			chapter: 3,
+			verseStart: 5,
+			verseEnd: 6,
+		});
+		expect(parseVerseRangeReference("시 23:1~3")).toEqual({
+			bookNumber: 19,
+			chapter: 23,
+			verseStart: 1,
+			verseEnd: 3,
+		});
+		expect(parseVerseRangeReference("Jude 24-25")).toEqual({
+			bookNumber: 65,
+			chapter: 1,
+			verseStart: 24,
+			verseEnd: 25,
+		});
+		expect(parseVerseRangeReference("John 3:16-16")).toEqual({
+			bookNumber: 43,
+			chapter: 3,
+			verseStart: 16,
+		});
+
+		expect(
+			formatVerseRefBilingual({ bookNumber: 20, chapter: 3, verseStart: 5, verseEnd: 6 }),
+		).toEqual({
+			refEn: "Proverbs 3:5–6",
+			refKo: "잠언 3장 5–6절",
+		});
+
+		// Rejects chapter-only, reversed ranges, out-of-range chapters, and spans > 10 verses
+		expect(parseVerseRangeReference("John 3")).toBeNull();
+		expect(parseVerseRangeReference("John 99:1")).toBeNull();
+		expect(parseVerseRangeReference("John 3:16-14")).toBeNull();
+		expect(parseVerseRangeReference("Ps 119:1-12")).toBeNull();
 	});
 
 	it("computes adjacent chapters across book boundaries", () => {

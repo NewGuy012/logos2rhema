@@ -222,6 +222,17 @@ export function containsHangul(text: string): boolean {
 	return /[\uAC00-\uD7A3]/.test(text);
 }
 
+/** Converts Hangul syllables to their leading initial consonants (초성), preserving punctuation/spaces. */
+export function toInitialConsonants(text: string): string {
+	if (!text) return "";
+	let out = "";
+	for (const ch of text) {
+		const info = decodeSyllableAt(ch, 0);
+		out += info ? INITIALS[info.lead] : ch;
+	}
+	return out;
+}
+
 export function hasFinalConsonant(word: string): boolean {
 	const info = decodeSyllableAt(word, word.length - 1);
 	return info !== null && info.final > 0;

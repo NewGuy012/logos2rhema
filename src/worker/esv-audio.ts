@@ -13,7 +13,16 @@ export function formatEsvPassageQuery(
 	bookEn: string,
 	chapter: number,
 	chaptersInBook: number,
+	verseStart?: number,
+	verseEnd?: number,
 ): string {
+	if (verseStart !== undefined) {
+		const rangeStr =
+			verseEnd !== undefined && verseEnd > verseStart
+				? `${verseStart}-${verseEnd}`
+				: String(verseStart);
+		return chaptersInBook === 1 ? `${bookEn} ${rangeStr}` : `${bookEn} ${chapter}:${rangeStr}`;
+	}
 	// Single-chapter books need the bare book name: "Jude 1" selects verse 1 only, and "Jude 1:1-99" returns 400 on audio.
 	return chaptersInBook === 1 ? bookEn : `${bookEn} ${chapter}`;
 }

@@ -57,6 +57,8 @@ type TagRole =
 type FetchEsvChapterResult =
 	{ status: "ok"; verses: VerseEntry[] } | { status: "rate_limited" } | { status: "error" };
 
+type FetchEsvPassageResult = FetchEsvChapterResult | { status: "not_found" };
+
 function decodeHtmlEntities(input: string): string {
 	return input.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
 		if (entity.startsWith("#")) {
@@ -307,16 +309,24 @@ export function parseEsvPassageHtml(html: string): VerseEntry[] {
 	return verses;
 }
 
-export async function fetchEsvChapterVerses(
+async function fetchEsvHtmlVerses(
 	apiKey: string,
 	options: {
 		bookEn: string;
 		chapter: number;
 		chaptersInBook: number;
+		verseStart?: number;
+		verseEnd?: number;
 	},
 	fetcher: FetchLike = fetch,
-): Promise<FetchEsvChapterResult> {
-	const query = formatEsvPassageQuery(options.bookEn, options.chapter, options.chaptersInBook);
+): Promise<FetchEsvPassageResult> {
+	const query = formatEsvPassageQuery(
+		options.bookEn,
+		options.chapter,
+		options.chaptersInBook,
+		options.verseStart,
+		options.verseEnd,
+	);
 	const params = new URLSearchParams({
 		q: query,
 		"include-passage-references": "false",
@@ -343,7 +353,47 @@ export async function fetchEsvChapterVerses(
 	const rawPassages = res.data.passages;
 	if (!Array.isArray(rawPassages)) return { status: "error" };
 
-	const html = rawPassages.filter((p): p is string => typeof p === "string").join("\n");
-	const verses = parseEsvPassageHtml(html);
-	return verses.length > 0 ? { status: "ok", verses } : { status: "error" };
+	const strings = rawPassages.filter((p): p is string => typeof p === "string");
+	if (options.verseStart !== undefined && strings.every((p) => !p.trim())) {
+		return { status: "not_found" };
+	}
+
+	const html = strings.join("\n");
+	const parsed = parseEsvPassageHtml(html);
+	if (options.verseStart === undefined) {
+		return parsed.length > 0 ? { status: "ok", verses: parsed } : { status: "error" };
+	}
+
+	const start = options.verseStart;
+	const end = options.verseEnd ?? start;
+	const filtered = parsed.filter((v) => v.verse >= start && v.verse <= end);
+	if (filtered.length > 0) return { status: "ok", verses: filtered };
+	return parsed.length > 0 ? { status: "not_found" } : { status: "error" };
+}
+
+export async function fetchEsvChapterVerses(
+	apiKey: string,
+	options: {
+		bookEn: string;
+		chapter: number;
+		chaptersInBook: number;
+	},
+	fetcher: FetchLike = fetch,
+): Promise<FetchEsvChapterResult> {
+	const result = await fetchEsvHtmlVerses(apiKey, options, fetcher);
+	return result.status === "not_found" ? { status: "error" } : result;
+}
+
+export function fetchEsvPassageVerses(
+	apiKey: string,
+	options: {
+		bookEn: string;
+		chapter: number;
+		chaptersInBook: number;
+		verseStart: number;
+		verseEnd?: number;
+	},
+	fetcher: FetchLike = fetch,
+): Promise<FetchEsvPassageResult> {
+	return fetchEsvHtmlVerses(apiKey, options, fetcher);
 }

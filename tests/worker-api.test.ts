@@ -647,6 +647,101 @@ describe("Worker API & Security Boundaries", () => {
 		).toBe(200);
 		expect(liveCalls).toBe(1);
 	});
+
+	it("serves targeted /api/esv/:usfm/:chapter/:verseRange with validation, localEsvLoader slicing, and 404 boundaries", async () => {
+		const secretKey = "esv-passage-key-456";
+		const queries: string[] = [];
+
+		const mockFetch: FetchLike = async (input) => {
+			const q = new URL(String(input)).searchParams.get("q") ?? "";
+			queries.push(q);
+			if (q === "John 3:16") {
+				return Response.json({
+					passages: ['<p><b class="verse-num">3:16&nbsp;</b>For God so loved the world.</p>'],
+				});
+			}
+			if (q === "Proverbs 3:5-6") {
+				return Response.json({
+					passages: [
+						'<p><b class="verse-num">5&nbsp;</b>Trust in the LORD.<b class="verse-num">6&nbsp;</b>In all your ways.</p>',
+					],
+				});
+			}
+			if (q === "Jude 24-25") {
+				return Response.json({
+					passages: [
+						'<p><b class="verse-num">24&nbsp;</b>Now to him.<b class="verse-num">25&nbsp;</b>to the only God.</p>',
+					],
+				});
+			}
+			if (q === "John 3:199") {
+				return Response.json({ passages: [] });
+			}
+			return new Response("Not Found", { status: 404 });
+		};
+
+		const app = createApp({ fetcher: mockFetch });
+
+		const jhn = await requestApp(app, "/api/esv/jhn/3/16", undefined, { ESV_API_KEY: secretKey });
+		expect(jhn.status).toBe(200);
+		expect(jhn.headers.get("cache-control")).toBe("private, no-store");
+		assertSecurityHeaders(jhn);
+		expect(await jhn.json()).toEqual({
+			translationId: "esv",
+			bookNumber: 43,
+			usfm: "JHN",
+			chapter: 3,
+			verses: [{ verse: 16, text: "For God so loved the world." }],
+		});
+
+		const prov = await requestApp(app, "/api/esv/PRO/3/5-6", undefined, { ESV_API_KEY: secretKey });
+		expect(prov.status).toBe(200);
+		expect(((await prov.json()) as ChapterTextResponse).verses.map((v) => v.verse)).toEqual([5, 6]);
+
+		const jude = await requestApp(app, "/api/esv/JUD/1/24-25", undefined, {
+			ESV_API_KEY: secretKey,
+		});
+		expect(jude.status).toBe(200);
+		expect(queries).toEqual(["John 3:16", "Proverbs 3:5-6", "Jude 24-25"]);
+
+		// Validation errors (reversed, >10 span, zero, malformed)
+		for (const bad of [
+			"/api/esv/JHN/3/0",
+			"/api/esv/JHN/3/16-14",
+			"/api/esv/PSA/119/1-12",
+			"/api/esv/JHN/3/abc",
+		]) {
+			const res = await requestApp(app, bad, undefined, { ESV_API_KEY: secretKey });
+			expect(res.status).toBe(400);
+			expect(res.headers.get("cache-control")).toBe("private, no-store");
+		}
+
+		// Nonexistent verse returns 404
+		const missingRes = await requestApp(app, "/api/esv/JHN/3/199", undefined, {
+			ESV_API_KEY: secretKey,
+		});
+		expect(missingRes.status).toBe(404);
+		expect(missingRes.headers.get("cache-control")).toBe("private, no-store");
+
+		// localEsvLoader slices in-memory and returns 404 when verse absent
+		const localApp = createApp({
+			localEsvLoader: async (usfm, ch) =>
+				usfm === "PSA" && ch === 23
+					? [
+							{ verse: 1, text: "The LORD is my shepherd." },
+							{ verse: 2, text: "He makes me lie down." },
+							{ verse: 3, text: "He restores my soul." },
+						]
+					: null,
+		});
+		const localSlice = await requestApp(localApp, "/api/esv/PSA/23/2-3");
+		expect(localSlice.status).toBe(200);
+		expect(((await localSlice.json()) as ChapterTextResponse).verses).toEqual([
+			{ verse: 2, text: "He makes me lie down." },
+			{ verse: 3, text: "He restores my soul." },
+		]);
+		expect((await requestApp(localApp, "/api/esv/PSA/23/9")).status).toBe(404);
+	});
 });
 
 interface MockAudioObjectSpec {

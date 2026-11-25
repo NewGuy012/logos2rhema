@@ -163,3 +163,35 @@ export interface HighlightItem {
 	text: string;
 	createdAt: number;
 }
+
+export interface VerseRef {
+	bookNumber: number;
+	chapter: number;
+	verseStart: number;
+	verseEnd?: number;
+}
+
+export type MemorizeRating = "again" | "hard" | "good" | "easy";
+export type MemorizeStudyMode = "flip" | "reverse" | "bilingual" | "cloze";
+export type MemorizeLangMode = "both" | "en" | "ko";
+export type MemorizeMastery = "new" | "learning" | "reviewing" | "mastered";
+
+export interface MemorizeCard extends VerseRef {
+	id: string;
+	koPreview?: string;
+	packId?: string;
+	note?: string;
+	repetitions: number;
+	intervalDays: number;
+	easeFactor: number;
+	dueAt: number;
+	lastReviewedAt?: number;
+	lapses: number;
+	createdAt: number;
+}
+
+export interface MemorizeStats {
+	streakDays: number;
+	lastStudiedDate: string | null;
+	totalReviews: number;
+}

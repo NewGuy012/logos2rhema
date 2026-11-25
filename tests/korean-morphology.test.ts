@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
 import { BIBLE_BOOKS } from "../src/shared/books";
-import { containsHangul, romanizeHangul } from "../src/shared/hangul";
+import { containsHangul, romanizeHangul, toInitialConsonants } from "../src/shared/hangul";
 import { analyzeKoreanChapter, analyzeKoreanWord } from "../src/shared/korean-morphology";
 import type { BookBibleData, LexiconMap } from "../src/shared/types";
 
@@ -89,6 +89,8 @@ describe("korean-morphology", () => {
 		expect(romanizeHangul("없는")).toBe("eom-neun");
 		expect(romanizeHangul("성령")).toBe("seong-nyeong");
 		expect(romanizeHangul("좋다")).toBe("jo-ta");
+		expect(toInitialConsonants("하나님이 세상을!")).toBe("ㅎㄴㄴㅇ ㅅㅅㅇ!");
+		expect(toInitialConsonants("빛이 있으라")).toBe("ㅂㅇ ㅇㅇㄹ");
 	});
 
 	it("handles phonological allomorphy, dual-POS entries, and representative biblical disambiguations", async () => {

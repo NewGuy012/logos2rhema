@@ -1,4 +1,7 @@
-import type { BookMeta, ParsedReference, Testament } from "./types";
+import type { BookMeta, ParsedReference, Testament, VerseRef } from "./types";
+
+export const MAX_VERSE_NUMBER = 200;
+export const MAX_PASSAGE_VERSE_SPAN = 10;
 
 type BookRow = readonly [
 	usfm: string,
@@ -254,4 +257,83 @@ export function parsePassageReference(input: string): ParsedReference | null {
 		chapter: clampChapter(book, chapterNum),
 		verse: verseNum && !Number.isNaN(verseNum) ? verseNum : undefined,
 	};
+}
+
+export function normalizeVerseRef(
+	ref: VerseRef,
+	maxSpan = MAX_PASSAGE_VERSE_SPAN,
+): VerseRef | null {
+	const book = getBookByNumber(ref.bookNumber);
+	if (!book) return null;
+	if (!Number.isInteger(ref.chapter) || ref.chapter < 1 || ref.chapter > book.chapters) {
+		return null;
+	}
+	if (
+		!Number.isInteger(ref.verseStart) ||
+		ref.verseStart < 1 ||
+		ref.verseStart > MAX_VERSE_NUMBER
+	) {
+		return null;
+	}
+	const end = ref.verseEnd;
+	if (end !== undefined) {
+		if (
+			!Number.isInteger(end) ||
+			end < ref.verseStart ||
+			end > MAX_VERSE_NUMBER ||
+			end - ref.verseStart + 1 > maxSpan
+		) {
+			return null;
+		}
+	}
+	return end !== undefined && end > ref.verseStart
+		? { bookNumber: book.number, chapter: ref.chapter, verseStart: ref.verseStart, verseEnd: end }
+		: { bookNumber: book.number, chapter: ref.chapter, verseStart: ref.verseStart };
+}
+
+export function formatVerseRefBilingual(ref: VerseRef): { refEn: string; refKo: string } {
+	const book = getBookOrDefault(ref.bookNumber);
+	const hasRange = ref.verseEnd !== undefined && ref.verseEnd > ref.verseStart;
+	return {
+		refEn: hasRange
+			? `${book.en} ${ref.chapter}:${ref.verseStart}–${ref.verseEnd}`
+			: `${book.en} ${ref.chapter}:${ref.verseStart}`,
+		refKo: hasRange
+			? `${book.ko} ${ref.chapter}장 ${ref.verseStart}–${ref.verseEnd}절`
+			: `${book.ko} ${ref.chapter}장 ${ref.verseStart}절`,
+	};
+}
+
+export function parseVerseRangeReference(
+	input: string,
+	maxSpan = MAX_PASSAGE_VERSE_SPAN,
+): VerseRef | null {
+	const trimmed = input.trim().replace(/\s+/g, " ");
+	if (!trimmed || trimmed.length > 100) return null;
+
+	const chVerseMatch = trimmed.match(
+		/^(.+?)\s*(\d+)\s*(?::|장\s*|\.)\s*(\d+)\s*절?(?:\s*[-–—~]\s*(\d+))?\s*절?$/,
+	);
+	if (chVerseMatch) {
+		const book = findBookByQuery(chVerseMatch[1]);
+		if (!book) return null;
+		const chapter = Number.parseInt(chVerseMatch[2], 10);
+		const verseStart = Number.parseInt(chVerseMatch[3], 10);
+		const verseEnd = chVerseMatch[4] ? Number.parseInt(chVerseMatch[4], 10) : undefined;
+		return normalizeVerseRef({ bookNumber: book.number, chapter, verseStart, verseEnd }, maxSpan);
+	}
+
+	const singleChapMatch = trimmed.match(/^(.+?)\s+(\d+)\s*절?(?:\s*[-–—~]\s*(\d+))?\s*절?$/);
+	if (singleChapMatch) {
+		const book = findBookByQuery(singleChapMatch[1]);
+		if (!book || book.chapters !== 1) return null;
+		const verseStart = Number.parseInt(singleChapMatch[2], 10);
+		const verseEnd = singleChapMatch[3] ? Number.parseInt(singleChapMatch[3], 10) : undefined;
+		return normalizeVerseRef(
+			{ bookNumber: book.number, chapter: 1, verseStart, verseEnd },
+			maxSpan,
+		);
+	}
+
+	return null;
 }

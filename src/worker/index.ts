@@ -4,7 +4,7 @@ import {
 	SUPERTONIC_TRACK_ID,
 	SUPERTONIC_TRACK_LABEL,
 } from "../shared/audio-timings";
-import { getBookByUsfm } from "../shared/books";
+import { getBookByUsfm, MAX_PASSAGE_VERSE_SPAN, MAX_VERSE_NUMBER } from "../shared/books";
 import { isCommentaryId } from "../shared/commentaries";
 import { CANONICAL_BIBLES } from "../shared/translations";
 import type {
@@ -17,7 +17,7 @@ import type {
 } from "../shared/types";
 import { isSafeHttpsUrl } from "../shared/url";
 import { fetchEsvAudioTrack, resolveEsvAudioUrl } from "./esv-audio";
-import { fetchEsvChapterVerses } from "./esv-text";
+import { fetchEsvChapterVerses, fetchEsvPassageVerses } from "./esv-text";
 import { fetchHelloAoCommentaryChapter } from "./helloao";
 import { cancelBody, type FetchLike } from "./http";
 
@@ -237,8 +237,61 @@ function parseChapterRef(
 	return chapter !== null ? { book, usfm, chapter } : null;
 }
 
+function parseVerseRangeParam(raw: string): { verseStart: number; verseEnd?: number } | null {
+	const decoded = decodeSegment(raw);
+	if (decoded === null) return null;
+	const match = /^([1-9]\d*)(?:-([1-9]\d*))?$/.exec(decoded);
+	if (!match) return null;
+	const verseStart = Number.parseInt(match[1], 10);
+	const verseEnd = match[2] ? Number.parseInt(match[2], 10) : verseStart;
+	if (
+		!Number.isSafeInteger(verseStart) ||
+		!Number.isSafeInteger(verseEnd) ||
+		verseStart < 1 ||
+		verseEnd < verseStart ||
+		verseEnd > MAX_VERSE_NUMBER ||
+		verseEnd - verseStart + 1 > MAX_PASSAGE_VERSE_SPAN
+	) {
+		return null;
+	}
+	return verseEnd > verseStart ? { verseStart, verseEnd } : { verseStart };
+}
+
 function esvPassageOpts(book: BookMeta, chapter: number) {
 	return { bookEn: book.en, chapter, chaptersInBook: book.chapters };
+}
+
+function esvTextSuccess(
+	book: BookMeta,
+	usfm: string,
+	chapter: number,
+	verses: VerseEntry[],
+): Response {
+	return jsonResponse(
+		{
+			translationId: CANONICAL_BIBLES.en.id,
+			bookNumber: book.number,
+			usfm,
+			chapter,
+			verses,
+		} satisfies ChapterTextResponse,
+		200,
+		NO_STORE_PRIVATE,
+	);
+}
+
+function esvFetchErrorResponse(status: "not_found" | "rate_limited" | "error"): Response {
+	if (status === "rate_limited") {
+		return jsonError(
+			429,
+			"ESV API rate limit reached. Please try again shortly.",
+			NO_STORE_PRIVATE,
+		);
+	}
+	if (status === "not_found") {
+		return jsonError(404, "Verse not found in chapter", NO_STORE_PRIVATE);
+	}
+	return jsonError(502, "ESV passage unavailable", NO_STORE_PRIVATE);
 }
 
 function finalizeResponse(response: Response, isHead: boolean): Response {
@@ -274,30 +327,57 @@ async function handleEsvChapter(
 			return jsonError(503, "ESV text is not configured", NO_STORE_PRIVATE);
 		}
 		const result = await fetchEsvChapterVerses(esvApiKey, esvPassageOpts(book, chapter), fetcher);
-		if (result.status === "rate_limited") {
-			return jsonError(
-				429,
-				"ESV API rate limit reached. Please try again shortly.",
-				NO_STORE_PRIVATE,
-			);
-		}
 		if (result.status !== "ok") {
-			return jsonError(502, "ESV passage unavailable", NO_STORE_PRIVATE);
+			return esvFetchErrorResponse(result.status);
 		}
 		verses = result.verses;
 	}
 
-	return jsonResponse(
-		{
-			translationId: CANONICAL_BIBLES.en.id,
-			bookNumber: book.number,
-			usfm,
-			chapter,
-			verses,
-		} satisfies ChapterTextResponse,
-		200,
-		NO_STORE_PRIVATE,
+	return esvTextSuccess(book, usfm, chapter, verses);
+}
+
+async function handleEsvPassage(
+	usfmRaw: string,
+	chapterRaw: string,
+	verseRangeRaw: string,
+	env: WorkerBindings,
+	fetcher: FetchLike,
+	localEsvLoader?: WorkerDeps["localEsvLoader"],
+): Promise<Response> {
+	const parsed = parseChapterRef(usfmRaw, chapterRaw);
+	if (!parsed) {
+		return jsonError(400, "Invalid book or chapter reference", NO_STORE_PRIVATE);
+	}
+	const range = parseVerseRangeParam(verseRangeRaw);
+	if (!range) {
+		return jsonError(400, "Invalid verse range", NO_STORE_PRIVATE);
+	}
+	const { book, usfm, chapter } = parsed;
+	const { verseStart, verseEnd } = range;
+	const end = verseEnd ?? verseStart;
+
+	const localVerses = localEsvLoader ? await localEsvLoader(usfm, chapter).catch(() => null) : null;
+	if (localVerses && localVerses.length > 0) {
+		const sliced = localVerses.filter((v) => v.verse >= verseStart && v.verse <= end);
+		if (sliced.length === 0) {
+			return esvFetchErrorResponse("not_found");
+		}
+		return esvTextSuccess(book, usfm, chapter, sliced);
+	}
+
+	const esvApiKey = env.ESV_API_KEY?.trim();
+	if (!esvApiKey) {
+		return jsonError(503, "ESV text is not configured", NO_STORE_PRIVATE);
+	}
+	const result = await fetchEsvPassageVerses(
+		esvApiKey,
+		{ ...esvPassageOpts(book, chapter), verseStart, verseEnd },
+		fetcher,
 	);
+	if (result.status !== "ok") {
+		return esvFetchErrorResponse(result.status);
+	}
+	return esvTextSuccess(book, usfm, chapter, result.verses);
 }
 
 async function handleAudioTracks(
@@ -563,6 +643,9 @@ export function createApp(deps: WorkerDeps = {}): WorkerApp {
 		}
 
 		if (parts.length === 5) {
+			if (parts[1] === "esv") {
+				return handleEsvPassage(parts[2], parts[3], parts[4], env, fetcher, deps.localEsvLoader);
+			}
 			if (parts[1] === "audio" && parts[2] === "krv") {
 				return handleKrvAudio(request, parts[3], parts[4], env);
 			}
