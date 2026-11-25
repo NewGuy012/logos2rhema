@@ -3,7 +3,13 @@ import { type FormEvent, Fragment, type ReactNode, useId, useMemo, useState } fr
 import { filterBooks, getBookOrDefault } from "../../shared/books";
 import { DEFAULT_COMMENTARY_ID } from "../../shared/commentaries";
 import { CANONICAL_BIBLES } from "../../shared/translations";
-import type { BookMeta, CommentaryId, RightRailTab } from "../../shared/types";
+import type {
+	BookMeta,
+	CommentaryId,
+	LexiconMap,
+	RightRailTab,
+	VerseRef,
+} from "../../shared/types";
 import { BookChapterGrid, GenresBrowser, submitPassageQuery } from "./BookChapterBrowser";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
 import { HomeAudioBrowser } from "./HomeAudioBrowser";
@@ -16,17 +22,36 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Headphones,
+	Layers,
 	Search,
 } from "./Icons";
 import { LegalFooter } from "./LegalFooter";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
+import type { StackOrder } from "./VerseBlock";
+import { VerseOfTheDayCard } from "./VerseOfTheDayCard";
 
 interface HomePageProps extends SavedItemsProps {
 	lastBookNumber: number;
 	lastChapter: number;
 	lastVerse?: number;
 	commentarySource?: CommentaryId;
+	stackOrder?: StackOrder;
+	wordTooltip?: boolean;
+	lexicon?: LexiconMap;
+	favoriteIds?: ReadonlySet<string>;
+	memorizeCardIds?: ReadonlySet<string>;
+	memorizeTotalCount?: number;
+	memorizeDueCount?: number;
+	memorizeStreakDays?: number;
 	onChangeCommentarySource?: (source: CommentaryId) => void;
+	onOpenMemorize?: () => void;
+	onToggleFavoriteVerse?: (input: {
+		bookNumber: number;
+		chapter: number;
+		verse: number;
+		koText?: string | null;
+	}) => void;
+	onToggleMemorizeVerse?: (input: VerseRef & { koPreview?: string | null }) => void;
 	onOpenPassage: (
 		bookNumber: number,
 		chapter: number,
@@ -108,7 +133,18 @@ export function HomePage({
 	favorites = [],
 	highlights = [],
 	commentarySource,
+	stackOrder = "en-first",
+	wordTooltip = true,
+	lexicon,
+	favoriteIds,
+	memorizeCardIds,
+	memorizeTotalCount = 0,
+	memorizeDueCount = 0,
+	memorizeStreakDays = 0,
 	onChangeCommentarySource,
+	onOpenMemorize,
+	onToggleFavoriteVerse,
+	onToggleMemorizeVerse,
 	onOpenPassage,
 	onRemoveFavorite,
 	onRemoveHighlight,
@@ -161,19 +197,16 @@ export function HomePage({
 						<span>Audio Available</span>
 					</span>
 				</div>
-				<figure className="home-featured-verse" aria-label="Psalm 1:2">
-					<blockquote className="home-featured-verse-quote">
-						“but his delight is in the law of the Lord, and on his law he meditates day and night.”
-					</blockquote>
-					<figcaption className="home-featured-verse-meta">
-						<span className="home-featured-verse-ref">
-							<span>Psalm 1:2</span>
-							<span className="home-featured-verse-ko" lang="ko">
-								· 시편 1:2
-							</span>
-						</span>
-					</figcaption>
-				</figure>
+				<VerseOfTheDayCard
+					stackOrder={stackOrder}
+					wordTooltip={wordTooltip}
+					lexicon={lexicon}
+					favoriteIds={favoriteIds}
+					memorizeCardIds={memorizeCardIds}
+					onOpenPassage={onOpenPassage}
+					onToggleFavorite={onToggleFavoriteVerse}
+					onToggleMemorize={onToggleMemorizeVerse}
+				/>
 				<div className="home-features">
 					<h2 className="home-section-title">Features</h2>
 					<ul className="home-subtitle">
@@ -181,7 +214,7 @@ export function HomePage({
 							Read {CANONICAL_BIBLES.en.code} and {CANONICAL_BIBLES.ko.code} side-by-side
 						</li>
 						<li>Hover any Korean word for instant dictionary and grammar notes</li>
-						<li>Listen along verse by verse</li>
+						<li>Listen along verse by verse &amp; memorize Scripture with bilingual flashcards</li>
 					</ul>
 				</div>
 			</section>
@@ -212,6 +245,43 @@ export function HomePage({
 						<ArrowRight size={15} />
 					</button>
 				</div>
+
+				{onOpenMemorize && (
+					<div className="home-continue-card home-memorize-card">
+						<div className="home-continue-meta">
+							<p className="home-continue-subtitle">
+								Memorize Scripture
+								{memorizeStreakDays > 0 && (
+									<span className="home-streak-pill"> · {memorizeStreakDays}d streak</span>
+								)}
+							</p>
+							<h2 className="home-continue-ref">
+								{memorizeTotalCount > 0 ? (
+									<>
+										{memorizeDueCount > 0
+											? `${memorizeDueCount} due for review`
+											: `${memorizeTotalCount} saved in deck`}{" "}
+										<span className="home-continue-ko" lang="ko">
+											· 말씀 암송 ({memorizeTotalCount})
+										</span>
+									</>
+								) : (
+									<>
+										Study Flashcards{" "}
+										<span className="home-continue-ko" lang="ko">
+											· 말씀 암송 카드
+										</span>
+									</>
+								)}
+							</h2>
+						</div>
+						<button type="button" className="home-memorize-btn" onClick={onOpenMemorize}>
+							<Layers size={15} />
+							<span>{memorizeDueCount > 0 ? "Study Now" : "Memorize"}</span>
+							<ArrowRight size={15} />
+						</button>
+					</div>
+				)}
 			</section>
 
 			<HomeDisclosureSection

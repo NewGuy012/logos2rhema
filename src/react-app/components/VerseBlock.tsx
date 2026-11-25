@@ -4,7 +4,7 @@ import { CANONICAL_BIBLES } from "../../shared/translations";
 import type { AlignedVerse, HighlightItem } from "../../shared/types";
 import { renderHighlightedText } from "./HighlightText";
 import { Bookmark } from "./Icons";
-import { KoreanToken } from "./KoreanToken";
+import { KoreanTokensLine } from "./KoreanToken";
 
 export type StackOrder = "en-first" | "ko-first";
 export type StudyMaskMode = "none" | "mask-en" | "mask-ko";
@@ -77,9 +77,6 @@ export const VerseBlock = memo(function VerseBlock({
 			</p>
 		);
 
-	const seenTokenCounts = new Map<string, number>();
-	let koOffset = 0;
-
 	const koreanLine = (
 		<p
 			key="ko"
@@ -90,26 +87,13 @@ export const VerseBlock = memo(function VerseBlock({
 		>
 			{verse.koText !== null ? (
 				verse.tokens.length > 0 ? (
-					verse.tokens.map((token, idx) => {
-						const occurrence = seenTokenCounts.get(token.raw) ?? 0;
-						seenTokenCounts.set(token.raw, occurrence + 1);
-						const spaceNode = idx > 0 ? renderHighlightedText(" ", koOffset, koHighlights) : null;
-						if (idx > 0) koOffset += 1;
-						const tokenOffset = koOffset;
-						koOffset += token.raw.length;
-						return (
-							<span key={`${verse.verse}-${token.raw}-${occurrence}`}>
-								{spaceNode}
-								<KoreanToken
-									token={token}
-									tokenOffset={tokenOffset}
-									highlights={koHighlights}
-									tooltipEnabled={wordTooltip}
-									onSelectFootnote={onSelectFootnote}
-								/>
-							</span>
-						);
-					})
+					<KoreanTokensLine
+						verseNumber={verse.verse}
+						tokens={verse.tokens}
+						koHighlights={koHighlights}
+						wordTooltip={wordTooltip}
+						onSelectFootnote={onSelectFootnote}
+					/>
 				) : (
 					renderHighlightedText(verse.koText, 0, koHighlights)
 				)

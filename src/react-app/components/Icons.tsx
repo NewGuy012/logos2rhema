@@ -93,6 +93,15 @@ export const ChevronDown = makeIcon(<path d="m6 9 6 6 6-6" />);
 export const ChevronLeft = makeIcon(<path d="m15 18-6-6 6-6" />);
 export const ChevronRight = makeIcon(<path d="m9 18 6-6-6-6" />);
 
+export const Check = makeIcon(<path d="M20 6 9 17l-5-5" />);
+
+export const Copy = makeIcon(
+	<>
+		<rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+		<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+	</>,
+);
+
 export const Crosshair = makeIcon(
 	<>
 		<circle cx="12" cy="12" r="10" />
@@ -100,6 +109,22 @@ export const Crosshair = makeIcon(
 		<line x1="6" x2="2" y1="12" y2="12" />
 		<line x1="12" x2="12" y1="6" y2="2" />
 		<line x1="12" x2="12" y1="22" y2="18" />
+	</>,
+);
+
+export const Eye = makeIcon(
+	<>
+		<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+		<circle cx="12" cy="12" r="3" />
+	</>,
+);
+
+export const EyeOff = makeIcon(
+	<>
+		<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+		<path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+		<path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+		<path d="m2 2 20 20" />
 	</>,
 );
 
@@ -118,6 +143,43 @@ export const Home = makeIcon(
 	<>
 		<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
 		<path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+	</>,
+);
+
+export const Layers = makeIcon(
+	<>
+		<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+		<path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" />
+		<path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
+	</>,
+);
+
+export const Pencil = makeIcon(
+	<>
+		<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+	</>,
+);
+
+export const Plus = makeIcon(
+	<>
+		<path d="M5 12h14" />
+		<path d="M12 5v14" />
+	</>,
+);
+
+export const Shuffle = makeIcon(
+	<>
+		<path d="m18 14 4 4-4 4" />
+		<path d="m18 2 4 4-4 4" />
+		<path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22" />
+		<path d="M2 6h1.972a4 4 0 0 1 3.6 2.2" />
+		<path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45" />
+	</>,
+);
+
+export const Sparkles = makeIcon(
+	<>
+		<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
 	</>,
 );
 

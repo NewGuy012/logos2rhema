@@ -294,9 +294,12 @@ button {
 .quick-dict-btn,
 .home-sync-pill,
 .home-continue-btn,
+.home-memorize-btn,
 .home-clear-btn,
 .home-study-badge,
 .home-open-reader-btn,
+.votd-today-btn,
+.votd-action-btn,
 .rail-skip-btn,
 .rail-sync-toggle,
 .rail-sync-btn {
@@ -2028,6 +2031,41 @@ button:focus-visible {
 	text-align: center;
 }
 
+.footer-motto-verse {
+	margin: 0 auto 0.9rem;
+	max-width: 34rem;
+	padding-bottom: 0.85rem;
+	border-bottom: 1px solid var(--border-hairline);
+	display: flex;
+	flex-direction: column;
+	gap: 0.28rem;
+	text-align: center;
+}
+
+.footer-motto-quote {
+	margin: 0;
+	font-family: var(--font-en);
+	font-style: italic;
+	font-size: 0.84rem;
+	line-height: 1.5;
+	color: var(--text-secondary);
+}
+
+.footer-motto-ref {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.3rem;
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: var(--accent);
+}
+
+.footer-motto-ko {
+	font-family: var(--font-ko-serif);
+	font-weight: 500;
+}
+
 .copyright-footer-line {
 	margin: 0;
 }
@@ -2771,6 +2809,205 @@ button:focus-visible {
 .home-featured-verse-ko {
 	font-family: var(--font-ko-serif);
 	font-weight: 500;
+}
+
+.votd-card {
+	gap: 0.65rem;
+	padding: 1rem 1.2rem;
+}
+
+.votd-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.votd-eyebrow-group {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	flex-wrap: wrap;
+}
+
+.votd-eyebrow {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--accent);
+}
+
+.votd-date {
+	font-size: 0.74rem;
+	color: var(--text-muted);
+}
+
+.votd-browse-controls {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.28rem;
+}
+
+.votd-nav-btn {
+	width: 26px;
+	height: 26px;
+	border-radius: 999px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-secondary);
+	background: var(--bg-surface);
+	border: 1px solid var(--border-hairline);
+	transition:
+		background-color 140ms ease,
+		color 140ms ease,
+		border-color 140ms ease;
+}
+
+.votd-nav-btn:hover {
+	color: var(--accent);
+	border-color: var(--accent-border);
+	background: var(--bg-subtle);
+}
+
+.votd-today-btn {
+	padding: 0.22rem 0.58rem;
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: var(--accent);
+	background: var(--bg-surface);
+	border: 1px solid var(--accent-border);
+	transition:
+		background-color 140ms ease,
+		color 140ms ease;
+}
+
+.votd-today-btn:hover {
+	background: var(--accent);
+	color: var(--text-on-accent);
+}
+
+.votd-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+}
+
+.votd-line-wrap {
+	min-width: 0;
+}
+
+.votd-en-quote {
+	font-style: normal;
+}
+
+.votd-ko-quote {
+	margin: 0;
+	font-family: var(--reader-ko-font);
+	font-size: 1.02rem;
+	line-height: 1.72;
+	color: var(--text-secondary);
+}
+
+.votd-verse-num {
+	font-size: 0.68em;
+	font-weight: 600;
+	color: var(--accent);
+	margin-right: 0.18rem;
+}
+
+.votd-status-note {
+	margin: 0;
+	font-size: 0.84rem;
+	color: var(--text-muted);
+}
+
+.votd-en-fallback {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	font-size: 0.82rem;
+	color: var(--text-muted);
+}
+
+.votd-footer {
+	justify-content: space-between;
+	gap: 0.65rem;
+	flex-wrap: wrap;
+	padding-top: 0.2rem;
+	border-top: 1px solid var(--border-hairline);
+}
+
+.votd-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	flex-wrap: wrap;
+}
+
+.votd-action-btn {
+	gap: 0.3rem;
+	padding: 0.26rem 0.62rem;
+	font-size: 0.74rem;
+	font-weight: 600;
+	color: var(--text-secondary);
+	background: var(--bg-surface);
+	border: 1px solid var(--border-hairline);
+	transition:
+		background-color 140ms ease,
+		color 140ms ease,
+		border-color 140ms ease;
+}
+
+.votd-action-btn.votd-action-icon {
+	padding: 0.28rem 0.46rem;
+}
+
+.votd-action-btn:hover:not(:disabled) {
+	color: var(--accent);
+	border-color: var(--accent-border);
+	background: var(--bg-subtle);
+}
+
+.votd-action-btn.active {
+	background: var(--accent);
+	color: var(--text-on-accent);
+	border-color: var(--accent);
+}
+
+.votd-action-btn:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.home-streak-pill {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.home-memorize-btn {
+	gap: 0.45rem;
+	padding: 0.58rem 1.05rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+	background: var(--bg-subtle);
+	color: var(--text-primary);
+	border: 1px solid var(--border-strong);
+	transition:
+		background-color 140ms ease,
+		border-color 140ms ease,
+		color 140ms ease;
+}
+
+.home-memorize-btn:hover {
+	background: var(--accent-soft);
+	border-color: var(--accent-border);
+	color: var(--accent);
 }
 
 .home-features {

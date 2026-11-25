@@ -335,7 +335,7 @@ describe("Reader UI & Audio Hooks", () => {
 		}
 	});
 
-	it("handles TopBar, HomePage scripture/genres/search, PassagePicker, and FavoritesList", () => {
+	it("handles TopBar, HomePage scripture/genres/search, PassagePicker, and FavoritesList", async () => {
 		const onChangePref = mock(() => {});
 		const onOpenPassage = mock(() => {});
 		const onClearFav = mock(() => {});
@@ -366,29 +366,42 @@ describe("Reader UI & Audio Hooks", () => {
 		topBar.rerender(<TopBar isHome={true} {...topBarProps} />);
 		expect(topBar.container.querySelector(".appearance-btn")).toBeNull();
 
-		const home = render(
-			<HomePage lastBookNumber={8} lastChapter={4} lastVerse={12} onOpenPassage={onOpenPassage} />,
+		await withMockFetch(
+			() => new Response(null, { status: 404 }),
+			async () => {
+				const home = render(
+					<HomePage
+						lastBookNumber={8}
+						lastChapter={4}
+						lastVerse={12}
+						onOpenPassage={onOpenPassage}
+					/>,
+				);
+				await waitUntil(() =>
+					expect(getByText(home.container, "English (ESV) unavailable")).toBeDefined(),
+				);
+				const browse = home.container.querySelector('section[aria-label="Browse"]') as ParentNode;
+				const browseToggle = getButton(browse, "Browse");
+				expect(browseToggle.getAttribute("aria-expanded")).toBe("false");
+				expect(browse.querySelectorAll(".books-grid-vertical")).toHaveLength(0);
+				fireClick(browseToggle);
+				expect(browseToggle.getAttribute("aria-expanded")).toBe("true");
+				expect(browse.querySelectorAll(".books-grid-vertical")).toHaveLength(2);
+				fireClick(getButton(browse, "Genres"));
+				expect(browse.querySelectorAll(".home-genre-card")).toHaveLength(10);
+				fireClick(getButton(browse, /Obadiah/));
+				expect(onOpenPassage).toHaveBeenCalledWith(31, 1);
+
+				const homeInput = home.container.querySelector("input[type='search']") as HTMLInputElement;
+				setInputValue(homeInput, "시 23");
+				submitForm(homeInput.closest("form") as HTMLFormElement);
+				expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
+
+				fireClick(browseToggle);
+				expect(browseToggle.getAttribute("aria-expanded")).toBe("false");
+				expect(browse.querySelector(".home-browse-content")).toBeNull();
+			},
 		);
-		const browse = home.container.querySelector('section[aria-label="Browse"]') as ParentNode;
-		const browseToggle = getButton(browse, "Browse");
-		expect(browseToggle.getAttribute("aria-expanded")).toBe("false");
-		expect(browse.querySelectorAll(".books-grid-vertical")).toHaveLength(0);
-		fireClick(browseToggle);
-		expect(browseToggle.getAttribute("aria-expanded")).toBe("true");
-		expect(browse.querySelectorAll(".books-grid-vertical")).toHaveLength(2);
-		fireClick(getButton(browse, "Genres"));
-		expect(browse.querySelectorAll(".home-genre-card")).toHaveLength(10);
-		fireClick(getButton(browse, /Obadiah/));
-		expect(onOpenPassage).toHaveBeenCalledWith(31, 1);
-
-		const homeInput = home.container.querySelector("input[type='search']") as HTMLInputElement;
-		setInputValue(homeInput, "시 23");
-		submitForm(homeInput.closest("form") as HTMLFormElement);
-		expect(onOpenPassage).toHaveBeenCalledWith(19, 23, undefined);
-
-		fireClick(browseToggle);
-		expect(browseToggle.getAttribute("aria-expanded")).toBe("false");
-		expect(browse.querySelector(".home-browse-content")).toBeNull();
 
 		const picker = render(
 			<PassagePicker
@@ -484,8 +497,10 @@ describe("Reader UI & Audio Hooks", () => {
 						expect(getByText(container, "English (ESV) unavailable")).toBeDefined();
 					});
 
-					// Verify LegalFooter 3-line compliance once
+					// Verify LegalFooter Psalm 1:2 motto + 3-line compliance
 					const footer = container.querySelector("footer.copyright-footer") as HTMLElement;
+					expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("Psalm 1:2");
+					expect(footer.querySelector(".footer-motto-verse")?.textContent).toContain("시편 1:2");
 					const lines = Array.from(footer.querySelectorAll(".copyright-footer-line")).map((el) =>
 						(el.textContent ?? "").trim(),
 					);

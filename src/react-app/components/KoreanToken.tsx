@@ -289,3 +289,45 @@ export function KoreanToken({
 		</span>
 	);
 }
+
+export function KoreanTokensLine({
+	verseNumber,
+	tokens,
+	koHighlights = [],
+	wordTooltip = true,
+	onSelectFootnote,
+}: {
+	verseNumber: number;
+	tokens: readonly GlossToken[];
+	koHighlights?: readonly HighlightItem[];
+	wordTooltip?: boolean;
+	onSelectFootnote?: (footnoteId: string) => void;
+}) {
+	const seenTokenCounts = new Map<string, number>();
+	let koOffset = 0;
+
+	return (
+		<>
+			{tokens.map((token, idx) => {
+				const occurrence = seenTokenCounts.get(token.raw) ?? 0;
+				seenTokenCounts.set(token.raw, occurrence + 1);
+				const spaceNode = idx > 0 ? renderHighlightedText(" ", koOffset, koHighlights) : null;
+				if (idx > 0) koOffset += 1;
+				const tokenOffset = koOffset;
+				koOffset += token.raw.length;
+				return (
+					<span key={`${verseNumber}-${token.raw}-${occurrence}`}>
+						{spaceNode}
+						<KoreanToken
+							token={token}
+							tokenOffset={tokenOffset}
+							highlights={koHighlights}
+							tooltipEnabled={wordTooltip}
+							onSelectFootnote={onSelectFootnote}
+						/>
+					</span>
+				);
+			})}
+		</>
+	);
+}
