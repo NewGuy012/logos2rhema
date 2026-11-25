@@ -538,8 +538,8 @@ describe("Reader UI & Audio Hooks", () => {
 					fireDrag(dictPanel.querySelector(".dict-panel-header")!, [20, 20], [320, 180]);
 					expect(dictPanel.style.zIndex).toBe("46");
 					expect(audioPanel.style.zIndex).toBe("45");
-					fireClick(getButton(container, "Snap audio back to original position"));
-					fireClick(getButton(container, "Snap dictionary back to original position"));
+					fireClick(getButton(container, "Reset audio to original position and size"));
+					fireClick(getButton(container, "Reset dictionary to original position and size"));
 
 					// Bookmarks & text highlight via ⌘H
 					fireClick(getButton(container, "Bookmark Genesis 1"));
@@ -1002,11 +1002,17 @@ describe("Reader UI & Audio Hooks", () => {
 					fireDrag(audioHandle, [240, 320], [330, 430]);
 					expect(audioPanel.style.width).toBe("320px");
 					expect(audioPanel.style.height).toBe("430px");
+					expect(audioPanel.className).toContain("has-custom-height");
 					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("320px");
+					fireClick(getButton(audioPanel, "Settings"));
+					expect(audioPanel.querySelector(".rail-settings-open")).not.toBeNull();
+					fireClick(getButton(audioPanel, "Settings"));
+					expect(audioPanel.querySelector(".rail-settings-open")).toBeNull();
 
 					fireDrag(dictHandle, [1180, 320], [1030, 480]);
 					expect(dictPanel.style.width).toBe("380px");
 					expect(dictPanel.style.height).toBe("480px");
+					expect(dictPanel.className).toContain("has-custom-height");
 					expect(workspace.style.getPropertyValue("--dict-rail-width")).toBe("380px");
 
 					// Keyboard ArrowRight / ArrowDown on separator resizes without triggering chapter navigation
@@ -1022,14 +1028,14 @@ describe("Reader UI & Audio Hooks", () => {
 					expect(audioPanel.style.height).toBe("446px");
 					expect(window.location.hash).toBe("#/GEN/1");
 
-					// Dragging Audio into floating removes --audio-rail-width grid override while keeping panel size
+					// Dragging Audio into floating removes --audio-rail-width grid override while keeping panel size and a single reset button
 					fireDrag(audioPanel.querySelector(".rail-panel-header")!, [20, 20], [120, 140]);
 					expect(audioPanel.className).toContain("floating");
 					expect(audioPanel.style.width).toBe("336px");
 					expect(audioPanel.style.height).toBe("446px");
 					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("");
-					expect(getButton(audioPanel, "Snap audio back to original position")).toBeDefined();
-					expect(getButton(audioPanel, "Reset audio to original width and height")).toBeDefined();
+					expect(audioPanel.querySelectorAll(".panel-reset-btn")).toHaveLength(1);
+					expect(getButton(audioPanel, "Reset audio to original position and size")).toBeDefined();
 
 					// Floating Audio resizes width & height from its bottom-right corner while keeping left anchored
 					fireDrag(audioHandle, [436, 586], [466, 626]);
@@ -1037,9 +1043,16 @@ describe("Reader UI & Audio Hooks", () => {
 					expect(audioPanel.style.height).toBe("486px");
 					expect(audioPanel.style.left).toBe("100px");
 
-					// Snap back restores docked grid column at resized size
-					fireClick(getButton(firstMount.container, "Snap audio back to original position"));
+					// Single reset button resets both floating position and width/height, then re-resize docked for viewport clamp checks
+					fireClick(getButton(firstMount.container, "Reset audio to original position and size"));
 					expect(audioPanel.className).not.toContain("floating");
+					expect(audioPanel.style.width).toBe("");
+					expect(audioPanel.style.height).toBe("");
+					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("");
+
+					fireDrag(audioHandle, [240, 320], [376, 486]);
+					expect(audioPanel.style.width).toBe("366px");
+					expect(audioPanel.style.height).toBe("486px");
 					expect(workspace.style.getPropertyValue("--audio-rail-width")).toBe("366px");
 
 					// Shrinking viewport clamps docked rails in both dimensions without erasing stored preferences
@@ -1088,8 +1101,8 @@ describe("Reader UI & Audio Hooks", () => {
 					expect(restoredDict.style.width).toBe("380px");
 					expect(restoredDict.style.height).toBe("480px");
 
-					// Header reset buttons restore both width and height to default
-					fireClick(getButton(restoredAudio, "Reset audio to original width and height"));
+					// Header reset buttons restore both position and width/height to default
+					fireClick(getButton(restoredAudio, "Reset audio to original position and size"));
 					expect(restoredAudio.style.width).toBe("");
 					expect(restoredAudio.style.height).toBe("");
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
@@ -1099,7 +1112,7 @@ describe("Reader UI & Audio Hooks", () => {
 						'"audioRailHeight":null',
 					);
 
-					fireClick(getButton(restoredDict, "Reset dictionary to original width and height"));
+					fireClick(getButton(restoredDict, "Reset dictionary to original position and size"));
 					expect(restoredDict.style.width).toBe("");
 					expect(restoredDict.style.height).toBe("");
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(

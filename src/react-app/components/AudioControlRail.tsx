@@ -18,7 +18,7 @@ import {
 	type DraggableRailProps,
 	DraggableRailShell,
 	PanelHeaderText,
-	PanelHeaderUtilityActions,
+	PanelResetButton,
 } from "./RailShared";
 
 interface AudioControlRailProps extends SharedAudioControlProps, DraggableRailProps {
@@ -97,7 +97,7 @@ export function AudioControlRail({
 			minRailHeight={DEFAULT_MIN_AUDIO_HEIGHT}
 			maxRailHeight={maxRailHeight}
 		>
-			{({ isFloating, isResized, resetPosition, resetSize }) => (
+			{({ isModified, resetPanel }) => (
 				<div className="rail-card">
 					<div className="rail-panel-header panel-drag-handle">
 						{onMinimize ? (
@@ -115,15 +115,14 @@ export function AudioControlRail({
 							<span aria-hidden="true" />
 						)}
 						<PanelHeaderText title="Audio" bookEn={bookEn} bookKo={bookKo} chapter={chapter} />
-						<PanelHeaderUtilityActions
-							align="end"
-							isFloating={isFloating}
-							isResized={isResized}
-							onResetPosition={resetPosition}
-							onResetSize={resetSize}
-							snapAriaLabel="Snap audio back to original position"
-							resetSizeAriaLabel="Reset audio to original width and height"
-						/>
+						{isModified ? (
+							<PanelResetButton
+								onClick={resetPanel}
+								ariaLabel="Reset audio to original position and size"
+							/>
+						) : (
+							<span aria-hidden="true" />
+						)}
 					</div>
 
 					<div className="rail-player">
@@ -203,7 +202,7 @@ export function AudioControlRail({
 
 					<div className="rail-divider" />
 
-					<div className="rail-settings">
+					<div className={`rail-settings ${settingsOpen ? "rail-settings-open" : ""}`.trim()}>
 						<button
 							type="button"
 							className="rail-settings-btn"

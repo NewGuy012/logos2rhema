@@ -503,13 +503,13 @@ button:focus-visible {
 }
 
 .rail-minimize-btn,
-.panel-header-actions-start,
+.dict-panel .panel-reset-btn,
 .rail-skip-back {
 	justify-self: start;
 }
 
 .dict-minimize-btn,
-.panel-header-actions-end,
+.audio-rail .panel-reset-btn,
 .rail-skip-forward,
 .rail-duration {
 	justify-self: end;
@@ -1503,19 +1503,12 @@ body.is-panel-resizing-nesw * {
 .dict-panel-header,
 .rail-panel-header {
 	display: grid;
-	grid-template-columns: minmax(36px, auto) minmax(0, 1fr) minmax(36px, auto);
+	grid-template-columns: 36px minmax(0, 1fr) 36px;
 	align-items: center;
 	gap: 0.25rem;
 	padding: 6px 6px 8px;
 	min-height: 48px;
 	border-bottom: 1px solid var(--border-hairline);
-}
-
-.panel-header-actions {
-	display: inline-flex;
-	align-items: center;
-	gap: 2px;
-	align-self: start;
 }
 
 .rail-panel-header {
@@ -1778,6 +1771,15 @@ body.is-panel-resizing-nesw * {
 
 .dict-disclosure.open {
 	flex: 0 1 auto;
+}
+
+.dict-panel-sidebar.has-custom-height .dict-disclosure.open {
+	flex: 1 1 0;
+}
+
+.dict-panel-sidebar.has-custom-height .dict-panel-scroll.both-open .vocab-list,
+.dict-panel-sidebar.has-custom-height .dict-panel-scroll.both-open .grammar-cards {
+	max-height: none;
 }
 
 .dict-disclosure:last-child {
@@ -2298,31 +2300,18 @@ body.is-panel-resizing-nesw * {
 /* Rail header button overrides (after .pill-nav-btn for cascade priority) */
 .dict-minimize-btn,
 .rail-minimize-btn,
-.panel-snap-btn,
-.panel-reset-size-btn {
+.panel-reset-btn {
 	width: 36px;
 	height: 36px;
 	border-radius: 12px;
 	align-self: start;
 }
 
-.panel-header-actions .pill-nav-btn {
-	width: 30px;
-	border-radius: 10px;
-}
-
-.panel-header-actions > .pill-nav-btn:only-child {
-	width: 36px;
-	border-radius: 12px;
-}
-
-.panel-snap-btn,
-.panel-reset-size-btn {
+.panel-reset-btn {
 	color: var(--accent);
 }
 
-.panel-snap-btn:hover,
-.panel-reset-size-btn:hover {
+.panel-reset-btn:hover {
 	background: var(--accent-soft);
 	color: var(--accent);
 }
@@ -3963,6 +3952,22 @@ body.is-panel-resizing-nesw * {
 	display: flex;
 	flex-direction: column;
 	gap: 0.48rem;
+}
+
+.audio-rail.has-custom-height .rail-player {
+	flex: 1 0 auto;
+	justify-content: space-evenly;
+}
+
+.audio-rail.has-custom-height .rail-settings-open {
+	flex: 0.65 0 auto;
+	display: flex;
+	flex-direction: column;
+}
+
+.audio-rail.has-custom-height .rail-settings-open .rail-sync-box {
+	flex: 1 0 auto;
+	justify-content: space-evenly;
 }
 
 .rail-lang-row {

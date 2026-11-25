@@ -12,7 +12,7 @@ import {
 	type ResizeEdge,
 	useResizablePanel,
 } from "../hooks/useResizablePanel";
-import { ChevronDown, ChevronRight, Loader2, Pin, RotateCcw, Search, Volume2, X } from "./Icons";
+import { ChevronDown, ChevronRight, Loader2, RotateCcw, Search, Volume2, X } from "./Icons";
 
 export interface SegmentedOption<T extends string | number> {
 	value: T;
@@ -152,8 +152,10 @@ export function DraggableRailShell({
 	children: (state: {
 		isFloating: boolean;
 		isResized: boolean;
+		isModified: boolean;
 		resetPosition: () => void;
 		resetSize: () => void;
+		resetPanel: () => void;
 	}) => ReactNode;
 }) {
 	const { panelProps, position, setPosition, isFloating, isDragging, resetPosition } =
@@ -183,6 +185,11 @@ export function DraggableRailShell({
 		});
 
 	const isResized = currentSize.width !== null || currentSize.height !== null;
+	const isModified = isFloating || isResized;
+	const resetPanel = () => {
+		resetPosition();
+		resetSize();
+	};
 	const mergedStyle: CSSProperties | undefined =
 		panelProps.style || isResized
 			? {
@@ -203,7 +210,7 @@ export function DraggableRailShell({
 			className={`${className} ${isFloating ? "floating" : ""} ${isDragging ? "is-dragging" : ""} ${isResizing ? "is-resizing" : ""} ${currentSize.height !== null ? "has-custom-height" : ""}`.trim()}
 			aria-label={ariaLabel}
 		>
-			{children({ isFloating, isResized, resetPosition, resetSize })}
+			{children({ isFloating, isResized, isModified, resetPosition, resetSize, resetPanel })}
 			{draggable && (
 				<div
 					{...getHandleProps(resizeEdge, resizeLabel, resizeCorner)}
@@ -317,7 +324,7 @@ export function PanelHeaderText({
 	);
 }
 
-export function PanelSnapBackButton({
+export function PanelResetButton({
 	onClick,
 	ariaLabel,
 }: {
@@ -327,74 +334,13 @@ export function PanelSnapBackButton({
 	return (
 		<button
 			type="button"
-			className="pill-nav-btn panel-snap-btn"
+			className="pill-nav-btn panel-reset-btn"
 			onClick={onClick}
 			aria-label={ariaLabel}
-			title="Snap back to original position"
+			title="Reset to original position and size"
 		>
-			<Pin size={14} />
+			<RotateCcw size={14} />
 		</button>
-	);
-}
-
-export function PanelResetSizeButton({
-	onClick,
-	ariaLabel,
-}: {
-	onClick: () => void;
-	ariaLabel: string;
-}) {
-	return (
-		<button
-			type="button"
-			className="pill-nav-btn panel-reset-size-btn"
-			onClick={onClick}
-			aria-label={ariaLabel}
-			title="Reset to original width and height"
-		>
-			<RotateCcw size={13} />
-		</button>
-	);
-}
-
-export function PanelHeaderUtilityActions({
-	align,
-	isFloating,
-	isResized,
-	onResetPosition,
-	onResetSize,
-	snapAriaLabel,
-	resetSizeAriaLabel,
-}: {
-	align: "start" | "end";
-	isFloating: boolean;
-	isResized: boolean;
-	onResetPosition: () => void;
-	onResetSize: () => void;
-	snapAriaLabel: string;
-	resetSizeAriaLabel: string;
-}) {
-	if (!isFloating && !isResized) return <span aria-hidden="true" />;
-	const snapBtn = isFloating ? (
-		<PanelSnapBackButton key="snap" onClick={onResetPosition} ariaLabel={snapAriaLabel} />
-	) : null;
-	const resetBtn = isResized ? (
-		<PanelResetSizeButton key="size" onClick={onResetSize} ariaLabel={resetSizeAriaLabel} />
-	) : null;
-	return (
-		<div className={`panel-header-actions panel-header-actions-${align}`}>
-			{align === "start" ? (
-				<>
-					{snapBtn}
-					{resetBtn}
-				</>
-			) : (
-				<>
-					{resetBtn}
-					{snapBtn}
-				</>
-			)}
-		</div>
 	);
 }
 

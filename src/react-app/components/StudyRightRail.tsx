@@ -13,7 +13,7 @@ import {
 	type DraggableRailProps,
 	DraggableRailShell,
 	PanelHeaderText,
-	PanelHeaderUtilityActions,
+	PanelResetButton,
 	SegmentedControl,
 	type SegmentedOption,
 } from "./RailShared";
@@ -124,26 +124,21 @@ export function StudyRightRail({
 			minRailHeight={DEFAULT_MIN_DICT_HEIGHT}
 			maxRailHeight={variant === "sidebar" ? maxRailHeight : undefined}
 		>
-			{({ isFloating, isResized, resetPosition, resetSize }) => (
+			{({ isModified, resetPanel }) => (
 				<>
 					<div className={`dict-panel-header ${canDrag ? "panel-drag-handle" : ""}`.trim()}>
-						<PanelHeaderUtilityActions
-							align="start"
-							isFloating={isFloating}
-							isResized={isResized}
-							onResetPosition={resetPosition}
-							onResetSize={resetSize}
-							snapAriaLabel={
-								isDictionary
-									? "Snap dictionary back to original position"
-									: "Snap commentary back to original position"
-							}
-							resetSizeAriaLabel={
-								isDictionary
-									? "Reset dictionary to original width and height"
-									: "Reset commentary to original width and height"
-							}
-						/>
+						{isModified ? (
+							<PanelResetButton
+								onClick={resetPanel}
+								ariaLabel={
+									isDictionary
+										? "Reset dictionary to original position and size"
+										: "Reset commentary to original position and size"
+								}
+							/>
+						) : (
+							<span aria-hidden="true" />
+						)}
 						<PanelHeaderText
 							title={isDictionary ? "Dictionary" : "Commentary"}
 							bookEn={bookEn}
