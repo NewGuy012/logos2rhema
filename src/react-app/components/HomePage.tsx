@@ -223,7 +223,7 @@ export function HomePage({
 
 			{onOpenMemorize && (
 				<HomeDisclosureSection
-					label="Study"
+					label="Memorize"
 					badgeCount={memorizeTotalCount > 0 ? memorizeTotalCount : undefined}
 					isOpen={studyOpen}
 					onToggle={() => setStudyOpen((prev) => !prev)}
@@ -232,23 +232,16 @@ export function HomePage({
 				>
 					<div className="home-continue-card home-memorize-card">
 						<div className="home-continue-meta">
-							<p className="home-continue-subtitle">Memorize Scripture</p>
+							<p className="home-continue-subtitle">
+								Memorize Scripture{" "}
+								<span className="home-continue-subtitle-ko" lang="ko">
+									· 말씀 암송
+								</span>
+							</p>
 							<h2 className="home-continue-ref">
-								{memorizeTotalCount > 0 ? (
-									<>
-										{memorizeTotalCount} saved {memorizeTotalCount === 1 ? "verse" : "verses"}{" "}
-										<span className="home-continue-ko" lang="ko">
-											· 말씀 암송
-										</span>
-									</>
-								) : (
-									<>
-										Saved Verses{" "}
-										<span className="home-continue-ko" lang="ko">
-											· 말씀 암송
-										</span>
-									</>
-								)}
+								{memorizeTotalCount > 0
+									? `${memorizeTotalCount} saved ${memorizeTotalCount === 1 ? "verse" : "verses"}`
+									: "Saved Verses"}
 							</h2>
 						</div>
 						<button type="button" className="home-memorize-btn" onClick={onOpenMemorize}>

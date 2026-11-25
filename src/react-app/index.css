@@ -3036,6 +3036,10 @@ button:focus-visible {
 	color: var(--text-secondary);
 }
 
+.home-continue-subtitle-ko {
+	font-family: var(--font-ko-serif);
+}
+
 .home-continue-ref {
 	margin: 0;
 	font-family: var(--font-en);
