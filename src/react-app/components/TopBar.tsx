@@ -4,16 +4,29 @@ import { getBookOrDefault } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
 import { useDismissListeners } from "../hooks/usePopover";
 import { FavoritesList, type SavedItemsProps } from "./FavoritesList";
-import { Bible, Bookmark, BookOpen, ChevronDown, Home, Layers, Search, Settings } from "./Icons";
+import {
+	Bible,
+	Bookmark,
+	BookOpen,
+	ChevronDown,
+	Home,
+	Layers,
+	Moon,
+	Search,
+	Settings,
+	Sun,
+} from "./Icons";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
 import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 
-type ReaderTheme = "paper" | "sepia" | "dark";
+export type ReaderTheme = "paper" | "sepia" | "dark";
+export type LightTheme = "paper" | "sepia";
 type FontStyle = "serif" | "sans";
 
 export interface TopBarDisplayPrefs {
 	stackOrder: StackOrder;
 	theme: ReaderTheme;
+	lightTheme?: LightTheme;
 	fontScale: number;
 	enFontStyle: FontStyle;
 	koFontStyle: FontStyle;
@@ -86,12 +99,28 @@ export function TopBar({
 	const resolvedView = activeView ?? "reader";
 	const [openPopover, setOpenPopover] = useState<OpenPopover>(null);
 	const navRef = useRef<HTMLElement | null>(null);
+	const lastLightThemeRef = useRef<LightTheme>(
+		prefs.theme === "sepia" ? "sepia" : (prefs.lightTheme ?? "paper"),
+	);
+	if (prefs.theme === "paper" || prefs.theme === "sepia") {
+		lastLightThemeRef.current = prefs.theme;
+	}
+	const isDark = prefs.theme === "dark";
 
 	const lastBook = useMemo(() => getBookOrDefault(lastBookNumber), [lastBookNumber]);
 
 	const closePopovers = useCallback(() => {
 		setOpenPopover(null);
 	}, []);
+
+	const handleToggleTheme = () => {
+		closePopovers();
+		if (isDark) {
+			onChangePref({ theme: prefs.lightTheme ?? lastLightThemeRef.current });
+		} else {
+			onChangePref({ theme: "dark" });
+		}
+	};
 
 	const togglePopover = (target: Exclude<OpenPopover, null>) => {
 		setOpenPopover((prev) => (prev === target ? null : target));
@@ -237,6 +266,16 @@ export function TopBar({
 					>
 						{CANONICAL_BIBLES.en.code} / {CANONICAL_BIBLES.ko.code}
 					</span>
+
+					<button
+						type="button"
+						className="icon-btn theme-toggle-btn"
+						onClick={handleToggleTheme}
+						aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+						title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+					>
+						{isDark ? <Sun size={16} /> : <Moon size={16} />}
+					</button>
 
 					{resolvedView !== "home" && (
 						<div className="popover-anchor">

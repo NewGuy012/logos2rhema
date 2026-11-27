@@ -1,4 +1,12 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { hasVerseTimings } from "../shared/audio-timings";
 import {
@@ -116,6 +124,7 @@ interface StoredPrefs extends DisplayPrefs {
 const DEFAULT_DISPLAY_PREFS: DisplayPrefs = {
 	stackOrder: "en-first",
 	theme: "paper",
+	lightTheme: "paper",
 	fontScale: 1,
 	enFontStyle: "serif",
 	koFontStyle: "serif",
@@ -185,6 +194,14 @@ function readStoredPrefs(): StoredPrefs {
 		parsed.verse <= MAX_VERSE_NUMBER
 			? parsed.verse
 			: DEFAULT_PREFS.verse;
+	const theme = isOneOf(parsed.theme, ["paper", "sepia", "dark"])
+		? parsed.theme
+		: DEFAULT_PREFS.theme;
+	const lightTheme = isOneOf(parsed.lightTheme, ["paper", "sepia"])
+		? parsed.lightTheme
+		: theme === "paper" || theme === "sepia"
+			? theme
+			: DEFAULT_PREFS.lightTheme;
 	return {
 		bookNumber: ref ? ref.book.number : DEFAULT_PREFS.bookNumber,
 		chapter: ref ? ref.chapter : DEFAULT_PREFS.chapter,
@@ -192,7 +209,8 @@ function readStoredPrefs(): StoredPrefs {
 		stackOrder: isOneOf(parsed.stackOrder, ["en-first", "ko-first"])
 			? parsed.stackOrder
 			: DEFAULT_PREFS.stackOrder,
-		theme: isOneOf(parsed.theme, ["paper", "sepia", "dark"]) ? parsed.theme : DEFAULT_PREFS.theme,
+		theme,
+		lightTheme,
 		fontScale:
 			typeof parsed.fontScale === "number" &&
 			(FONT_SCALES as readonly number[]).includes(parsed.fontScale)
@@ -313,9 +331,13 @@ export default function App() {
 
 	const patchPrefs = useCallback((patch: Partial<DisplayPrefs>) => {
 		setPrefs((prev) => {
-			for (const key of Object.keys(patch) as Array<keyof DisplayPrefs>) {
-				if (patch[key] !== undefined && prev[key] !== patch[key]) {
-					return { ...prev, ...patch };
+			const nextPatch =
+				patch.theme === "paper" || patch.theme === "sepia"
+					? { ...patch, lightTheme: patch.theme }
+					: patch;
+			for (const key of Object.keys(nextPatch) as Array<keyof DisplayPrefs>) {
+				if (nextPatch[key] !== undefined && prev[key] !== nextPatch[key]) {
+					return { ...prev, ...nextPatch };
 				}
 			}
 			return prev;
@@ -593,7 +615,7 @@ export default function App() {
 		};
 	}, [view, syncSelectionToolbar]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		document.documentElement.setAttribute("data-theme", prefs.theme);
 	}, [prefs.theme]);
 

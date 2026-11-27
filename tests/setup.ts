@@ -27,6 +27,7 @@ export function cleanupDom(): void {
 	});
 	window.getSelection()?.removeAllRanges();
 	window.location.hash = "";
+	document.documentElement.removeAttribute("data-theme");
 	localStorage.clear();
 	clearLoaderCaches();
 }

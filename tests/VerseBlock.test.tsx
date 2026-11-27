@@ -360,11 +360,17 @@ describe("Reader UI & Audio Hooks", () => {
 			onOpenSearch: noop,
 		};
 		const topBar = render(<TopBar {...topBarProps} />);
+		fireClick(getButton(topBar.container, "Switch to dark mode"));
+		expect(onChangePref).toHaveBeenCalledWith({ theme: "dark" });
 		fireClick(getButton(topBar.container, "Reader appearance settings"));
 		fireClick(getButton(topBar.container, /^\s*Sans\s*$/));
 		expect(onChangePref).toHaveBeenCalledWith({ enFontStyle: "sans" });
-		topBar.rerender(<TopBar activeView="home" {...topBarProps} />);
+		topBar.rerender(
+			<TopBar activeView="home" {...topBarProps} prefs={{ ...topBarProps.prefs, theme: "dark" }} />,
+		);
 		expect(topBar.container.querySelector(".appearance-btn")).toBeNull();
+		fireClick(getButton(topBar.container, "Switch to light mode"));
+		expect(onChangePref).toHaveBeenCalledWith({ theme: "paper" });
 
 		await withMockFetch(
 			() => new Response(null, { status: 404 }),
@@ -520,16 +526,30 @@ describe("Reader UI & Audio Hooks", () => {
 						expect(container.querySelector(".en-load-banner")).toBeNull();
 					});
 
-					// Appearance setting persists via data attribute
+					// Default theme is light (paper); appearance settings and topbar toggle stay in sync
+					expect(document.documentElement.getAttribute("data-theme")).toBe("paper");
+					fireClick(getButton(container, "Switch to dark mode"));
+					expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
 					const appShell = container.querySelector(".app-shell") as HTMLElement;
 					expect(appShell.getAttribute("data-en-font")).toBe("serif");
 					fireClick(getButton(container, "Reader appearance settings"));
+					fireClick(getButton(container.querySelector(".settings-popover")!, "Sepia"));
+					expect(document.documentElement.getAttribute("data-theme")).toBe("sepia");
 					fireClick(getButton(container.querySelector(".settings-popover")!, /^\s*Sans\s*$/));
 					expect(appShell.getAttribute("data-en-font")).toBe("sans");
 					expect(localStorage.getItem("logos.reader.preferences.v1")).toContain(
 						'"enFontStyle":"sans"',
 					);
 					fireClick(getButton(container, "Reader appearance settings"));
+
+					// Toggling from Sepia -> Dark -> Light preserves Sepia as preferred light theme
+					fireClick(getButton(container, "Switch to dark mode"));
+					expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+					fireClick(getButton(container, "Switch to light mode"));
+					expect(document.documentElement.getAttribute("data-theme")).toBe("sepia");
+					fireClick(getButton(container, "Switch to dark mode"));
+					expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 
 					// Rail drag z-order & snap-back
 					const audioPanel = container.querySelector(".audio-rail") as HTMLElement;
@@ -1100,5 +1120,48 @@ describe("Reader UI & Audio Hooks", () => {
 			Object.defineProperty(window, "innerHeight", { value: origInnerHeight, configurable: true });
 			restoreMatchMedia();
 		}
+	});
+
+	it("defaults to light mode across views, toggles between light and dark mode, and persists preference", async () => {
+		localStorage.setItem("logos.reader.preferences.v1", JSON.stringify({ theme: "invalid" }));
+
+		await withMockFetch(
+			createReaderFetchHandler({
+				krv: () => new Response(null, { status: 404 }),
+				esv: () => new Response(null, { status: 404 }),
+			}),
+			async () => {
+				const firstMount = render(<App />);
+
+				// Home defaults to light mode (paper) and exposes the global dark/light toggle without Reader settings
+				expect(document.documentElement.getAttribute("data-theme")).toBe("paper");
+				expect(firstMount.container.querySelector(".appearance-btn")).toBeNull();
+				await waitUntil(() =>
+					expect(getByText(firstMount.container, "English (ESV) unavailable")).toBeDefined(),
+				);
+				fireClick(getButton(firstMount.container, "Switch to dark mode"));
+				expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+				expect(localStorage.getItem("logos.reader.preferences.v1")).toContain('"theme":"dark"');
+
+				// Toggle works on Memorize too and remembers dark/light state across remount
+				fireClick(getButton(firstMount.container, "Memorize"));
+				await waitUntil(() => expect(window.location.hash).toBe("#/memorize"));
+				expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+				fireClick(getButton(firstMount.container, "Switch to light mode"));
+				expect(document.documentElement.getAttribute("data-theme")).toBe("paper");
+				fireClick(getButton(firstMount.container, "Switch to dark mode"));
+				expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+				document.documentElement.removeAttribute("data-theme");
+				const secondMount = render(<App />);
+				await act(async () => {
+					await Promise.resolve();
+				});
+				expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+				fireClick(getButton(secondMount.container, "Switch to light mode"));
+				expect(document.documentElement.getAttribute("data-theme")).toBe("paper");
+				expect(localStorage.getItem("logos.reader.preferences.v1")).toContain('"theme":"paper"');
+			},
+		);
 	});
 });
