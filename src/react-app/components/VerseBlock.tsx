@@ -185,6 +185,7 @@ export function BilingualPassageLines({
 	aligned,
 	isMultiVerse,
 	stackOrder,
+	studyMask = "none",
 	wordTooltip,
 	koLoading,
 	enLoading,
@@ -201,6 +202,7 @@ export function BilingualPassageLines({
 	aligned: readonly AlignedVerse[];
 	isMultiVerse: boolean;
 	stackOrder: StackOrder;
+	studyMask?: StudyMaskMode;
 	wordTooltip: boolean;
 	koLoading: boolean;
 	enLoading: boolean;
@@ -214,6 +216,10 @@ export function BilingualPassageLines({
 	statusClassName: string;
 	quoteEn?: boolean;
 }) {
+	const resolvedEnClassName =
+		`${enClassName} ${studyMask === "mask-en" ? "study-masked" : ""}`.trim();
+	const resolvedKoClassName =
+		`${koClassName} ${studyMask === "mask-ko" ? "study-masked" : ""}`.trim();
 	const enVerses = aligned.filter((v) => v.enText);
 	const koVerses = aligned.filter((v) => v.koText);
 	const enContent = enVerses.map((v, idx) => (
@@ -228,9 +234,9 @@ export function BilingualPassageLines({
 		<div key="en" className={wrapClassName}>
 			{enVerses.length > 0 ? (
 				quoteEn ? (
-					<blockquote className={enClassName}>“{enContent}”</blockquote>
+					<blockquote className={resolvedEnClassName}>“{enContent}”</blockquote>
 				) : (
-					<p className={enClassName}>{enContent}</p>
+					<p className={resolvedEnClassName}>{enContent}</p>
 				)
 			) : enLoading || !loadEn ? (
 				<p className={statusClassName}>Loading English (ESV)…</p>
@@ -248,7 +254,7 @@ export function BilingualPassageLines({
 	const koreanBlock = (
 		<div key="ko" className={wrapClassName}>
 			{koVerses.length > 0 ? (
-				<p className={koClassName} lang="ko">
+				<p className={resolvedKoClassName} lang="ko">
 					{koVerses.map((v, idx) => (
 						<Fragment key={v.verse}>
 							{idx > 0 && " "}

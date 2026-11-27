@@ -1117,6 +1117,8 @@ button:focus-visible {
 }
 
 .verse-block:hover .study-masked,
+.votd-line-wrap:hover .study-masked,
+.study-masked:hover,
 .study-masked:focus-within {
 	filter: none;
 	opacity: 1;
@@ -2972,13 +2974,19 @@ body.is-panel-resizing * {
 }
 
 .votd-en-quote {
+	font-family: var(--reader-en-font);
+	font-size: clamp(
+		calc(1.02rem * var(--reader-scale)),
+		calc(1.8vw * var(--reader-scale)),
+		calc(1.16rem * var(--reader-scale))
+	);
 	font-style: normal;
 }
 
 .votd-ko-quote {
 	margin: 0;
 	font-family: var(--reader-ko-font);
-	font-size: 1.02rem;
+	font-size: calc(1.02rem * var(--reader-scale));
 	line-height: 1.72;
 	color: var(--text-secondary);
 }

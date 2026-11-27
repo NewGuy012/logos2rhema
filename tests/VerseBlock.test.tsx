@@ -360,6 +360,15 @@ describe("Reader UI & Audio Hooks", () => {
 			onOpenSearch: noop,
 		};
 		const topBar = render(<TopBar {...topBarProps} />);
+		const controlIcons = Array.from(
+			topBar.container.querySelectorAll(
+				".top-controls .appearance-btn, .top-controls .theme-toggle-btn",
+			),
+		);
+		expect(controlIcons.map((el) => el.className)).toEqual([
+			expect.stringContaining("appearance-btn"),
+			expect.stringContaining("theme-toggle-btn"),
+		]);
 		fireClick(getButton(topBar.container, "Switch to dark mode"));
 		expect(onChangePref).toHaveBeenCalledWith({ theme: "dark" });
 		fireClick(getButton(topBar.container, "Reader appearance settings"));
@@ -368,7 +377,19 @@ describe("Reader UI & Audio Hooks", () => {
 		topBar.rerender(
 			<TopBar activeView="home" {...topBarProps} prefs={{ ...topBarProps.prefs, theme: "dark" }} />,
 		);
-		expect(topBar.container.querySelector(".appearance-btn")).toBeNull();
+		const homeControlIcons = Array.from(
+			topBar.container.querySelectorAll(
+				".top-controls .appearance-btn, .top-controls .theme-toggle-btn",
+			),
+		);
+		expect(homeControlIcons.map((el) => el.className)).toEqual([
+			expect.stringContaining("appearance-btn"),
+			expect.stringContaining("theme-toggle-btn"),
+		]);
+		const homePopover = topBar.container.querySelector(".settings-popover") as HTMLElement;
+		expect(homePopover).not.toBeNull();
+		expect(homePopover.textContent).toContain("Theme");
+		expect(homePopover.textContent).toContain("Study Mode (Hover to Reveal)");
 		fireClick(getButton(topBar.container, "Switch to light mode"));
 		expect(onChangePref).toHaveBeenCalledWith({ theme: "paper" });
 
@@ -1122,23 +1143,82 @@ describe("Reader UI & Audio Hooks", () => {
 		}
 	});
 
-	it("defaults to light mode across views, toggles between light and dark mode, and persists preference", async () => {
+	it("defaults to light mode across views, toggles between light and dark mode, applies study mode on Home VOTD, and persists preference", async () => {
 		localStorage.setItem("logos.reader.preferences.v1", JSON.stringify({ theme: "invalid" }));
 
 		await withMockFetch(
 			createReaderFetchHandler({
-				krv: () => new Response(null, { status: 404 }),
-				esv: () => new Response(null, { status: 404 }),
+				krv: (url) => {
+					const usfm = url.split("/").pop()?.replace(".json", "") ?? "GEN";
+					const verses = Array.from({ length: 176 }, (_, i) => ({
+						verse: i + 1,
+						text: `하나님이 ${usfm} ${i + 1}`,
+					}));
+					const chapters = Object.fromEntries(
+						Array.from({ length: 150 }, (_, ch) => [String(ch + 1), verses]),
+					);
+					return makeBookResponse("krv", 1, usfm, chapters);
+				},
+				esv: (url) => {
+					const match = url.match(/\/api\/esv\/([A-Z0-9]+)\/(\d+)\/(\d+)(?:-(\d+))?/);
+					const ch = Number.parseInt(match?.[2] ?? "1", 10);
+					const start = Number.parseInt(match?.[3] ?? "1", 10);
+					const end = Number.parseInt(match?.[4] ?? String(start), 10);
+					return makeChapterResponse(
+						"esv",
+						1,
+						match?.[1] ?? "GEN",
+						ch,
+						Array.from({ length: end - start + 1 }, (_, i) => ({
+							verse: start + i,
+							text: `Today ESV verse ${start + i}.`,
+						})),
+					);
+				},
 			}),
 			async () => {
 				const firstMount = render(<App />);
 
-				// Home defaults to light mode (paper) and exposes the global dark/light toggle without Reader settings
+				// Home defaults to light mode (paper) and exposes appearance settings before the dark/light toggle
 				expect(document.documentElement.getAttribute("data-theme")).toBe("paper");
-				expect(firstMount.container.querySelector(".appearance-btn")).toBeNull();
-				await waitUntil(() =>
-					expect(getByText(firstMount.container, "English (ESV) unavailable")).toBeDefined(),
+				const homeControlIcons = Array.from(
+					firstMount.container.querySelectorAll(
+						".top-controls .appearance-btn, .top-controls .theme-toggle-btn",
+					),
 				);
+				expect(homeControlIcons.map((el) => el.className)).toEqual([
+					expect.stringContaining("appearance-btn"),
+					expect.stringContaining("theme-toggle-btn"),
+				]);
+				await waitUntil(() => {
+					expect(firstMount.container.querySelector(".votd-en-quote")).not.toBeNull();
+					expect(firstMount.container.querySelector(".votd-ko-quote")).not.toBeNull();
+				});
+
+				// Study mode applies to Verse of the Day on Home
+				fireClick(getButton(firstMount.container, "Reader appearance settings"));
+				const homePopover = firstMount.container.querySelector(".settings-popover") as HTMLElement;
+				expect(homePopover.textContent).toContain("Study Mode (Hover to Reveal)");
+				fireClick(getButton(homePopover, "Blur EN"));
+				expect(firstMount.container.querySelector(".votd-en-quote")?.className).toContain(
+					"study-masked",
+				);
+				expect(firstMount.container.querySelector(".votd-ko-quote")?.className).not.toContain(
+					"study-masked",
+				);
+				fireClick(getButton(homePopover, "Blur KO"));
+				expect(firstMount.container.querySelector(".votd-en-quote")?.className).not.toContain(
+					"study-masked",
+				);
+				expect(firstMount.container.querySelector(".votd-ko-quote")?.className).toContain(
+					"study-masked",
+				);
+				fireClick(getButton(homePopover, "Both"));
+				expect(firstMount.container.querySelector(".votd-ko-quote")?.className).not.toContain(
+					"study-masked",
+				);
+				fireClick(getButton(firstMount.container, "Reader appearance settings"));
+
 				fireClick(getButton(firstMount.container, "Switch to dark mode"));
 				expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 				expect(localStorage.getItem("logos.reader.preferences.v1")).toContain('"theme":"dark"');

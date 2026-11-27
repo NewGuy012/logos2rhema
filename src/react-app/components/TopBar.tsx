@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { getBookOrDefault } from "../../shared/books";
 import { CANONICAL_BIBLES } from "../../shared/translations";
@@ -125,12 +125,6 @@ export function TopBar({
 	const togglePopover = (target: Exclude<OpenPopover, null>) => {
 		setOpenPopover((prev) => (prev === target ? null : target));
 	};
-
-	useEffect(() => {
-		if (resolvedView === "home") {
-			setOpenPopover((prev) => (prev === "display" ? null : prev));
-		}
-	}, [resolvedView]);
 
 	useDismissListeners(Boolean(openPopover), {
 		refs: [navRef],
@@ -267,6 +261,85 @@ export function TopBar({
 						{CANONICAL_BIBLES.en.code} / {CANONICAL_BIBLES.ko.code}
 					</span>
 
+					<div className="popover-anchor">
+						<button
+							type="button"
+							className={`icon-btn appearance-btn ${openPopover === "display" ? "active" : ""}`}
+							onClick={() => togglePopover("display")}
+							aria-expanded={openPopover === "display"}
+							aria-label="Reader appearance settings"
+							title="Reader appearance settings"
+						>
+							<Settings size={16} />
+						</button>
+
+						{openPopover === "display" && (
+							<div className="popover-card settings-popover">
+								<SegmentedSetting
+									title="Theme"
+									value={prefs.theme}
+									onChange={(theme) => onChangePref({ theme })}
+									options={[
+										{ label: "Paper", value: "paper" },
+										{ label: "Sepia", value: "sepia" },
+										{ label: "Dark", value: "dark" },
+									]}
+								/>
+								<SegmentedSetting
+									title="Text Size"
+									value={prefs.fontScale}
+									onChange={(fontScale) => onChangePref({ fontScale })}
+									options={[
+										{ label: "S", value: 0.9 },
+										{ label: "M", value: 1 },
+										{ label: "L", value: 1.12 },
+										{ label: "XL", value: 1.24 },
+									]}
+								/>
+								<SegmentedSetting
+									title="English Font"
+									value={prefs.enFontStyle}
+									onChange={(enFontStyle) => onChangePref({ enFontStyle })}
+									options={[
+										{ label: "Serif", value: "serif" },
+										{ label: "Sans", value: "sans" },
+									]}
+								/>
+								<SegmentedSetting
+									title="Korean Font"
+									value={prefs.koFontStyle}
+									onChange={(koFontStyle) => onChangePref({ koFontStyle })}
+									options={[
+										{ label: "Serif (명조)", value: "serif" },
+										{ label: "Sans (고딕)", value: "sans" },
+									]}
+								/>
+								<SegmentedSetting
+									title="Stack Order"
+									value={prefs.stackOrder}
+									onChange={(stackOrder) => onChangePref({ stackOrder })}
+									groupAriaLabel="Flip language stack order"
+									options={[
+										{ label: "EN / 한", value: "en-first" },
+										{ label: "한 / EN", value: "ko-first" },
+									]}
+								/>
+								{resolvedView !== "memorize" && (
+									<SegmentedSetting
+										title="Study Mode (Hover to Reveal)"
+										value={prefs.studyMask}
+										onChange={(studyMask) => onChangePref({ studyMask })}
+										options={[
+											{ label: "Both", value: "none" },
+											{ label: "Blur EN", value: "mask-en" },
+											{ label: "Blur KO", value: "mask-ko" },
+										]}
+									/>
+								)}
+							</div>
+						)}
+					</div>
+
 					<button
 						type="button"
 						className="icon-btn theme-toggle-btn"
@@ -276,87 +349,6 @@ export function TopBar({
 					>
 						{isDark ? <Sun size={16} /> : <Moon size={16} />}
 					</button>
-
-					{resolvedView !== "home" && (
-						<div className="popover-anchor">
-							<button
-								type="button"
-								className={`icon-btn appearance-btn ${openPopover === "display" ? "active" : ""}`}
-								onClick={() => togglePopover("display")}
-								aria-expanded={openPopover === "display"}
-								aria-label="Reader appearance settings"
-								title="Reader appearance settings"
-							>
-								<Settings size={16} />
-							</button>
-
-							{openPopover === "display" && (
-								<div className="popover-card settings-popover">
-									<SegmentedSetting
-										title="Theme"
-										value={prefs.theme}
-										onChange={(theme) => onChangePref({ theme })}
-										options={[
-											{ label: "Paper", value: "paper" },
-											{ label: "Sepia", value: "sepia" },
-											{ label: "Dark", value: "dark" },
-										]}
-									/>
-									<SegmentedSetting
-										title="Text Size"
-										value={prefs.fontScale}
-										onChange={(fontScale) => onChangePref({ fontScale })}
-										options={[
-											{ label: "S", value: 0.9 },
-											{ label: "M", value: 1 },
-											{ label: "L", value: 1.12 },
-											{ label: "XL", value: 1.24 },
-										]}
-									/>
-									<SegmentedSetting
-										title="English Font"
-										value={prefs.enFontStyle}
-										onChange={(enFontStyle) => onChangePref({ enFontStyle })}
-										options={[
-											{ label: "Serif", value: "serif" },
-											{ label: "Sans", value: "sans" },
-										]}
-									/>
-									<SegmentedSetting
-										title="Korean Font"
-										value={prefs.koFontStyle}
-										onChange={(koFontStyle) => onChangePref({ koFontStyle })}
-										options={[
-											{ label: "Serif (명조)", value: "serif" },
-											{ label: "Sans (고딕)", value: "sans" },
-										]}
-									/>
-									<SegmentedSetting
-										title="Stack Order"
-										value={prefs.stackOrder}
-										onChange={(stackOrder) => onChangePref({ stackOrder })}
-										groupAriaLabel="Flip language stack order"
-										options={[
-											{ label: "EN / 한", value: "en-first" },
-											{ label: "한 / EN", value: "ko-first" },
-										]}
-									/>
-									{resolvedView === "reader" && (
-										<SegmentedSetting
-											title="Study Mode (Hover to Reveal)"
-											value={prefs.studyMask}
-											onChange={(studyMask) => onChangePref({ studyMask })}
-											options={[
-												{ label: "Both", value: "none" },
-												{ label: "Blur EN", value: "mask-en" },
-												{ label: "Blur KO", value: "mask-ko" },
-											]}
-										/>
-									)}
-								</div>
-							)}
-						</div>
-					)}
 				</div>
 			</div>
 		</header>

@@ -21,7 +21,7 @@ import {
 } from "./Icons";
 import { LegalFooter } from "./LegalFooter";
 import { SegmentedControl, type SegmentedOption } from "./RailShared";
-import type { StackOrder } from "./VerseBlock";
+import type { StackOrder, StudyMaskMode } from "./VerseBlock";
 import { VerseOfTheDayCard } from "./VerseOfTheDayCard";
 
 interface HomePageProps extends SavedItemsProps {
@@ -30,6 +30,7 @@ interface HomePageProps extends SavedItemsProps {
 	lastVerse?: number;
 	commentarySource?: CommentaryId;
 	stackOrder?: StackOrder;
+	studyMask?: StudyMaskMode;
 	wordTooltip?: boolean;
 	lexicon?: LexiconMap;
 	memorizeTotalCount?: number;
@@ -117,6 +118,7 @@ export function HomePage({
 	highlights = [],
 	commentarySource,
 	stackOrder = "en-first",
+	studyMask = "none",
 	wordTooltip = true,
 	lexicon,
 	memorizeTotalCount = 0,
@@ -177,6 +179,7 @@ export function HomePage({
 				</div>
 				<VerseOfTheDayCard
 					stackOrder={stackOrder}
+					studyMask={studyMask}
 					wordTooltip={wordTooltip}
 					lexicon={lexicon}
 					onOpenPassage={onOpenPassage}

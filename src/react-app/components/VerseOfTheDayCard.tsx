@@ -5,10 +5,11 @@ import type { LexiconMap } from "../../shared/types";
 import { getVerseOfTheDay } from "../../shared/verse-of-the-day";
 import { useBilingualPassage } from "../hooks/useBilingualPassage";
 import { ChevronLeft, ChevronRight, Sparkles } from "./Icons";
-import { BilingualPassageLines, type StackOrder } from "./VerseBlock";
+import { BilingualPassageLines, type StackOrder, type StudyMaskMode } from "./VerseBlock";
 
 interface VerseOfTheDayCardProps {
 	stackOrder?: StackOrder;
+	studyMask?: StudyMaskMode;
 	wordTooltip?: boolean;
 	lexicon?: LexiconMap;
 	onOpenPassage: (bookNumber: number, chapter: number, verse?: number) => void;
@@ -16,6 +17,7 @@ interface VerseOfTheDayCardProps {
 
 export function VerseOfTheDayCard({
 	stackOrder = "en-first",
+	studyMask = "none",
 	wordTooltip = true,
 	lexicon,
 	onOpenPassage,
@@ -80,6 +82,7 @@ export function VerseOfTheDayCard({
 					aligned={aligned}
 					isMultiVerse={isMultiVerse}
 					stackOrder={stackOrder}
+					studyMask={studyMask}
 					wordTooltip={wordTooltip}
 					koLoading={koLoading}
 					enLoading={enLoading}

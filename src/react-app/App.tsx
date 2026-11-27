@@ -1164,6 +1164,7 @@ export default function App() {
 					lastVerse={lastVerse}
 					commentarySource={prefs.commentarySource}
 					stackOrder={prefs.stackOrder}
+					studyMask={prefs.studyMask}
 					wordTooltip={prefs.wordTooltip}
 					lexicon={lexicon}
 					memorizeTotalCount={memorizeCards.length}
